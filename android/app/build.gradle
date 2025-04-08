@@ -1,0 +1,70 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    id "dev.flutter.flutter-gradle-plugin"
+    // Apply the Google Services plugin using the modern plugin DSL:
+    id "com.google.gms.google-services"
+}
+
+android {
+    // Namespace is required by the latest Android Gradle Plugin.
+    namespace = "com.example.find_pt_app"
+    compileSdk = flutter.compileSdkVersion
+    ndkVersion = flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+    
+    defaultConfig {
+        applicationId = "com.example.find_pt_app"
+        // Increase minSdk to 23 to match the new Firebase Auth requirements.
+        minSdk = 23
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+    }
+    
+    buildTypes {
+        release {
+            // Using debug signing for now (update when ready for production)
+            signingConfig = signingConfigs.debug
+
+            // Enable code shrinking, obfuscation, and optimization.
+            minifyEnabled true
+            shrinkResources true
+
+            // Use the default Proguard rules file and your custom rules file.
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}
+
+dependencies {
+    // Firebase Auth and Firestore dependencies.
+    implementation 'com.google.firebase:firebase-auth:23.1.0'
+    implementation 'com.google.firebase:firebase-firestore'
+    
+    // Add Firebase App Check dependency (using Debug provider for development).
+    // For production you may want to use SafetyNet or Play Integrity.
+    implementation 'com.google.firebase:firebase-appcheck-debug:16.0.0'
+}
+
+configurations.all {
+    resolutionStrategy.eachDependency { details ->
+        if (details.requested.group == 'com.google.firebase' &&
+            details.requested.name == 'firebase-auth') {
+            details.useVersion '23.1.0'
+        }
+    }
+}
