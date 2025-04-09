@@ -57,7 +57,8 @@ class _DeepLinkHandlerState extends State<DeepLinkHandler> {
 
   Future<void> _initDeepLinkListener() async {
     try {
-      final initialLink = await _appLinks.getInitialAppLink();
+      // Use getInitialLink() to fetch the initial deep link.
+      final initialLink = await _appLinks.getInitialLink();
       if (initialLink != null) {
         _handleDeepLink(initialLink.toString());
       }
