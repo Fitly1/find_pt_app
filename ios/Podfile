@@ -1,11 +1,15 @@
 platform :ios, '13.0'
 use_frameworks! :linkage => :static
+use_modular_headers!
 
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 require File.expand_path(File.join('..', 'Flutter', 'podhelper.rb'), __FILE__)
 
 target 'Runner' do
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  
+  # Explicitly include the app_links plugin
+  pod 'app_links', :path => File.join('.symlinks', 'plugins', 'app_links', 'ios')
 end
 
 post_install do |installer|
