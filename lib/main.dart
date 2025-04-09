@@ -57,7 +57,7 @@ class _DeepLinkHandlerState extends State<DeepLinkHandler> {
 
   Future<void> _initDeepLinkListener() async {
     try {
-      // Use getInitialLink() to fetch the initial deep link.
+      // Using the new API: getInitialLink() returns the initial deep link URI.
       final initialLink = await _appLinks.getInitialLink();
       if (initialLink != null) {
         _handleDeepLink(initialLink.toString());
@@ -240,7 +240,6 @@ class FindPTApp extends StatelessWidget {
         '/trainer_home': (context) => const TrainerHomePage(),
         '/messages': (context) => const MessagesPage(),
         '/profile': (context) => const profile.ProfilePage(),
-        // Pass the current trainer UID to ManageSubscriptionPage.
         '/ManageSubscription': (context) {
           final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
           return ManageSubscriptionPage(trainerUid: currentUid);
