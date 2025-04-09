@@ -1,5 +1,5 @@
 platform :ios, '13.0'
-use_frameworks!  # Add this line
+use_frameworks! :linkage => :static
 
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 require File.expand_path(File.join('..', 'Flutter', 'podhelper.rb'), __FILE__)
