@@ -13,6 +13,7 @@ target 'Runner' do
   # Explicit references:
   pod 'cloud_firestore', :path => 'cloud_firestore_plugin'
   pod 'app_links', :path => 'app_links_plugin'
+  pod 'firebase_core', :path => 'firebase_core_plugin'
 
 end
 
