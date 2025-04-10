@@ -14,6 +14,7 @@ target 'Runner' do
   pod 'cloud_firestore', :path => 'cloud_firestore_plugin'
   pod 'app_links', :path => 'app_links_plugin'
   pod 'firebase_core', :path => 'firebase_core_plugin'
+  pod 'cloud_functions', :path => 'cloud_functions_plugin'
 
 end
 
