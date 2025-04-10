@@ -15,8 +15,8 @@ else
   end
 end
 
-# Fallback: If firebase_sdk_version is still nil, assign it to '11.7.0'
-firebase_sdk_version ||= '11.7.0'
+# Fallback: If firebase_sdk_version is still nil, assign it to '11.8.0'
+firebase_sdk_version ||= '11.8.0'
 
 Pod::Spec.new do |s|
   s.name             = 'firebase_core'

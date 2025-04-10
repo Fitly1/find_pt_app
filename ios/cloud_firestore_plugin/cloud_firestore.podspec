@@ -31,7 +31,7 @@ Pod::Spec.new do |s|
   s.ios.deployment_target = '13.0'
   s.dependency 'Flutter'
   s.dependency 'firebase_core'
-  s.dependency 'Firebase/Firestore', '11.7.0'
+  s.dependency 'Firebase/Firestore', '11.8.0'
 
   s.static_framework = true
   s.pod_target_xcconfig = {
