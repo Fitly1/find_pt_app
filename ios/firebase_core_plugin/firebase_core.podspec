@@ -1,6 +1,6 @@
 require 'yaml'
 
-pubspec = YAML.load_file(File.join('..', 'pubspec.yaml'))
+pubspec = YAML.load_file(File.join('..', '..', 'pubspec.yaml'))
 library_version = pubspec['version'].gsub('+', '-')
 
 if defined?($FirebaseSDKVersion)
