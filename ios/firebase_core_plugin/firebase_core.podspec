@@ -26,17 +26,17 @@ Pod::Spec.new do |s|
   s.homepage         = pubspec['homepage'] || "https://firebase.flutter.dev/"
   s.license          = { :type => 'Apache 2.0', :file => '../LICENSE' }
   s.authors          = 'The Chromium Authors'
-  # Commented out source attribute for local pod usage.
-  # s.source         = { :path => '.' }
+  # Dummy source to satisfy CocoaPods validation.
+  s.source           = { :git => "https://github.com/dummy/dummy.git", :tag => s.version }
   s.source_files     = 'firebase_core/Sources/firebase_core/**/*.{h,m}'
   s.public_header_files = 'firebase_core/Sources/firebase_core/include/**/*.h'
 
   s.ios.deployment_target = '13.0'
 
-  # Flutter dependencies
+  # Flutter dependency.
   s.dependency 'Flutter'
 
-  # Firebase dependencies
+  # Firebase dependency.
   s.dependency 'Firebase/CoreOnly', firebase_sdk_version
 
   s.static_framework = true
