@@ -18,19 +18,18 @@ end
 Pod::Spec.new do |s|
   s.name             = pubspec['name']
   s.version          = library_version
-  s.summary          = pubspec['description']
-  s.description      = pubspec['description']
-  s.homepage         = pubspec['homepage']
-  s.license          = { :file => '../LICENSE' }
-  s.authors          = 'The Chromium Authors'
-  s.source           = { :path => '.' }
-  s.source_files     = 'cloud_firestore/Sources/cloud_firestore/**/*.{h,m}'
-  s.public_header_files = 'cloud_firestore/Sources/cloud_firestore/include/Public/**/*.h'
-  s.private_header_files = 'cloud_firestore/Sources/cloud_firestore/include/Private/**/*.h'
+  s.summary          = "Flutter plugin for Cloud Firestore."
+  s.description      = "A Flutter plugin for Cloud Firestore that enables seamless integration with Cloud Firestore on iOS."
+  s.homepage         = "https://pub.dev/packages/cloud_firestore"
+  s.license          = { :type => "MIT", :file => "../LICENSE" }
+  s.authors          = 'The Flutter Team'
+  s.source           = { :path => "." }
+  s.source_files     = "cloud_firestore/Sources/cloud_firestore/**/*.{h,m}"
+  s.public_header_files = "cloud_firestore/Sources/cloud_firestore/include/Public/**/*.h"
+  s.private_header_files = "cloud_firestore/Sources/cloud_firestore/include/Private/**/*.h"
 
   s.ios.deployment_target = '13.0'
   s.dependency 'Flutter'
-
   s.dependency 'firebase_core'
   s.dependency 'Firebase/Firestore', '11.7.0'
 
