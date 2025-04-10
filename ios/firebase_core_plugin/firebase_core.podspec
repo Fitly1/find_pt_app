@@ -15,8 +15,8 @@ else
   end
 end
 
-# Fallback: If firebase_sdk_version is still nil, assign it a valid version.
-firebase_sdk_version ||= '11.10.0'
+# Fallback: If firebase_sdk_version is still nil, assign it to '11.7.0'
+firebase_sdk_version ||= '11.7.0'
 
 Pod::Spec.new do |s|
   s.name             = 'firebase_core'
@@ -26,17 +26,17 @@ Pod::Spec.new do |s|
   s.homepage         = pubspec['homepage'] || "https://firebase.flutter.dev/"
   s.license          = { :type => 'Apache 2.0', :file => '../LICENSE' }
   s.authors          = 'The Chromium Authors'
-  # Dummy source to satisfy CocoaPods validation.
+  # Dummy source to satisfy CocoaPods' requirement.
   s.source           = { :git => "https://github.com/dummy/dummy.git", :tag => s.version }
   s.source_files     = 'firebase_core/Sources/firebase_core/**/*.{h,m}'
   s.public_header_files = 'firebase_core/Sources/firebase_core/include/**/*.h'
 
   s.ios.deployment_target = '13.0'
 
-  # Flutter dependency.
+  # Flutter dependency
   s.dependency 'Flutter'
 
-  # Firebase dependency.
+  # Firebase dependency
   s.dependency 'Firebase/CoreOnly', firebase_sdk_version
 
   s.static_framework = true
