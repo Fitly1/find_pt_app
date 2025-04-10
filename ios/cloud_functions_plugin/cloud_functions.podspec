@@ -1,5 +1,6 @@
 require 'yaml'
-# Go up three levels to reach the repository root (where pubspec.yaml resides)
+
+# Load pubspec.yaml from the repository root (three levels up).
 pubspec = YAML.load_file(File.expand_path('../../../pubspec.yaml', __FILE__))
 library_version = pubspec['version'].gsub('+', '-')
 
@@ -7,7 +8,6 @@ if defined?($FirebaseSDKVersion)
   Pod::UI.puts "#{pubspec['name']}: Using user specified Firebase SDK version '#{$FirebaseSDKVersion}'"
   firebase_sdk_version = $FirebaseSDKVersion
 else
-  # Build the path to firebase_core's version script from the repository root
   firebase_core_script = File.join(File.expand_path('../../../', __FILE__), 'firebase_core/ios/firebase_sdk_version.rb')
   if File.exist?(firebase_core_script)
     require firebase_core_script
@@ -16,22 +16,25 @@ else
   end
 end
 
-# Fallback: If firebase_sdk_version remains nil, use a default version.
-firebase_sdk_version ||= '11.7.0'
+# Fallback: Use a default version if needed.
+firebase_sdk_version ||= '11.8.0'
 
 Pod::Spec.new do |s|
   s.name             = "cloud_functions"
+  s.module_name      = "cloud_functions"
   s.version          = library_version
   s.summary          = "Cloud Functions for Flutter."
   s.description      = "A Flutter plugin that provides an API for Firebase Cloud Functions."
   s.homepage         = pubspec['homepage'] || "https://firebase.flutter.dev/"
-  # Use an absolute path for the LICENSE file from the repository root.
   s.license          = { :type => 'Apache 2.0', :file => File.expand_path('../../../LICENSE', __FILE__) }
-  s.authors          = 'The Chromium Authors'
+  s.authors          = "The Chromium Authors"
   # Dummy source to satisfy CocoaPods validation.
   s.source           = { :git => "https://github.com/dummy/dummy.git", :tag => s.version }
-  s.source_files     = 'cloud_functions/Sources/cloud_functions/**/*.{h,m}'
+  
+  # Adjust source_files and public_header_files to match your local structure.
+  s.source_files        = 'cloud_functions/Sources/cloud_functions/**/*.{h,m,swift}'
   s.public_header_files = 'cloud_functions/Sources/cloud_functions/include/*.h'
+  
   s.ios.deployment_target = '13.0'
   
   # Flutter dependency
