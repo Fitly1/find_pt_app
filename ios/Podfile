@@ -7,6 +7,12 @@ require File.expand_path(File.join('..', 'Flutter', 'podhelper.rb'), __FILE__)
 
 target 'Runner' do
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  
+  # Explicit references:
+  pod 'app_links', :path => File.join('.symlinks', 'plugins', 'app_links', 'ios')   # if needed for app_links workaround
+  pod 'cloud_firestore', :path => 'cloud_firestore_plugin'
+  pod 'app_links', :path => 'app_links_plugin'
+
 end
 
 post_install do |installer|
