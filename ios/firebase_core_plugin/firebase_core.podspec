@@ -21,12 +21,13 @@ firebase_sdk_version ||= '11.10.0'
 Pod::Spec.new do |s|
   s.name             = 'firebase_core'
   s.version          = library_version
-  s.summary          = pubspec['description']
-  s.description      = pubspec['description']
-  s.homepage         = pubspec['homepage']
-  s.license          = { :file => '../LICENSE' }
+  s.summary          = "Firebase Core for Flutter."
+  s.description      = "A Flutter plugin providing core functionality for integrating Firebase services into find_pt_app. " + (pubspec['description'] || "")
+  s.homepage         = pubspec['homepage'] || "https://firebase.flutter.dev/"
+  s.license          = { :type => 'Apache 2.0', :file => '../LICENSE' }
   s.authors          = 'The Chromium Authors'
-  s.source           = { :path => '.' }
+  # Commented out source attribute for local pod usage.
+  # s.source         = { :path => '.' }
   s.source_files     = 'firebase_core/Sources/firebase_core/**/*.{h,m}'
   s.public_header_files = 'firebase_core/Sources/firebase_core/include/**/*.h'
 
