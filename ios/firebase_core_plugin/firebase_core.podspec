@@ -11,9 +11,12 @@ else
   if File.exist?(firebase_core_script)
     require firebase_core_script
     firebase_sdk_version = firebase_sdk_version!
-    Pod::UI.puts "#{pubspec['name']}: Using Firebase SDK version '#{firebase_sdk_version}' defined in 'firebase_core'"
+    Pod::UI.puts "#{pubspec['name']}: Using Firebase SDK version '#{firebase_sdk_version}' defined in 'firebase_core_plugin'"
   end
 end
+
+# Fallback: If firebase_sdk_version is still nil, assign it a valid version.
+firebase_sdk_version ||= '11.10.0'
 
 Pod::Spec.new do |s|
   s.name             = 'firebase_core'
