@@ -16,7 +16,7 @@ else
 end
 
 Pod::Spec.new do |s|
-  s.name             = pubspec['cloud_firestore']
+  s.name             = 'cloud_firestore'
   s.version          = library_version
   s.summary          = "Flutter plugin for Cloud Firestore."
   s.description      = "A Flutter plugin for Cloud Firestore that enables seamless integration with Cloud Firestore on iOS."
