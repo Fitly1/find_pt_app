@@ -1,12 +1,14 @@
 require 'yaml'
-pubspec = YAML.load_file(File.expand_path('../../pubspec.yaml', __FILE__))
+# Go up three levels to reach the repository root (where pubspec.yaml resides)
+pubspec = YAML.load_file(File.expand_path('../../../pubspec.yaml', __FILE__))
 library_version = pubspec['version'].gsub('+', '-')
 
 if defined?($FirebaseSDKVersion)
   Pod::UI.puts "#{pubspec['name']}: Using user specified Firebase SDK version '#{$FirebaseSDKVersion}'"
   firebase_sdk_version = $FirebaseSDKVersion
 else
-  firebase_core_script = File.join(File.expand_path('..', File.expand_path('..', File.dirname(__FILE__))), 'firebase_core/ios/firebase_sdk_version.rb')
+  # Build the path to firebase_core's version script from the repository root
+  firebase_core_script = File.join(File.expand_path('../../../', __FILE__), 'firebase_core/ios/firebase_sdk_version.rb')
   if File.exist?(firebase_core_script)
     require firebase_core_script
     firebase_sdk_version = firebase_sdk_version!
@@ -23,7 +25,8 @@ Pod::Spec.new do |s|
   s.summary          = "Cloud Functions for Flutter."
   s.description      = "A Flutter plugin that provides an API for Firebase Cloud Functions."
   s.homepage         = pubspec['homepage'] || "https://firebase.flutter.dev/"
-  s.license          = { :type => 'Apache 2.0', :file => '../LICENSE' }
+  # Use an absolute path for the LICENSE file from the repository root.
+  s.license          = { :type => 'Apache 2.0', :file => File.expand_path('../../../LICENSE', __FILE__) }
   s.authors          = 'The Chromium Authors'
   # Dummy source to satisfy CocoaPods validation.
   s.source           = { :git => "https://github.com/dummy/dummy.git", :tag => s.version }
