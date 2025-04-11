@@ -2,7 +2,7 @@ workflows:
   ios-workflow:
     name: Build iOS
     environment:
-      flutter: "3.7.12"  # This is the version you expect
+      flutter: "3.10.5"   # Updated Flutter version
       vars:
         XCODE_PROJECT: "ios/Runner.xcodeproj"
         XCODE_SCHEME: "Runner"
