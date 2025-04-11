@@ -18,6 +18,7 @@ target 'Runner' do
   pod 'firebase_app_check', :path => 'firebase_app_check_plugin'
   pod 'firebase_auth', :path => 'firebase_auth_plugin'
   pod 'firebase_crashlytics', :path => 'firebase_crashlytics_plugin'
+  pod 'firebase_messaging', :path => 'firebase_messaging_plugin'
 
 end
 
