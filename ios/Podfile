@@ -21,6 +21,7 @@ target 'Runner' do
   pod 'firebase_messaging', :path => 'firebase_messaging_plugin'
   pod 'firebase_storage', :path => 'firebase_storage_plugin'
   pod 'flutter_email_sender', :path => 'flutter_email_sender_plugin'
+  pod 'flutter_image_compress_common', :path => 'flutter_image_compress_common_plugin'
 
 
 end
