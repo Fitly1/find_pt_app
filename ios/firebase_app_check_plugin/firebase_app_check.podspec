@@ -8,12 +8,17 @@ if defined?($FirebaseSDKVersion)
   firebase_sdk_version = $FirebaseSDKVersion
 else
   # Build path to firebase_core's firebase_sdk_version.rb script from the repository root.
-  firebase_core_script = File.join(File.expand_path('../../../', __FILE__), 'firebase_core/ios/firebase_sdk_version.rb')
+  firebase_core_script = File.join(File.expand_path('..', File.expand_path('..', File.dirname(__FILE__))), 'firebase_core/ios/firebase_sdk_version.rb')
   if File.exist?(firebase_core_script)
     require firebase_core_script
     firebase_sdk_version = firebase_sdk_version!
     Pod::UI.puts "Using Firebase SDK version '#{firebase_sdk_version}' defined in firebase_core plugin"
   end
+end
+
+# Ensure firebase_sdk_version is a non-empty string; if not, default to '11.10.0'
+if firebase_sdk_version.nil? || firebase_sdk_version.strip.empty?
+  firebase_sdk_version = '11.10.0'
 end
 
 Pod::Spec.new do |s|
@@ -23,11 +28,11 @@ Pod::Spec.new do |s|
   s.summary          = pubspec['description'] || "Firebase App Check plugin for Flutter."
   s.description      = pubspec['description'] || "A Flutter plugin that provides functionality for Firebase App Check."
   s.homepage         = pubspec['homepage'] || "https://firebase.flutter.dev/"
-  # Load the LICENSE from three levels up
   s.license          = { :type => 'Apache 2.0', :file => File.expand_path('../../../LICENSE', __FILE__) }
   s.authors          = "The Chromium Authors"
   s.source           = { :path => '.' }
   
+  # Update file paths to match your directory structure:
   s.source_files     = 'firebase_app_check/Sources/firebase_app_check/**/*.{h,m,swift}'
   s.public_header_files = 'firebase_app_check/Sources/firebase_app_check/include/*.h'
   
@@ -37,6 +42,7 @@ Pod::Spec.new do |s|
   
   s.dependency 'Flutter'
   
+  # Firebase dependencies; these should align with your other Firebase plugins.
   s.dependency 'firebase_core'
   s.dependency 'Firebase/CoreOnly', "~> #{firebase_sdk_version}"
   s.dependency 'FirebaseAppCheck', "~> #{firebase_sdk_version}"
