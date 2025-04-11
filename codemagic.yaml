@@ -2,11 +2,13 @@ workflows:
   ios-workflow:
     name: Build iOS
     environment:
-      flutter: "3.7.12"  # or a newer stable version that meets your requirements
+      flutter: "3.7.12"  # This is the version you expect
       vars:
         XCODE_PROJECT: "ios/Runner.xcodeproj"
         XCODE_SCHEME: "Runner"
     scripts:
+      - name: Check Flutter version
+        script: flutter --version
       - name: Run pre-build automation for podspecs
         script: |
           echo "Running pre-build script to update podspecs"
