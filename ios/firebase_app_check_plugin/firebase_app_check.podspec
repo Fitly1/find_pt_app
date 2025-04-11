@@ -1,14 +1,16 @@
 require 'yaml'
-# Load pubspec.yaml from three levels up (repository root)
-pubspec = YAML.load_file(File.expand_path('../../../pubspec.yaml', __FILE__))
+# Compute the absolute path to pubspec.yaml (three levels up)
+resolved_pubspec = File.expand_path('../../../pubspec.yaml', __FILE__)
+Pod::UI.puts "Resolved pubspec path: #{resolved_pubspec}"
+pubspec = YAML.load_file(resolved_pubspec)
 library_version = pubspec['version'].gsub('+', '-')
 
 if defined?($FirebaseSDKVersion)
   Pod::UI.puts "Using user specified Firebase SDK version '#{$FirebaseSDKVersion}'"
   firebase_sdk_version = $FirebaseSDKVersion
 else
-  # Build path to firebase_core's firebase_sdk_version.rb script from the repository root.
-  firebase_core_script = File.join(File.expand_path('..', File.expand_path('..', File.dirname(__FILE__))), 'firebase_core/ios/firebase_sdk_version.rb')
+  # Build path to firebase_core's firebase_sdk_version.rb from the repository root.
+  firebase_core_script = File.join(File.expand_path('../../../', __FILE__), 'firebase_core/ios/firebase_sdk_version.rb')
   if File.exist?(firebase_core_script)
     require firebase_core_script
     firebase_sdk_version = firebase_sdk_version!
@@ -16,7 +18,7 @@ else
   end
 end
 
-# Ensure firebase_sdk_version is a non-empty string; if not, default to '11.10.0'
+# Ensure firebase_sdk_version is not nil or empty; default if needed.
 if firebase_sdk_version.nil? || firebase_sdk_version.strip.empty?
   firebase_sdk_version = '11.10.0'
 end
@@ -31,22 +33,20 @@ Pod::Spec.new do |s|
   s.license          = { :type => 'Apache 2.0', :file => File.expand_path('../../../LICENSE', __FILE__) }
   s.authors          = "The Chromium Authors"
   s.source           = { :path => '.' }
-  
-  # Update file paths to match your directory structure:
+
+  # These patterns assume your files are organized under:
+  # ios/firebase_app_check_plugin/firebase_app_check/Sources/firebase_app_check/
   s.source_files     = 'firebase_app_check/Sources/firebase_app_check/**/*.{h,m,swift}'
   s.public_header_files = 'firebase_app_check/Sources/firebase_app_check/include/*.h'
-  
+
   s.ios.deployment_target = '13.0'
-  
   s.swift_version = '5.0'
-  
+
   s.dependency 'Flutter'
-  
-  # Firebase dependencies; these should align with your other Firebase plugins.
   s.dependency 'firebase_core'
   s.dependency 'Firebase/CoreOnly', "~> #{firebase_sdk_version}"
   s.dependency 'FirebaseAppCheck', "~> #{firebase_sdk_version}"
-  
+
   s.static_framework = true
   s.pod_target_xcconfig = {
     'GCC_PREPROCESSOR_DEFINITIONS' => "LIBRARY_VERSION=\\\"#{library_version}\\\" LIBRARY_NAME=\\\"flutter-fire-appcheck\\\"",
