@@ -1,0 +1,54 @@
+require 'yaml'
+# Load pubspec.yaml from two levels up (repository root)
+pubspec = YAML.load_file(File.expand_path('../../pubspec.yaml', __FILE__))
+library_version = pubspec['version'].gsub('+', '-')
+
+if defined?($FirebaseSDKVersion)
+  Pod::UI.puts "Using user specified Firebase SDK version '#{$FirebaseSDKVersion}'"
+  firebase_sdk_version = $FirebaseSDKVersion
+else
+  # Build path to firebase_core's firebase_sdk_version.rb script from the repository root.
+  firebase_core_script = File.join(File.expand_path('..', File.expand_path('..', File.dirname(__FILE__))), 'firebase_core/ios/firebase_sdk_version.rb')
+  if File.exist?(firebase_core_script)
+    require firebase_core_script
+    firebase_sdk_version = firebase_sdk_version!
+    Pod::UI.puts "Using Firebase SDK version '#{firebase_sdk_version}' defined in firebase_core plugin"
+  end
+end
+
+Pod::Spec.new do |s|
+  s.name             = "firebase_app_check"
+  s.version          = library_version
+  s.summary          = "Firebase App Check plugin for Flutter."
+  s.description      = "A Flutter plugin that provides functionality for Firebase App Check."
+  s.homepage         = pubspec['homepage'] || "https://firebase.flutter.dev/"
+  s.license          = { :type => 'Apache 2.0', :file => File.expand_path('../../LICENSE', __FILE__) }
+  s.authors          = "The Chromium Authors"
+  # Using local files (the podspec is in a local copy)
+  s.source           = { :path => '.' }
+  
+  # Update the file paths to reflect your directory structure:
+  # Expecting your plugin's source files in:
+  # ios/firebase_app_check_plugin/firebase_app_check/Sources/firebase_app_check/
+  s.source_files     = 'firebase_app_check/Sources/firebase_app_check/**/*.{h,m}'
+  s.public_header_files = 'firebase_app_check/Sources/firebase_app_check/include/*.h'
+  
+  s.ios.deployment_target = '13.0'
+  
+  s.swift_version = '5.0'
+  
+  # Flutter dependency
+  s.dependency 'Flutter'
+  
+  # Firebase dependencies; these should align with your other Firebase plugins.
+  s.dependency 'firebase_core'
+  s.dependency 'Firebase/CoreOnly', "~> #{firebase_sdk_version}"
+  s.dependency 'FirebaseAppCheck', "~> #{firebase_sdk_version}"
+  
+  s.static_framework = true
+  s.pod_target_xcconfig = {
+    'GCC_PREPROCESSOR_DEFINITIONS' => "LIBRARY_VERSION=\\\"#{library_version}\\\" LIBRARY_NAME=\\\"flutter-fire-appcheck\\\"",
+    'DEFINES_MODULE' => 'YES',
+    'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'i386'
+  }
+end
