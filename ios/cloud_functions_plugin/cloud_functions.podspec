@@ -17,7 +17,7 @@ else
 end
 
 # Fallback: If firebase_sdk_version is still nil, use 11.10.0
-firebase_sdk_version ||= '11.8.0'
+firebase_sdk_version ||= '11.10.0'
 
 Pod::Spec.new do |s|
   # Set the pod name to "cloud_functions" (not your app’s name)
