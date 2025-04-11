@@ -16,29 +16,31 @@ else
   end
 end
 
-# Ensure firebase_sdk_version is not nil or empty, defaulting if necessary.
+# Ensure firebase_sdk_version is not nil or empty, defaulting to '11.10.0' if needed.
 if firebase_sdk_version.nil? || firebase_sdk_version.strip.empty?
   firebase_sdk_version = '11.10.0'
 end
 
 Pod::Spec.new do |s|
-  s.name             = "firebase_auth"      # Explicit plugin name.
-  s.module_name      = "firebase_auth"      # Helps Xcode create the module.
+  s.name             = "firebase_auth"      # Explicit plugin name
+  s.module_name      = "firebase_auth"      # Set module name for Xcode's module generation
   s.version          = library_version
   s.summary          = pubspec['description'] || "Firebase Auth plugin for Flutter."
   s.description      = pubspec['description'] || "A Flutter plugin that provides Firebase authentication functionality."
   s.homepage         = pubspec['homepage'] || "https://firebase.flutter.dev/"
-  # Load LICENSE from three levels up.
+  # Load LICENSE from three levels up
   s.license          = { :type => 'Apache 2.0', :file => File.expand_path('../../../LICENSE', __FILE__) }
   s.authors          = "The Chromium Authors"
   s.source           = { :path => '.' }
   
-  # Specify source files and headers according to your plugin's folder structure.
-  s.source_files     = 'firebase_auth/Sources/firebase_auth/**/*.{h,m,swift}'
+  # Configure source files and header files according to your folder structure:
+  s.source_files       = 'firebase_auth/Sources/firebase_auth/**/*.{h,m,swift}'
   s.public_header_files = 'firebase_auth/Sources/firebase_auth/include/Public/**/*.h'
   s.private_header_files = 'firebase_auth/Sources/firebase_auth/include/Private/**/*.h'
   
   s.ios.deployment_target = '13.0'
+  s.swift_version = '5.0'
+  
   s.dependency 'Flutter'
   s.dependency 'firebase_core'
   s.dependency 'Firebase/Auth', "~> #{firebase_sdk_version}"
