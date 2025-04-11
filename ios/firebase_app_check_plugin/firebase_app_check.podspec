@@ -18,19 +18,20 @@ end
 
 Pod::Spec.new do |s|
   s.name             = "firebase_app_check"
+  s.module_name      = "firebase_app_check"   # Optional but helps Xcode create the module.
   s.version          = library_version
-  s.summary          = "Firebase App Check plugin for Flutter."
-  s.description      = "A Flutter plugin that provides functionality for Firebase App Check."
+  s.summary          = pubspec['description'] || "Firebase App Check plugin for Flutter."
+  s.description      = pubspec['description'] || "A Flutter plugin that provides functionality for Firebase App Check."
   s.homepage         = pubspec['homepage'] || "https://firebase.flutter.dev/"
   s.license          = { :type => 'Apache 2.0', :file => File.expand_path('../../LICENSE', __FILE__) }
   s.authors          = "The Chromium Authors"
-  # Using local files (the podspec is in a local copy)
   s.source           = { :path => '.' }
   
-  # Update the file paths to reflect your directory structure:
-  # Expecting your plugin's source files in:
-  # ios/firebase_app_check_plugin/firebase_app_check/Sources/firebase_app_check/
-  s.source_files     = 'firebase_app_check/Sources/firebase_app_check/**/*.{h,m}'
+  # Update file paths to match your directory structure:
+  # Implementation files (headers, Objective-C, Swift) are in:
+  # firebase_app_check/Sources/firebase_app_check/
+  s.source_files     = 'firebase_app_check/Sources/firebase_app_check/**/*.{h,m,swift}'
+  # Public header files are in the include folder:
   s.public_header_files = 'firebase_app_check/Sources/firebase_app_check/include/*.h'
   
   s.ios.deployment_target = '13.0'
