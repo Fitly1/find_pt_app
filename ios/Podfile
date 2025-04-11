@@ -24,6 +24,8 @@ target 'Runner' do
   pod 'flutter_image_compress_common', :path => 'flutter_image_compress_common_plugin'
   pod 'flutter_keyboard_visibility', :path => 'flutter_keyboard_visibility_plugin'
   pod 'flutter_secure_storage', :path => 'flutter_secure_storage_plugin'
+  pod 'geolocator_apple', :path => 'geolocator_apple_plugin/darwin'
+
 
 
 
