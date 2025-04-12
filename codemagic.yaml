@@ -1,0 +1,27 @@
+workflows:
+  ios-workflow:
+    name: Build iOS
+    environment:
+      flutter: "3.10.5"
+      xcode: latest
+      vars:
+        XCODE_PROJECT: "ios/Runner.xcodeproj"
+        XCODE_SCHEME: "Runner"
+    scripts:
+      - name: Set up Podspec license paths
+        script: |
+          echo "Fixing podspec license paths"
+          find ios -name "*.podspec" -exec sed -i '' 's|:file => *[\"'\'']\.\./LICENSE[\"'\'']|:file => File.expand_path("../../LICENSE", __FILE__)|g' {} +
+      - name: Clean and install CocoaPods
+        script: |
+          cd ios
+          pod deintegrate
+          rm -rf Pods Podfile.lock
+          pod install --repo-update
+      - name: Flutter clean and build iOS
+        script: |
+          flutter clean
+          flutter pub get
+          flutter build ios --debug --no-codesign
+    artifacts:
+      - build/ios/iphoneos/Runner.app
