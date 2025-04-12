@@ -2,7 +2,7 @@ workflows:
   ios-workflow:
     name: Build iOS
     environment:
-      flutter: "3.10.5"
+      flutter: "3.13.9"
       xcode: latest
       vars:
         XCODE_PROJECT: "ios/Runner.xcodeproj"
