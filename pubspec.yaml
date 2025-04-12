@@ -44,7 +44,7 @@ dependencies:
   flutter_email_sender: ^7.0.0
   firebase_crashlytics: ^4.3.4
   flutter_dotenv: ^5.2.1
-  extended_image: ^10.0.0
+  extended_image: ^8.0.1
   image_editor: ^1.6.0
   image_cropper: ^8.0.0
   crop: ^0.5.5
