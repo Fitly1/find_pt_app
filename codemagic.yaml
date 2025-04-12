@@ -8,14 +8,20 @@ workflows:
         XCODE_PROJECT: "ios/Runner.xcodeproj"
         XCODE_SCHEME: "Runner"
     scripts:
-      - name: Set up Podspec license paths
+      - name: Generate Podfile
+        script: |
+          flutter pub get
+          cd ios
+          pod init || echo "Podfile already exists"
+          cd ..
+      - name: Fix podspec license paths
         script: |
           echo "Fixing podspec license paths"
           find ios -name "*.podspec" -exec sed -i '' 's|:file => *[\"'\'']\.\./LICENSE[\"'\'']|:file => File.expand_path("../../LICENSE", __FILE__)|g' {} +
       - name: Clean and install CocoaPods
         script: |
           cd ios
-          pod deintegrate
+          pod deintegrate || echo "Already deintegrated"
           rm -rf Pods Podfile.lock
           pod install --repo-update
       - name: Flutter clean and build iOS
