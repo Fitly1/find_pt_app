@@ -39,7 +39,7 @@ dependencies:
   cloud_functions: ^5.3.4
   firebase_app_check: ^0.3.2+4
   flutter_image_compress: ^2.4.0
-  path_provider: ^2.1.5
+  path_provider: ^2.1.1
   path: 1.8.3
   flutter_email_sender: ^7.0.0
   firebase_crashlytics: ^4.3.4
