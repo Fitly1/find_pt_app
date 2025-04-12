@@ -2,11 +2,11 @@ workflows:
   ios-workflow:
     name: Build iOS
     environment:
-      flutter: "3.13.9"
-      xcode: latest
       vars:
         XCODE_PROJECT: "ios/Runner.xcodeproj"
         XCODE_SCHEME: "Runner"
+      flutter: "https://storage.googleapis.com/flutter_infra_release/releases/stable/macos/flutter_macos_3.16.5-stable.zip"
+      xcode: latest
     scripts:
       - name: Generate Podfile
         script: |
