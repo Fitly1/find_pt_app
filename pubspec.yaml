@@ -36,7 +36,7 @@ dependencies:
   app_links: ^3.0.0
   firebase_messaging: ^15.2.4
   http: ^0.13.6
-  cloud_functions: ^5.3.4
+  cloud_functions: ^5.3.2
   firebase_app_check: ^0.3.2+4
   flutter_image_compress: ^1.1.0
   path_provider: ^2.1.1
