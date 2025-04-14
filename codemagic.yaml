@@ -4,34 +4,26 @@ workflows:
     environment:
       flutter: "3.16.0"
       xcode: latest
-      vars:
-        XCODE_PROJECT: "ios/Runner.xcodeproj"
-        XCODE_SCHEME: "Runner"
-
     scripts:
-      - name: Clean project
+      - name: Flutter clean
         script: flutter clean
 
-      - name: Get dependencies
+      - name: Flutter pub get
         script: flutter pub get
 
-      - name: Validate Podfile presence
+      - name: Generate iOS build settings
+        script: flutter build ios --simulator --no-codesign || true
+
+      - name: Ensure Podfile exists
         script: |
           if [ ! -f ios/Podfile ]; then
-            echo "No Podfile found, generating..."
             cd ios
             pod init
+            sed -i '' '1s/^/platform :ios, '\''13.0'\''\n/' Podfile
             cd ..
-          else
-            echo "✅ Podfile already exists."
           fi
 
-      - name: Patch podspec license paths (prevent CocoaPods lint issues)
-        script: |
-          echo "Fixing podspec license paths..."
-          find ios -name "*.podspec" -exec sed -i '' 's|:file => *[\"'\'']\.\./LICENSE[\"'\'']|:file => File.expand_path("../../LICENSE", __FILE__)|g' {} +
-
-      - name: CocoaPods setup
+      - name: Install CocoaPods
         script: |
           cd ios
           pod deintegrate || true
