@@ -46,7 +46,7 @@ dependencies:
   flutter_dotenv: ^5.2.1
   extended_image: ^8.0.1
   image_editor: ^1.6.0
-  image_cropper: ^6.0.1
+  image_cropper: ^5.0.1
   crop: ^0.5.5
   crop_image: ^1.0.16
   flutter_secure_storage: ^9.2.4
