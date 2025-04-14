@@ -40,7 +40,7 @@ dependencies:
   firebase_app_check: ^0.2.1+6
   flutter_image_compress: ^1.1.0
   path_provider: ^2.1.1
-  path: 1.9.1
+  path: 1.8.3
   flutter_email_sender: ^7.0.0
   firebase_crashlytics: ^3.4.4
   flutter_dotenv: ^5.2.1
