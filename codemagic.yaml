@@ -28,6 +28,6 @@ workflows:
         script: |
           flutter clean
           flutter pub get
-          flutter build ios --debug --no-codesign
+          flutter build ios --simulator --no-codesign
     artifacts:
       - build/ios/iphoneos/Runner.app
