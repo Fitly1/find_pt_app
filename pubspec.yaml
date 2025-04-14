@@ -14,7 +14,7 @@ dependencies:
   flutter_typeahead: ^5.2.0
   geolocator: ^9.0.2
   logger: ^2.5.0
-  firebase_core: ^3.13.0
+  firebase_core: ^2.25.4
   firebase_auth: ^5.4.2
   cloud_firestore: ^5.6.3
   shared_preferences: ^2.2.0
