@@ -1,5 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.fitly.find_pt_app">
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- Optional: add INTERNET permission if not already present -->
     <uses-permission android:name="android.permission.INTERNET"/>
@@ -63,4 +63,5 @@
             <data android:mimeType="text/plain" />
         </intent>
     </queries>
+
 </manifest>
