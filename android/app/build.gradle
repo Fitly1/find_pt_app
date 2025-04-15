@@ -23,7 +23,7 @@ android {
     }
     
     defaultConfig {
-        applicationId = "com.fitly.findptapp"
+        applicationId = "com.example.find_pt_app"
         // Increase minSdk to 23 to match the new Firebase Auth requirements.
         minSdk = 23
         targetSdk = flutter.targetSdkVersion
