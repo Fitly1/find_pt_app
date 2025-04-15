@@ -8,8 +8,8 @@ plugins {
 }
 
 android {
-    // Updated namespace to reflect your company branding.
-    namespace = "com.fitly.findptapp"
+    // Use the original package name as the namespace.
+    namespace = "com.example.find_pt_app"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -23,6 +23,7 @@ android {
     }
     
     defaultConfig {
+        // Set applicationId to the original package name.
         applicationId = "com.example.find_pt_app"
         // Increase minSdk to 23 to match the new Firebase Auth requirements.
         minSdk = 23
@@ -34,11 +35,14 @@ android {
     // Define signing configurations.
     signingConfigs {
         release {
-            // TODO: Replace the following placeholders with your actual keystore details.
-            storeFile file("path/to/your/keystore.jks")
-            storePassword "your_store_password"
-            keyAlias "your_key_alias"
-            keyPassword "your_key_password"
+            // Update the path to your keystore file (use double backslashes on Windows)
+            storeFile file("C:/Users/sharv/find_pt_app/android/app/my_release.keystore")
+            // Replace with your actual keystore password
+            storePassword "fitly1612"
+            // Use your key alias (as generated, e.g., "mykey")
+            keyAlias "mykey"
+            // Replace with your actual key password (if different, otherwise use the same as the keystore password)
+            keyPassword "fitly1612"
         }
     }
     
