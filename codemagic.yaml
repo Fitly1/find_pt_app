@@ -1,0 +1,27 @@
+workflows:
+  ios-workflow:
+    name: Build iOS
+    environment:
+      vars:
+        # Optional environment variables, adjust as needed
+        XCODE_PROJECT: "ios/Runner.xcodeproj"
+        XCODE_SCHEME: "Runner"
+    scripts:
+      - name: Run pre-build automation for podspecs
+        script: |
+          echo "Running pre-build script to update podspecs"
+          chmod +x update_podspecs.sh
+          ./update_podspecs.sh
+      - name: Clean and install CocoaPods
+        script: |
+          cd ios
+          pod deintegrate
+          rm -rf Pods Podfile.lock
+          pod repo update
+          pod install --repo-update
+          cd ..
+          flutter clean
+      - name: Build iOS
+        script: flutter build ios --debug --no-codesign
+    artifacts:
+      - build/ios/iphoneos/Runner.app
