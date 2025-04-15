@@ -8,8 +8,8 @@ plugins {
 }
 
 android {
-    // Namespace is required by the latest Android Gradle Plugin.
-    namespace = "com.example.find_pt_app"
+    // Updated namespace to reflect your company branding.
+    namespace = "com.fitly.findptapp"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -23,7 +23,7 @@ android {
     }
     
     defaultConfig {
-        applicationId = "com.example.find_pt_app"
+        applicationId = "com.fitly.findptapp"
         // Increase minSdk to 23 to match the new Firebase Auth requirements.
         minSdk = 23
         targetSdk = flutter.targetSdkVersion
@@ -31,10 +31,21 @@ android {
         versionName = flutter.versionName
     }
     
+    // Define signing configurations.
+    signingConfigs {
+        release {
+            // TODO: Replace the following placeholders with your actual keystore details.
+            storeFile file("path/to/your/keystore.jks")
+            storePassword "your_store_password"
+            keyAlias "your_key_alias"
+            keyPassword "your_key_password"
+        }
+    }
+    
     buildTypes {
         release {
-            // Using debug signing for now (update when ready for production)
-            signingConfig = signingConfigs.debug
+            // Use the custom release signing configuration.
+            signingConfig = signingConfigs.release
 
             // Enable code shrinking, obfuscation, and optimization.
             minifyEnabled true
@@ -55,9 +66,8 @@ dependencies {
     implementation 'com.google.firebase:firebase-auth:23.1.0'
     implementation 'com.google.firebase:firebase-firestore'
     
-    // Add Firebase App Check dependency (using Debug provider for development).
-    // For production you may want to use SafetyNet or Play Integrity.
-    implementation 'com.google.firebase:firebase-appcheck-debug:16.0.0'
+    // Use the production App Check dependency (Play Integrity for Android).
+    implementation 'com.google.firebase:firebase-appcheck-playintegrity:16.0.0'
 }
 
 configurations.all {
