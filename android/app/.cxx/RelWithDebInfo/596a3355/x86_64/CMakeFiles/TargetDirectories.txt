@@ -1,2 +1,0 @@
-C:/Users/sharv/find_pt_app/android/app/.cxx/RelWithDebInfo/596a3355/x86_64/CMakeFiles/edit_cache.dir
-C:/Users/sharv/find_pt_app/android/app/.cxx/RelWithDebInfo/596a3355/x86_64/CMakeFiles/rebuild_cache.dir

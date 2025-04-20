@@ -2,6 +2,7 @@ workflows:
   ios-workflow:
     name: Build iOS
     environment:
+<<<<<<< HEAD
       flutter: "3.10.5"   # Updated Flutter version
       vars:
         XCODE_PROJECT: "ios/Runner.xcodeproj"
@@ -9,6 +10,13 @@ workflows:
     scripts:
       - name: Check Flutter version
         script: flutter --version
+=======
+      vars:
+        # Optional environment variables, adjust as needed
+        XCODE_PROJECT: "ios/Runner.xcodeproj"
+        XCODE_SCHEME: "Runner"
+    scripts:
+>>>>>>> android-release
       - name: Run pre-build automation for podspecs
         script: |
           echo "Running pre-build script to update podspecs"
