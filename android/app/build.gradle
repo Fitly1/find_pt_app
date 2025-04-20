@@ -8,8 +8,8 @@ plugins {
 }
 
 android {
-    // Use the original package name as the namespace.
-    namespace = "com.example.find_pt_app"
+    // Namespace is required by the latest Android Gradle Plugin.
+    namespace = "com.fitly.findptapp"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -23,7 +23,6 @@ android {
     }
     
     defaultConfig {
-        // Set applicationId to the original package name.
         applicationId = "com.example.find_pt_app"
         // Increase minSdk to 23 to match the new Firebase Auth requirements.
         minSdk = 23
@@ -32,24 +31,13 @@ android {
         versionName = flutter.versionName
     }
     
-    // Define signing configurations.
-    signingConfigs {
-        release {
-            // Update the path to your keystore file (use double backslashes on Windows)
-            storeFile file("C:/Users/sharv/find_pt_app/android/app/my_release.keystore")
-            // Replace with your actual keystore password
-            storePassword "fitly1612"
-            // Use your key alias (as generated, e.g., "mykey")
-            keyAlias "mykey"
-            // Replace with your actual key password (if different, otherwise use the same as the keystore password)
-            keyPassword "fitly1612"
-        }
-    }
-    
     buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
         release {
-            // Use the custom release signing configuration.
-            signingConfig = signingConfigs.release
+            // Using debug signing for now (update when ready for production)
+            signingConfig = signingConfigs.debug
 
             // Enable code shrinking, obfuscation, and optimization.
             minifyEnabled true
