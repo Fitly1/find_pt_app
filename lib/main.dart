@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart'; // Added for kReleaseMode
 import 'package:flutter_dotenv/flutter_dotenv.dart'; // Import dotenv
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -57,7 +58,8 @@ class _DeepLinkHandlerState extends State<DeepLinkHandler> {
 
   Future<void> _initDeepLinkListener() async {
     try {
-      final initialLink = await _appLinks.getInitialAppLink();
+      // Using the new API: getInitialLink() returns the initial deep link URI.
+      final initialLink = await _appLinks.getInitialLink();
       if (initialLink != null) {
         _handleDeepLink(initialLink.toString());
       }
@@ -178,8 +180,10 @@ Future<void> main() async {
   runZonedGuarded(() async {
     // Activate Firebase App Check.
     await FirebaseAppCheck.instance.activate(
-      androidProvider: AndroidProvider.debug,
-      appleProvider: AppleProvider.debug,
+      androidProvider:
+          kReleaseMode ? AndroidProvider.playIntegrity : AndroidProvider.debug,
+      appleProvider:
+          kReleaseMode ? AppleProvider.deviceCheck : AppleProvider.debug,
     );
     logger.i("Firebase App Check activated.");
 
@@ -239,7 +243,6 @@ class FindPTApp extends StatelessWidget {
         '/trainer_home': (context) => const TrainerHomePage(),
         '/messages': (context) => const MessagesPage(),
         '/profile': (context) => const profile.ProfilePage(),
-        // Pass the current trainer UID to ManageSubscriptionPage.
         '/ManageSubscription': (context) {
           final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
           return ManageSubscriptionPage(trainerUid: currentUid);

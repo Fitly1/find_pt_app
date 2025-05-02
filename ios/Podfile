@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 platform :ios, '13.0'
 
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -29,13 +30,52 @@ target 'Runner' do
   use_frameworks! :linkage => :static
   use_modular_headers!
   flutter_install_all_ios_pods(File.dirname(File.realpath(__FILE__)))
+=======
+source 'https://cdn.cocoapods.org/'
+
+platform :ios, '13.0'
+use_frameworks! :linkage => :static
+use_modular_headers!
+
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+require File.expand_path(File.join('..', 'Flutter', 'podhelper.rb'), __FILE__)
+
+target 'Runner' do
+  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  
+  # Explicit references:
+  pod 'cloud_firestore', :path => 'cloud_firestore_plugin'
+  pod 'app_links', :path => 'app_links_plugin'
+  pod 'firebase_core', :path => 'firebase_core_plugin'
+  pod 'cloud_functions', :path => 'cloud_functions_plugin'
+  pod 'firebase_app_check', :path => 'firebase_app_check_plugin'
+  pod 'firebase_auth', :path => 'firebase_auth_plugin'
+  pod 'firebase_crashlytics', :path => 'firebase_crashlytics_plugin'
+  pod 'firebase_messaging', :path => 'firebase_messaging_plugin'
+  pod 'firebase_storage', :path => 'firebase_storage_plugin'
+  pod 'flutter_email_sender', :path => 'flutter_email_sender_plugin'
+  pod 'flutter_image_compress_common', :path => 'flutter_image_compress_common_plugin'
+  pod 'flutter_keyboard_visibility', :path => 'flutter_keyboard_visibility_plugin'
+  pod 'flutter_secure_storage', :path => 'flutter_secure_storage_plugin'
+  pod 'geolocator_apple', :path => 'geolocator_apple_plugin/darwin'
+  pod 'image_cropper', :path => 'image_cropper_plugin'
+
+
+
+>>>>>>> master
 end
 
 post_install do |installer|
   installer.pods_project.targets.each do |target|
+<<<<<<< HEAD
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
       config.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64' # Fix for M1 CI/mac builds
+=======
+    flutter_additional_ios_build_settings(target)
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+>>>>>>> master
     end
   end
 end

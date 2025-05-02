@@ -9,7 +9,7 @@ plugins {
 
 android {
     // Namespace is required by the latest Android Gradle Plugin.
-    namespace = "com.example.find_pt_app"
+    namespace = "com.fitly.findptapp"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -23,18 +23,31 @@ android {
     }
     
     defaultConfig {
-        applicationId = "com.example.find_pt_app"
+        applicationId = "com.fitly.findptapp"
         // Increase minSdk to 23 to match the new Firebase Auth requirements.
         minSdk = 23
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
+
+    // ←———— Add this signingConfigs block
+    signingConfigs {
+        release {
+            storeFile     file("my_release.keystore")
+            storePassword "fitly1612"
+            keyAlias      "mykey"
+            keyPassword   "fitly1612"
+        }
+    }
     
     buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
         release {
-            // Using debug signing for now (update when ready for production)
-            signingConfig = signingConfigs.debug
+            // ←—— Switch to your release keystore
+            signingConfig signingConfigs.release
 
             // Enable code shrinking, obfuscation, and optimization.
             minifyEnabled true
@@ -55,9 +68,8 @@ dependencies {
     implementation 'com.google.firebase:firebase-auth:23.1.0'
     implementation 'com.google.firebase:firebase-firestore'
     
-    // Add Firebase App Check dependency (using Debug provider for development).
-    // For production you may want to use SafetyNet or Play Integrity.
-    implementation 'com.google.firebase:firebase-appcheck-debug:16.0.0'
+    // Use the production App Check dependency (Play Integrity for Android).
+    implementation 'com.google.firebase:firebase-appcheck-playintegrity:16.0.0'
 }
 
 configurations.all {
