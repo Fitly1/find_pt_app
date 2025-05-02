@@ -4,11 +4,13 @@ source 'https://cdn.cocoapods.org/'
 platform :ios, '13.0'
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
-# Find Flutter root so we can load podhelper in CI containers
+# Locate Flutter root so CI containers (Codemagic) can load podhelper
 flutter_root = ENV['FLUTTER_ROOT'] ||
                File.expand_path('../..', __dir__) + '/flutter'
-require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'),
-                         flutter_root)
+require File.expand_path(
+  File.join('packages', 'flutter_tools', 'bin', 'podhelper'),
+  flutter_root
+)
 
 target 'Runner' do
   use_frameworks! :linkage => :static
@@ -16,23 +18,6 @@ target 'Runner' do
 
   # Standard Flutter pods
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
-
-  # Local plugin overrides — keep these if you really override pods in ios/*_plugin/
-  pod 'cloud_firestore',                :path => 'cloud_firestore_plugin'
-  pod 'app_links',                      :path => 'app_links_plugin'
-  pod 'firebase_core',                  :path => 'firebase_core_plugin'
-  pod 'cloud_functions',                :path => 'cloud_functions_plugin'
-  pod 'firebase_app_check',             :path => 'firebase_app_check_plugin'
-  pod 'firebase_auth',                  :path => 'firebase_auth_plugin'
-  pod 'firebase_crashlytics',           :path => 'firebase_crashlytics_plugin'
-  pod 'firebase_messaging',             :path => 'firebase_messaging_plugin'
-  pod 'firebase_storage',               :path => 'firebase_storage_plugin'
-  pod 'flutter_email_sender',           :path => 'flutter_email_sender_plugin'
-  pod 'flutter_image_compress_common',  :path => 'flutter_image_compress_common_plugin'
-  pod 'flutter_keyboard_visibility',    :path => 'flutter_keyboard_visibility_plugin'
-  pod 'flutter_secure_storage',         :path => 'flutter_secure_storage_plugin'
-  pod 'geolocator_apple',               :path => 'geolocator_apple_plugin/darwin'
-  pod 'image_cropper',                  :path => 'image_cropper_plugin'
 end
 
 post_install do |installer|
