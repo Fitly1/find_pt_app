@@ -18,8 +18,8 @@ target 'Runner' do
   use_frameworks! :linkage => :static
   use_modular_headers!
 
-  # Pin Stripe-ObjC to a valid release tag (workaround for missing v1.5.0)
-  pod 'Stripe-ObjC', '21.17.0', :git => 'https://github.com/stripe/stripe-objc.git'
+  # Pin Stripe-ObjC to a valid release tag
+  pod 'Stripe-ObjC', :git => 'https://github.com/stripe/stripe-objc.git', :tag => '21.17.0'
 
   # Pull in all Flutter plugin pods (Stripe, gRPC, etc.)
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
