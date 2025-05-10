@@ -1,21 +1,24 @@
 workflows:
   ios-workflow:
     name: Build iOS
+
+    # ── environment settings ────────────────────────
     environment:
-      flutter: "3.19.0"        # use latest stable
+      flutter: "3.19.0"    # use latest stable
       xcode: latest
-      
+
+    # ── do *not* nest this under `environment:` ─────
     vars:
       XCODE_PROJECT:   "ios/Runner.xcodeproj"
       XCODE_WORKSPACE: "ios/Runner.xcworkspace"
       XCODE_SCHEME:    "Runner"
 
     scripts:
-      # ── sanity check ────────────────────────────────
+      # ── sanity check ───────────────────────────────
       - name: Show Flutter version
         script: flutter --version
 
-      # ── project cleanup & deps ──────────────────────
+      # ── project cleanup & deps ────────────────────
       - name: Flutter clean & pub get
         script: |
           flutter clean
@@ -47,7 +50,7 @@ workflows:
             ./update_podspecs.sh
           fi
 
-      # ── build ───────────────────────────────────────
+      # ── build ──────────────────────────────────────
       - name: Build iOS Simulator (no codesign)
         script: flutter build ios --simulator --no-codesign
 
