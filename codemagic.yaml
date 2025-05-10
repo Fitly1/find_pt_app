@@ -6,11 +6,6 @@ workflows:
       flutter: "3.19.0"    # use latest stable
       xcode: latest
 
-    variables:
-      XCODE_PROJECT:   "ios/Runner.xcodeproj"
-      XCODE_WORKSPACE: "ios/Runner.xcworkspace"
-      XCODE_SCHEME:    "Runner"
-
     scripts:
       - name: Run pre-build automation for podspecs
         script: |
