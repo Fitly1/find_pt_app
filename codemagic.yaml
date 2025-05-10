@@ -4,6 +4,7 @@ workflows:
     environment:
       flutter: "3.19.0"        # use latest stable
       xcode: latest
+      
     vars:
       XCODE_PROJECT:   "ios/Runner.xcodeproj"
       XCODE_WORKSPACE: "ios/Runner.xcworkspace"
