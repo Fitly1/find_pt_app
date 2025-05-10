@@ -47,8 +47,8 @@ workflows:
           fi
 
       # ── build ───────────────────────────────────────
-      - name: Build iOS (no codesign)
-        script: flutter build ios --debug --no-codesign
+      - name: Build iOS Simulator (no codesign)
+        script: flutter build ios --simulator --no-codesign
 
     artifacts:
-      - build/ios/iphoneos/Runner.app
+      - build/ios/iphonesimulator/Runner.app
