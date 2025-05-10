@@ -4,7 +4,6 @@ source 'https://cdn.cocoapods.org/'
 platform :ios, '13.0'
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
-# Locate Flutter root so CI containers (Codemagic) can load podhelper
 flutter_root = ENV['FLUTTER_ROOT'] ||
                File.expand_path('../..', __dir__) + '/flutter'
 require File.expand_path(
@@ -16,29 +15,26 @@ target 'Runner' do
   use_frameworks! :linkage => :static
   use_modular_headers!
 
-  # Standard Flutter pods
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
 post_install do |installer|
   installer.pods_project.targets.each do |target|
-    # Apply Flutter's default iOS build settings
     flutter_additional_ios_build_settings(target)
 
-    # Force deployment target to 13.0
+    # force minimum iOS version
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
     end
 
-    # Strip unsupported '-G…' flags from BoringSSL/grpc targets
-    if ['BoringSSL-GRPC', 'gRPC-Core', 'gRPC-C++'].include?(target.name)
+    # strip any '-G...' flags from BoringSSL-GRPC (and related) pods
+    if %w[BoringSSL-GRPC gRPC-Core gRPC-C++].include?(target.name)
       target.build_configurations.each do |config|
         %w[OTHER_CFLAGS OTHER_CPLUSPLUSFLAGS].each do |flag_key|
           next unless config.build_settings[flag_key]
-
           cleaned = config.build_settings[flag_key]
             .split(' ')
-            .reject { |flag| flag.start_with?('-G') }
+            .reject { |f| f.start_with?('-G') }
             .join(' ')
           config.build_settings[flag_key] = cleaned
         end
