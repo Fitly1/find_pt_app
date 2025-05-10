@@ -27,19 +27,19 @@ post_install do |installer|
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
 
-      # 2) Strip any top‐level "-G…" from OTHER_CFLAGS
+      # 2) Strip any top-level "-G…" from OTHER_CFLAGS
       if config.build_settings['OTHER_CFLAGS'].is_a?(String)
         flags = config.build_settings['OTHER_CFLAGS'].split
         config.build_settings['OTHER_CFLAGS'] = flags.reject { |f| f.start_with?('-G') }.join(' ')
       end
     end
 
-    # 3) For BoringSSL‐GRPC, scrub per‐file COMPILER_FLAGS
+    # 3) For BoringSSL-GRPC, scrub per-file COMPILER_FLAGS
     if target.name == 'BoringSSL-GRPC'
       target.source_build_phases.each do |phase|
         phase.files.each do |file|
           next unless file.settings && file.settings['COMPILER_FLAGS']
-          flags = file.settings['COMPILER_FLAGS'].split
+          flags   = file.settings['COMPILER_FLAGS'].split
           filtered = flags.reject { |f| f.start_with?('-G') }
           file.settings['COMPILER_FLAGS'] = filtered.join(' ')
         end
