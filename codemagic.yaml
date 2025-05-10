@@ -1,35 +1,21 @@
 workflows:
   ios-workflow:
     name: Build iOS
-
     environment:
       flutter: "3.19.0"        # use latest stable
       xcode: latest
-
-      variables:
+      vars:
+        # Optional environment variables, adjust as needed
         XCODE_PROJECT:   "ios/Runner.xcodeproj"
         XCODE_WORKSPACE: "ios/Runner.xcworkspace"
         XCODE_SCHEME:    "Runner"
 
     scripts:
-      # ── sanity check ────────────────────────────────
-      - name: Show Flutter version
-        script: flutter --version
-
-      # ── project cleanup & deps ──────────────────────
-      - name: Flutter clean & pub get
+      - name: Run pre-build automation for podspecs
         script: |
-          flutter clean
-          flutter pub get
-
-      - name: Ensure Podfile exists (platform iOS 13.0)
-        script: |
-          if [ ! -f ios/Podfile ]; then
-            cd ios
-            pod init
-            sed -i '' '1s/^/platform :ios, '\''13.0'\''\n/' Podfile
-            cd ..
-          fi
+          echo "Running pre-build script to update podspecs"
+          chmod +x update_podspecs.sh
+          ./update_podspecs.sh
 
       - name: Clean and install CocoaPods
         script: |
@@ -40,15 +26,14 @@ workflows:
           pod install --repo-update
           cd ..
 
-      # (optional) run your custom Podspec update script
-      - name: Run pre-build automation for podspecs
-        script: |
-          if [ -f update_podspecs.sh ]; then
-            chmod +x update_podspecs.sh
-            ./update_podspecs.sh
-          fi
+      - name: Show Flutter version
+        script: flutter --version
 
-      # ── build ───────────────────────────────────────
+      - name: Flutter clean & pub get
+        script: |
+          flutter clean
+          flutter pub get
+
       - name: Build iOS Simulator (no codesign)
         script: flutter build ios --simulator --no-codesign
 
