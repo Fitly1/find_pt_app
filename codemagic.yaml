@@ -4,10 +4,10 @@ workflows:
     environment:
       flutter: "3.19.0"        # use latest stable
       xcode: latest
-      vars:
-        XCODE_PROJECT: "ios/Runner.xcodeproj"
-        XCODE_PROJECT: "ios/Runner.xcworkspace"
-        XCODE_SCHEME: "Runner"
+    vars:
+      XCODE_PROJECT:   "ios/Runner.xcodeproj"
+      XCODE_WORKSPACE: "ios/Runner.xcworkspace"
+      XCODE_SCHEME:    "Runner"
 
     scripts:
       # ── sanity check ────────────────────────────────
@@ -39,7 +39,7 @@ workflows:
           cd ..
 
       # (optional) run your custom Podspec update script
-      - name: Run pre‑build automation for podspecs
+      - name: Run pre-build automation for podspecs
         script: |
           if [ -f update_podspecs.sh ]; then
             chmod +x update_podspecs.sh
