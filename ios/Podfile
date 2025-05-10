@@ -14,40 +14,44 @@ target 'Runner' do
   use_frameworks! :linkage => :static
   use_modular_headers!
 
+  # Installs all Flutter pods (Stripe, gRPC, etc.)
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
-end
+end  # closes the Runner target
 
+# -------------------------------------------------------------------
+# Post-install hook (top-level; runs after all pods are installed)
+# -------------------------------------------------------------------
 post_install do |installer|
   installer.pods_project.targets.each do |target|
-    # apply Flutter defaults
+    # 1) Apply Flutter defaults & enforce minimum iOS version
     flutter_additional_ios_build_settings(target)
-
-    # 1) Scrub every OTHER_* setting for "-G…"
     target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
+
+      # 2) Strip any "-G…" flags from *every* OTHER_* build setting
       config.build_settings.keys.grep(/^OTHER_/).each do |key|
         val = config.build_settings[key]
         if val.is_a?(String)
           config.build_settings[key] = val
             .split
-            .reject { |flag| flag.start_with?('-G') }
+            .reject { |f| f.start_with?('-G') }
             .join(' ')
         end
       end
-
-      # also enforce iOS 13.0
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
     end
 
-    # 2) Scrub per-file COMPILER_FLAGS in any source build phase
-    target.source_build_phases&.each do |phase|
-      phase.files.each do |file|
-        next unless file.respond_to?(:settings)
-        flags = file.settings['COMPILER_FLAGS']
-        if flags.is_a?(String)
-          file.settings['COMPILER_FLAGS'] = flags
-            .split
-            .reject { |flag| flag.start_with?('-G') }
-            .join(' ')
+    # 3) For every source file, strip any "-G…" in COMPILER_FLAGS
+    if target.respond_to?(:source_build_phases)
+      target.source_build_phases.each do |phase|
+        phase.files.each do |file|
+          next unless file.respond_to?(:settings)
+          flags = file.settings['COMPILER_FLAGS']
+          if flags.is_a?(String)
+            file.settings['COMPILER_FLAGS'] = flags
+              .split
+              .reject { |f| f.start_with?('-G') }
+              .join(' ')
+          end
         end
       end
     end
