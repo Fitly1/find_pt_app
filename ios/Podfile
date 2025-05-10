@@ -22,22 +22,23 @@ post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
 
-    # force minimum iOS version
+    # Force minimum iOS version
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
-    end
 
-    # strip any '-G...' flags from BoringSSL-GRPC (and related) pods
-    if %w[BoringSSL-GRPC gRPC-Core gRPC-C++].include?(target.name)
-      target.build_configurations.each do |config|
-        %w[OTHER_CFLAGS OTHER_CPLUSPLUSFLAGS].each do |flag_key|
-          next unless config.build_settings[flag_key]
-          cleaned = config.build_settings[flag_key]
-            .split(' ')
-            .reject { |f| f.start_with?('-G') }
-            .join(' ')
-          config.build_settings[flag_key] = cleaned
-        end
+      # Remove ANY '-G...' flags from C/C++/Swift/etc. settings
+      %w[
+        OTHER_CFLAGS
+        OTHER_CPLUSPLUSFLAGS
+        OTHER_SWIFT_FLAGS
+        OTHER_LDFLAGS
+      ].each do |key|
+        next unless config.build_settings[key].is_a?(String)
+        cleaned = config.build_settings[key]
+          .split(' ')
+          .reject { |f| f.start_with?('-G') }
+          .join(' ')
+        config.build_settings[key] = cleaned
       end
     end
   end
