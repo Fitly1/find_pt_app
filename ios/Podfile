@@ -1,10 +1,6 @@
 # ios/Podfile
 source 'https://cdn.cocoapods.org/'
 
-# Tell CocoaPods exactly which workspace/project to integrate
-workspace 'Runner.xcworkspace'
-project   'Runner.xcodeproj'
-
 platform :ios, '13.0'
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
@@ -15,22 +11,25 @@ require File.expand_path(
   flutter_root
 )
 
+# Tell CocoaPods exactly which Xcode project to integrate
+project 'Runner', 'Debug' => :debug, 'Profile' => :release, 'Release' => :release
+
 target 'Runner' do
   use_frameworks! :linkage => :static
   use_modular_headers!
 
-  # Pull in all the Flutter pods (including Stripe, gRPC, etc)
+  # Pull in all Flutter plugin pods (Stripe, gRPC, etc.)
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
-end  # end Runner target
+end
 
 post_install do |installer|
   installer.pods_project.targets.each do |target|
-    # 1) Flutter defaults & force iOS 13.0
+    # 1) Flutter build defaults & enforce iOS 13.0
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
 
-      # 2) Globally strip any "-G..." flags from OTHER_* settings
+      # 2) Strip any "-G…" flags from all OTHER_* settings
       config.build_settings.keys.grep(/^OTHER_/).each do |key|
         val = config.build_settings[key]
         if val.is_a?(String)
@@ -42,7 +41,7 @@ post_install do |installer|
       end
     end
 
-    # 3) Strip "-G..." out of every per-file COMPILER_FLAGS too
+    # 3) Scrub "-G…" out of every per-file COMPILER_FLAGS
     target.source_build_phases&.each do |phase|
       phase.files.each do |file|
         next unless file.respond_to?(:settings)
