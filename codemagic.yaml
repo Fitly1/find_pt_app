@@ -1,11 +1,13 @@
 workflows:
   ios-workflow:
     name: Build iOS
+
     environment:
       flutter: "3.19.0"        # use latest stable
       xcode: latest
-      vars:
-        # Optional environment variables, adjust as needed
+
+      # ── note the key is `variables:` not `vars:` ─────────────────
+      variables:
         XCODE_PROJECT:   "ios/Runner.xcodeproj"
         XCODE_WORKSPACE: "ios/Runner.xcworkspace"
         XCODE_SCHEME:    "Runner"
