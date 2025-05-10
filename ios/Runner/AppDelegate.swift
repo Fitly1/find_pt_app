@@ -8,8 +8,12 @@ import FirebaseCore   // ← add this import
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    // Make sure Firebase is configured before any plugins are registered
     FirebaseApp.configure()           // ← add this line
+
+    // Then register Flutter plugins
     GeneratedPluginRegistrant.register(with: self)
+
     return super.application(
       application,
       didFinishLaunchingWithOptions: launchOptions
