@@ -4,6 +4,7 @@ source 'https://cdn.cocoapods.org/'
 platform :ios, '13.0'
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
+# Locate Flutter root so CI containers (Codemagic) can load podhelper
 flutter_root = ENV['FLUTTER_ROOT'] ||
                File.expand_path('../..', __dir__) + '/flutter'
 require File.expand_path(
@@ -15,30 +16,31 @@ target 'Runner' do
   use_frameworks! :linkage => :static
   use_modular_headers!
 
+  # Standard Flutter pods
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
 post_install do |installer|
   installer.pods_project.targets.each do |target|
+    # Preserve the Flutter defaults
     flutter_additional_ios_build_settings(target)
 
-    # Force minimum iOS version
     target.build_configurations.each do |config|
+      # Ensure minimum iOS target
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
 
-      # Remove ANY '-G...' flags from C/C++/Swift/etc. settings
-      %w[
-        OTHER_CFLAGS
-        OTHER_CPLUSPLUSFLAGS
-        OTHER_SWIFT_FLAGS
-        OTHER_LDFLAGS
-      ].each do |key|
-        next unless config.build_settings[key].is_a?(String)
-        cleaned = config.build_settings[key]
-          .split(' ')
-          .reject { |f| f.start_with?('-G') }
-          .join(' ')
-        config.build_settings[key] = cleaned
+      # Strip out any unsupported '-G' flags that break simulators
+      ['OTHER_CFLAGS', 'OTHER_SWIFT_FLAGS'].each do |setting|
+        next unless config.build_settings[setting]
+
+        value = config.build_settings[setting]
+        cleaned = if value.is_a?(Array)
+          value.reject { |flag| flag == '-G' }
+        else
+          # split/join to remove '-G' from string
+          value.to_s.split(' ').reject { |flag| flag == '-G' }.join(' ')
+        end
+        config.build_settings[setting] = cleaned
       end
     end
   end
