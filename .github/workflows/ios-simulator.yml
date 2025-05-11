@@ -8,52 +8,52 @@ on:
       - ios-version
   workflow_dispatch:
 
-# Give the runner explicit rights to pull actions from the GitHub Actions marketplace
+# Grant the runner permission to fetch marketplace actions AND to upload artifacts
 permissions:
-  contents: read       # for checkout
-  actions: read        # for marketplace actions
-  id-token: write      # (not strictly needed here)
+  contents: read       # needed for actions/checkout
+  actions: write       # needed to fetch & upload artifacts
+  id-token: write      # harmless here, can be used by OIDC if needed
 
 jobs:
   build-ios-simulator:
     runs-on: macos-latest
 
     steps:
-      # 1) Grab your code
+      # 1) Check out your code
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0    # ensure full history
+          fetch-depth: 0
 
-      # 2) Install Flutter
+      # 2) Install the specified Flutter SDK
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.19.0'
 
-      # 3) Get Dart & Flutter dependencies
+      # 3) Clean & fetch dependencies
       - name: Flutter clean & pub get
         run: |
           flutter clean
           flutter pub get
 
-      # 4) Build for iOS Simulator
+      # 4) Build the iOS simulator binary (no code-sign)
       - name: Build iOS Simulator (no codesign)
         run: flutter build ios --simulator --no-codesign
 
-      # 5) Zip up the .app into Runner-sim.zip
+      # 5) Zip up the .app bundle
       - name: Zip Simulator App
         run: |
           cd build/ios/iphonesimulator
           zip -qr Runner-sim.zip Runner.app
 
-      # 6) Upload the zip as a workflow artifact
+      # 6) Upload as a workflow artifact
       - name: Upload simulator .zip
-        uses: actions/upload-artifact@v2    # <--- pinned to v2 (major)
+        uses: actions/upload-artifact@v2   # pin to v2 alias
         with:
           name: ios-simulator-app
           path: build/ios/iphonesimulator/Runner-sim.zip
 
-      # 7) Verify (optional)
+      # 7) (Optional) Verify the artifact is there
       - name: Verify artifact exists
         run: ls -lh build/ios/iphonesimulator/Runner-sim.zip
