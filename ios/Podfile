@@ -15,12 +15,14 @@ target 'Runner' do
   use_frameworks! :linkage => :static
   use_modular_headers!
 
+  # Override GTMSessionFetcher to fetch from the CDN (avoids git clone failures)
+  pod 'gtm-session-fetcher', '1.5.0'
+
   # Install all Flutter plugin pods
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
 post_install do |installer|
-  puts "=== Podfile post_install hook running ==="
   installer.pods_project.targets.each do |target|
     # Apply Flutter defaults & enforce iOS 13+
     flutter_additional_ios_build_settings(target)
@@ -28,27 +30,23 @@ post_install do |installer|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
     end
 
+    # Strip any "-G…" flags from BoringSSL-GRPC (simulator build bug)
     if target.name == 'BoringSSL-GRPC'
-      puts ">>> Stripping -G flags for BoringSSL-GRPC <<<"
-      # Remove any "-G…" flags from OTHER_CFLAGS
       target.build_configurations.each do |config|
         if config.build_settings['OTHER_CFLAGS'].is_a?(String)
           filtered = config.build_settings['OTHER_CFLAGS']
-            .split
-            .reject { |f| f.start_with?('-G') }
+                      .split
+                      .reject { |f| f.start_with?('-G') }
           config.build_settings['OTHER_CFLAGS'] = filtered.join(' ')
         end
       end
 
-      # Remove any "-G…" from per-file COMPILER_FLAGS
       target.source_build_phases&.each do |phase|
         phase.files.each do |file|
           next unless file.respond_to?(:settings)
           cf = file.settings['COMPILER_FLAGS']
           if cf.is_a?(String)
-            filtered = cf
-              .split
-              .reject { |f| f.start_with?('-G') }
+            filtered = cf.split.reject { |f| f.start_with?('-G') }
             file.settings['COMPILER_FLAGS'] = filtered.join(' ')
           end
         end
