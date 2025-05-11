@@ -6,13 +6,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read     # for checkout
-  actions: write     # for upload-artifact
-  id-token: write    # optional
+  contents: read      # for checkout
+  actions: write      # <— critical for upload-artifact
+  id-token: write     # optional (for OIDC, harmless)
 
 jobs:
   build-ios-simulator:
     runs-on: macos-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -38,7 +39,7 @@ jobs:
           zip -qr Runner-sim.zip Runner.app
 
       - name: Upload simulator .zip
-        uses: actions/upload-artifact@v2   # v2 alias always works
+        uses: actions/upload-artifact@v2   # pin to v2 alias
         with:
           name: ios-simulator-app
           path: build/ios/iphonesimulator/Runner-sim.zip
