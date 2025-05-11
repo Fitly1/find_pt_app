@@ -1,27 +1,19 @@
 #!/usr/bin/env bash
-echo "Updating podspec files with absolute path references..."
+# Updates each *.podspec inside ios/*_plugin/ so that the LICENSE entry
+# uses an absolute path (Codemagic build container can’t handle relatives).
 
-<<<<<<< HEAD
-# Loop over all podspec files in directories ending with _plugin inside the ios folder.
+set -euo pipefail
+echo "Updating podspec files with absolute path references…"
+
 for podspec in ios/*_plugin/*.podspec; do
-  if [ -f "$podspec" ]; then
+  if [[ -f "$podspec" ]]; then
     echo "Processing ${podspec}"
-    # Update the license file reference.
-    # This line replaces { :file => '../LICENSE' } with 
-    # { :file => File.expand_path('../../LICENSE', __FILE__) }.
-    sed -i.bak "s/{ :file => '..\/LICENSE' }/{ :file => File.expand_path('..\/..\/LICENSE', __FILE__) }/g" "$podspec"
-    
-    # (Add additional sed commands here if needed.)
-    
-    # Remove the backup file created by sed.
-=======
-# Loop through all podspec files in plugin override folders (folders ending with _plugin)
-for podspec in ios/*_plugin/*.podspec; do
-  if [ -f "$podspec" ]; then
-    echo "Processing ${podspec}"
-    # Replace relative LICENSE reference with an absolute path
-    sed -i.bak "s/{ :file => '..\/LICENSE' }/{ :file => File.expand_path('..\/..\/LICENSE', __FILE__) }/g" "$podspec"
->>>>>>> android-release
+    # Replace  { :file => '../LICENSE' }
+    #     with { :file => File.expand_path('../../LICENSE', __FILE__) }
+    sed -i.bak \
+      "s/{ :file => '..\/LICENSE' }/{ :file => File.expand_path('..\/..\/LICENSE', __FILE__) }/g" \
+      "$podspec"
+
     rm "$podspec.bak"
   fi
 done

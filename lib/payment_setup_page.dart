@@ -30,7 +30,7 @@ class PaymentSetupPageState extends State<PaymentSetupPage> {
 
       // Initialize the payment sheet.
       await Stripe.instance.initPaymentSheet(
-        paymentSheetParameters: SetupPaymentSheetParameters(
+        paymentSheetParameters: const SetupPaymentSheetParameters(
           paymentIntentClientSecret: clientSecret,
           merchantDisplayName: 'Your App Name',
           style: ThemeMode.light,
@@ -60,7 +60,7 @@ class PaymentSetupPageState extends State<PaymentSetupPage> {
         context,
         MaterialPageRoute(
           builder: (context) =>
-              TrainerHomePage(showProfileCompleteMessage: true),
+              const TrainerHomePage(showProfileCompleteMessage: true),
         ),
       );
     } catch (e) {

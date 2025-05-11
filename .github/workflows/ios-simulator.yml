@@ -1,0 +1,48 @@
+name: Build iOS Simulator App
+
+on:
+  push:
+    branches: [ ios-version ]
+  workflow_dispatch:
+
+permissions:
+  contents: read      # for actions/checkout
+  actions: write      # to download marketplace Actions
+  id-token: write     # (optional)
+
+jobs:
+  build-ios-simulator:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+
+      - name: Flutter clean & pub get
+        run: |
+          flutter clean
+          flutter pub get
+
+      - name: Build iOS Simulator (no codesign)
+        run: flutter build ios --simulator --no-codesign
+
+      - name: Zip Simulator App
+        run: |
+          cd build/ios/iphonesimulator
+          zip -qr Runner-sim.zip Runner.app
+
+      - name: Upload simulator .zip
+        uses: actions/upload-artifact@v3.1.2
+        with:
+          name: ios-simulator-app
+          path: build/ios/iphonesimulator/Runner-sim.zip
+
+      - name: Verify artifact exists
+        run: ls -lh build/ios/iphonesimulator/Runner-sim.zip

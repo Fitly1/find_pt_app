@@ -1,29 +1,26 @@
 workflows:
-  ios-workflow:
-    name: Build iOS
+  ios_simulator_build:
+    name: Build iOS Simulator App
+    max_build_duration: 60
     environment:
-      flutter: "3.10.5"   # Updated Flutter version
-      vars:
-        XCODE_PROJECT: "ios/Runner.xcodeproj"
-        XCODE_SCHEME: "Runner"
+      flutter: stable
+      xcode: latest
     scripts:
-      - name: Check Flutter version
-        script: flutter --version
-      - name: Run pre-build automation for podspecs
+      - name: Install dependencies
         script: |
-          echo "Running pre-build script to update podspecs"
-          chmod +x update_podspecs.sh
-          ./update_podspecs.sh
-      - name: Clean and install CocoaPods
-        script: |
-          cd ios
-          pod deintegrate
-          rm -rf Pods Podfile.lock
-          pod repo update
-          pod install --repo-update
-          cd ..
           flutter clean
-      - name: Build iOS
-        script: flutter build ios --debug --no-codesign
+          flutter pub get
+
+      - name: Build iOS simulator bundle
+        script: flutter build ios --simulator --no-codesign
+
+      - name: Zip the simulator app
+        script: |
+          cd build/ios/iphonesimulator
+          zip -r Runner-sim.zip Runner.app
+          cd -
+
     artifacts:
-      - build/ios/iphoneos/Runner.app
+      - build/ios/iphonesimulator/Runner-sim.zip
+    publishing:
+      webhook-disabled: true
