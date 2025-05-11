@@ -15,21 +15,22 @@ target 'Runner' do
   use_frameworks! :linkage => :static
   use_modular_headers!
 
-  # Pin both GTMSessionFetcher/Full and /Core at 1.5.0 so FirebaseAuth’s (<5.0,>=3.4) constraint is satisfied
-  pod 'GTMSessionFetcher/Full', '1.5.0'
-  pod 'GTMSessionFetcher/Core', '1.5.0'
+  # Pin GTMSessionFetcher/Core in the 3.x line (>=3.4, <5.0) to satisfy Firebase.
+  pod 'GTMSessionFetcher/Core', '~> 3.4'
 
-  # Then all Flutter plugins (Firebase, Stripe, etc)
+  # Then install all Flutter plugin pods (Firebase, Stripe, etc.)
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
 post_install do |installer|
   installer.pods_project.targets.each do |target|
+    # Flutter defaults & enforce iOS 13+
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
     end
 
+    # Strip simulator-only -G flags from BoringSSL-GRPC
     if target.name == 'BoringSSL-GRPC'
       target.build_configurations.each do |config|
         if (oc = config.build_settings['OTHER_CFLAGS']).is_a?(String)
