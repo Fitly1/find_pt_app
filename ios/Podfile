@@ -15,31 +15,38 @@ target 'Runner' do
   use_frameworks! :linkage => :static
   use_modular_headers!
 
-  # Install all Flutter pods
+  # Install all Flutter plugin pods
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
 post_install do |installer|
   installer.pods_project.targets.each do |target|
-    # 1) Apply Flutter defaults & enforce iOS 13+
+    # Apply Flutter defaults & enforce iOS 13+
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
     end
 
-    # 2) For BoringSSL-GRPC, remove all OTHER_* flags (including the offending -G)
+    # For BoringSSL-GRPC, strip any "-G…" flags from compiler settings
     if target.name == 'BoringSSL-GRPC'
+      # 1) Clean OTHER_CFLAGS
       target.build_configurations.each do |config|
-        config.build_settings.keys.grep(/^OTHER_/).each do |key|
-          config.build_settings.delete(key)
+        if config.build_settings['OTHER_CFLAGS'].is_a?(String)
+          flags = config.build_settings['OTHER_CFLAGS'].split
+          filtered = flags.reject { |f| f.start_with?('-G') }
+          config.build_settings['OTHER_CFLAGS'] = filtered.join(' ')
         end
       end
 
-      # also remove any per-file COMPILER_FLAGS that might reintroduce -G
+      # 2) Clean per-file COMPILER_FLAGS
       target.source_build_phases&.each do |phase|
         phase.files.each do |file|
-          if file.respond_to?(:settings) && file.settings['COMPILER_FLAGS']
-            file.settings.delete('COMPILER_FLAGS')
+          next unless file.respond_to?(:settings)
+          cf = file.settings['COMPILER_FLAGS']
+          if cf.is_a?(String)
+            flags = cf.split
+            filtered = flags.reject { |f| f.start_with?('-G') }
+            file.settings['COMPILER_FLAGS'] = filtered.join(' ')
           end
         end
       end
