@@ -12,7 +12,7 @@ on:
 permissions:
   contents: read       # for checkout
   actions: read        # for marketplace actions
-  id-token: write      # (not strictly needed here, but harmless)
+  id-token: write      # (not strictly needed here)
 
 jobs:
   build-ios-simulator:
@@ -23,7 +23,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
-          fetch-depth: 0    # ensure full history (sometimes helps with composite actions)
+          fetch-depth: 0    # ensure full history
 
       # 2) Install Flutter
       - name: Setup Flutter
@@ -41,7 +41,7 @@ jobs:
       - name: Build iOS Simulator (no codesign)
         run: flutter build ios --simulator --no-codesign
 
-      # 5) Zip up the .app into a runner-sim.zip
+      # 5) Zip up the .app into Runner-sim.zip
       - name: Zip Simulator App
         run: |
           cd build/ios/iphonesimulator
@@ -49,11 +49,11 @@ jobs:
 
       # 6) Upload the zip as a workflow artifact
       - name: Upload simulator .zip
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v2    # <--- pinned to v2 (major)
         with:
           name: ios-simulator-app
           path: build/ios/iphonesimulator/Runner-sim.zip
 
-      # 7) Verification (optional)
+      # 7) Verify (optional)
       - name: Verify artifact exists
         run: ls -lh build/ios/iphonesimulator/Runner-sim.zip
