@@ -30,7 +30,7 @@ dependencies:
   cloud_functions: ^5.5.0
 
   # Stripe
-  flutter_stripe: ^11.4.0
+  flutter_stripe: ^11.5.0
 
   # State management
   riverpod: ^2.6.1
