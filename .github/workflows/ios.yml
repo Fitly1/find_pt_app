@@ -39,7 +39,7 @@ jobs:
 
       # 6) upload the .zip as a workflow artifact (v2 pins a known-good runner manifest)
       - name: Upload artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: ios-simulator-app
           path: build/ios/iphonesimulator/Runner-sim.zip
