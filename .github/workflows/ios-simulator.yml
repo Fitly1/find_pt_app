@@ -1,59 +1,47 @@
-# File: .github/workflows/ios-simulator.yml
 name: Build iOS Simulator App
 
-# Only runs on your ios-version branch (or manually)
 on:
   push:
-    branches:
-      - ios-version
+    branches: [ ios-version ]
   workflow_dispatch:
 
-# Grant the runner permission to fetch marketplace actions AND to upload artifacts
 permissions:
-  contents: read       # needed for actions/checkout
-  actions: write       # needed to fetch & upload artifacts
-  id-token: write      # harmless here, can be used by OIDC if needed
+  contents: read     # for checkout
+  actions: write     # for upload-artifact
+  id-token: write    # optional
 
 jobs:
   build-ios-simulator:
     runs-on: macos-latest
-
     steps:
-      # 1) Check out your code
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      # 2) Install the specified Flutter SDK
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.19.0'
 
-      # 3) Clean & fetch dependencies
       - name: Flutter clean & pub get
         run: |
           flutter clean
           flutter pub get
 
-      # 4) Build the iOS simulator binary (no code-sign)
       - name: Build iOS Simulator (no codesign)
         run: flutter build ios --simulator --no-codesign
 
-      # 5) Zip up the .app bundle
       - name: Zip Simulator App
         run: |
           cd build/ios/iphonesimulator
           zip -qr Runner-sim.zip Runner.app
 
-      # 6) Upload as a workflow artifact
       - name: Upload simulator .zip
-        uses: actions/upload-artifact@v2   # pin to v2 alias
+        uses: actions/upload-artifact@v2   # v2 alias always works
         with:
           name: ios-simulator-app
           path: build/ios/iphonesimulator/Runner-sim.zip
 
-      # 7) (Optional) Verify the artifact is there
       - name: Verify artifact exists
         run: ls -lh build/ios/iphonesimulator/Runner-sim.zip
