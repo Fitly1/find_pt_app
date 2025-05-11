@@ -15,23 +15,21 @@ target 'Runner' do
   use_frameworks! :linkage => :static
   use_modular_headers!
 
-  # Override GTMSessionFetcher to fetch from the CDN (avoids git clone failures)
-  pod 'gtm-session-fetcher', '1.5.0'
-
-  # Install all Flutter plugin pods
+  # Pull in all Flutter plugin pods (including Firebase, Stripe, etc.)
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
 post_install do |installer|
   installer.pods_project.targets.each do |target|
-    # Apply Flutter defaults & enforce iOS 13+
+    # 1) Flutter defaults & enforce iOS 13+
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
     end
 
-    # Strip any "-G…" flags from BoringSSL-GRPC (simulator build bug)
+    # 2) For BoringSSL-GRPC, strip any "-G…" flags before simulator builds
     if target.name == 'BoringSSL-GRPC'
+      # a) Strip from OTHER_CFLAGS
       target.build_configurations.each do |config|
         if config.build_settings['OTHER_CFLAGS'].is_a?(String)
           filtered = config.build_settings['OTHER_CFLAGS']
@@ -41,6 +39,7 @@ post_install do |installer|
         end
       end
 
+      # b) Strip from per-file COMPILER_FLAGS
       target.source_build_phases&.each do |phase|
         phase.files.each do |file|
           next unless file.respond_to?(:settings)
