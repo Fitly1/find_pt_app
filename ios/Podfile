@@ -15,18 +15,16 @@ target 'Runner' do
   use_frameworks! :linkage => :static
   use_modular_headers!
 
-  # Pull in all Flutter plugin pods
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
 post_install do |installer|
   installer.pods_project.targets.each do |target|
-    # enforce minimum iOS version
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
 
-      # strip any "-G…" flags from all OTHER_* settings
+      # Strip -G… from all OTHER_* settings
       config.build_settings.keys.grep(/^OTHER_/).each do |key|
         val = config.build_settings[key]
         if val.is_a?(String)
@@ -38,7 +36,7 @@ post_install do |installer|
       end
     end
 
-    # scrub "-G…" out of every per-file COMPILER_FLAGS
+    # Strip -G… from every per-file COMPILER_FLAGS
     target.source_build_phases&.each do |phase|
       phase.files.each do |file|
         next unless file.respond_to?(:settings)
