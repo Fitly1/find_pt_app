@@ -1,45 +1,59 @@
+# File: .github/workflows/ios-simulator.yml
 name: Build iOS Simulator App
 
+# Only runs on your ios-version branch (or manually)
 on:
   push:
     branches:
       - ios-version
   workflow_dispatch:
 
+# Give the runner explicit rights to pull actions from the GitHub Actions marketplace
+permissions:
+  contents: read       # for checkout
+  actions: read        # for marketplace actions
+  id-token: write      # (not strictly needed here, but harmless)
+
 jobs:
   build-ios-simulator:
     runs-on: macos-latest
 
     steps:
-      # 1) grab your code
+      # 1) Grab your code
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0    # ensure full history (sometimes helps with composite actions)
 
-      # 2) set up Flutter
+      # 2) Install Flutter
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.19.0'
 
-      # 3) install Dart/Flutter deps
+      # 3) Get Dart & Flutter dependencies
       - name: Flutter clean & pub get
         run: |
           flutter clean
           flutter pub get
 
-      # 4) build your iOS simulator binary
+      # 4) Build for iOS Simulator
       - name: Build iOS Simulator (no codesign)
         run: flutter build ios --simulator --no-codesign
 
-      # 5) zip up the .app bundle
+      # 5) Zip up the .app into a runner-sim.zip
       - name: Zip Simulator App
         run: |
           cd build/ios/iphonesimulator
-          zip -r Runner-sim.zip Runner.app
+          zip -qr Runner-sim.zip Runner.app
 
-      # 6) upload the .zip as a workflow artifact (pin to v2.3.1)
+      # 6) Upload the zip as a workflow artifact
       - name: Upload simulator .zip
-        uses: actions/upload-artifact@v2.3.1
+        uses: actions/upload-artifact@v3
         with:
           name: ios-simulator-app
           path: build/ios/iphonesimulator/Runner-sim.zip
+
+      # 7) Verification (optional)
+      - name: Verify artifact exists
+        run: ls -lh build/ios/iphonesimulator/Runner-sim.zip
