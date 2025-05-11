@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: read      # for actions/checkout
-  actions: read       # to download marketplace Actions
+  actions: write      # to download marketplace Actions
   id-token: write     # (optional)
 
 jobs:
