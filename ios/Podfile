@@ -1,3 +1,4 @@
+# ios/Podfile
 source 'https://cdn.cocoapods.org/'
 
 platform :ios, '13.0'
@@ -14,10 +15,11 @@ target 'Runner' do
   use_frameworks! :linkage => :static
   use_modular_headers!
 
-  # 1) Pin just the Core subspec so FirebaseAuth’s CocoaPod dep (<5.0, >=3.4) is satisfied:
+  # Pin both GTMSessionFetcher/Full and /Core at 1.5.0 so FirebaseAuth’s (<5.0,>=3.4) constraint is satisfied
+  pod 'GTMSessionFetcher/Full', '1.5.0'
   pod 'GTMSessionFetcher/Core', '1.5.0'
 
-  # 2) Then install all of the Flutter plugin pods (Firebase, Stripe, etc):
+  # Then all Flutter plugins (Firebase, Stripe, etc)
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
