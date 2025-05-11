@@ -37,9 +37,9 @@ jobs:
           cd build/ios/iphonesimulator
           zip -r Runner-sim.zip Runner.app
 
-      # 6) upload the .zip as a workflow artifact
+      # 6) upload the .zip as a workflow artifact (pin to a v3 patch)
       - name: Upload artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3.1.2
         with:
           name: ios-simulator-app
           path: build/ios/iphonesimulator/Runner-sim.zip
