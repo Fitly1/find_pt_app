@@ -3,7 +3,7 @@ workflows:
     name: Build iOS
 
     environment:
-      flutter: "3.19.0"    # use latest stable
+      flutter: latest    # use latest stable
       xcode: latest
 
     scripts:
