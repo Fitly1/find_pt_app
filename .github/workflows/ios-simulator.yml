@@ -11,29 +11,35 @@ jobs:
     runs-on: macos-latest
 
     steps:
+      # 1) grab your code
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      # 2) set up Flutter
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.19.0'
 
+      # 3) install Dart/Flutter deps
       - name: Flutter clean & pub get
         run: |
           flutter clean
           flutter pub get
 
+      # 4) build your iOS simulator binary
       - name: Build iOS Simulator (no codesign)
         run: flutter build ios --simulator --no-codesign
 
+      # 5) zip up the .app bundle
       - name: Zip Simulator App
         run: |
           cd build/ios/iphonesimulator
           zip -r Runner-sim.zip Runner.app
 
+      # 6) upload the .zip as a workflow artifact (pin to v2.3.1)
       - name: Upload simulator .zip
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v2.3.1
         with:
           name: ios-simulator-app
           path: build/ios/iphonesimulator/Runner-sim.zip
