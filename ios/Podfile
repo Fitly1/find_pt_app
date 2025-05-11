@@ -15,38 +15,38 @@ target 'Runner' do
   use_frameworks! :linkage => :static
   use_modular_headers!
 
+  # Install all Flutter pods
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
 post_install do |installer|
   installer.pods_project.targets.each do |target|
+    # 1) Enforce iOS 13+
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '13.0'
 
-      # Strip -G… from all OTHER_* settings
+      # 2) Globally strip any "-G…" flags from OTHER_* settings
       config.build_settings.keys.grep(/^OTHER_/).each do |key|
         val = config.build_settings[key]
-        if val.is_a?(String)
-          config.build_settings[key] = val
-            .split
-            .reject { |f| f.start_with?('-G') }
-            .join(' ')
-        end
+        next unless val.is_a?(String)
+        config.build_settings[key] = val
+          .split
+          .reject { |f| f.start_with?('-G') }
+          .join(' ')
       end
     end
 
-    # Strip -G… from every per-file COMPILER_FLAGS
+    # 3) Strip any "-G…" from per-file COMPILER_FLAGS
     target.source_build_phases&.each do |phase|
       phase.files.each do |file|
         next unless file.respond_to?(:settings)
         flags = file.settings['COMPILER_FLAGS']
-        if flags.is_a?(String)
-          file.settings['COMPILER_FLAGS'] = flags
-            .split
-            .reject { |f| f.start_with?('-G') }
-            .join(' ')
-        end
+        next unless flags.is_a?(String)
+        file.settings['COMPILER_FLAGS'] = flags
+          .split
+          .reject { |f| f.start_with?('-G') }
+          .join(' ')
       end
     end
   end
