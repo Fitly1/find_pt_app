@@ -24,20 +24,18 @@ final Map<String, Color> categoryColors = {
   'Other': Colors.grey,
 };
 
-/// Define a brand color for consistency.
 const kBrandOrange = Color(0xFFFFA726);
 
 class TrainerHomePage extends StatefulWidget {
   final bool showProfileCompleteMessage;
-  final Map<String, dynamic>? trainerData; // Partial info from MarketplacePage
-  final bool viewAsCustomer; // When true, shows public view for customers
+  final Map<String, dynamic>? trainerData;
+  final bool viewAsCustomer;
 
-  const TrainerHomePage({
-    super.key,
-    this.showProfileCompleteMessage = false,
-    this.trainerData,
-    this.viewAsCustomer = false,
-  });
+  const TrainerHomePage(
+      {super.key,
+      this.showProfileCompleteMessage = false,
+      this.trainerData,
+      this.viewAsCustomer = false});
 
   @override
   TrainerHomePageState createState() => TrainerHomePageState();
@@ -54,8 +52,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Your profile is complete!")),
-        );
+            const SnackBar(content: Text("Your profile is complete!")));
       });
     }
     _fetchCurrentUserRole();
@@ -80,7 +77,6 @@ class TrainerHomePageState extends State<TrainerHomePage> {
     }
   }
 
-  /// Helper function to format the hourly rate string.
   String formatRate(dynamic rate) {
     if (rate == null || (rate is num && rate <= 0)) {
       return "Rate not set";
@@ -102,7 +98,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
         setState(() {
           trainerProfile = {
             ...snapshot.data() as Map<String, dynamic>,
-            "uid": snapshot.id,
+            "uid": snapshot.id
           };
         });
         debugPrint("Fetched trainer profile: ${trainerProfile.toString()}");
@@ -161,7 +157,6 @@ class TrainerHomePageState extends State<TrainerHomePage> {
     final customerUid = currentUser.uid;
     final conversationsCollection =
         FirebaseFirestore.instance.collection("conversations");
-
     try {
       QuerySnapshot query = await conversationsCollection
           .where("participants", arrayContains: customerUid)
@@ -194,7 +189,8 @@ class TrainerHomePageState extends State<TrainerHomePage> {
         Navigator.push(
           context,
           MaterialPageRoute(
-              builder: (_) => ChatPage(conversationId: conversationId!)),
+            builder: (_) => ChatPage(conversationId: conversationId!),
+          ),
         );
       });
     } catch (e) {
@@ -218,7 +214,6 @@ class TrainerHomePageState extends State<TrainerHomePage> {
       debugPrint("No trainer UID found—cannot submit review.");
       return;
     }
-
     String reviewerName = "Anonymous";
     try {
       final userDoc = await FirebaseFirestore.instance
@@ -232,7 +227,6 @@ class TrainerHomePageState extends State<TrainerHomePage> {
     } catch (e) {
       debugPrint("Error fetching user displayName: $e");
     }
-
     final reviewData = {
       'customerId': currentUser.uid,
       'reviewerName': reviewerName,
@@ -251,6 +245,62 @@ class TrainerHomePageState extends State<TrainerHomePage> {
     } catch (e) {
       debugPrint("Error submitting review: $e");
     }
+  }
+
+  // REPORT-DIALOG
+  void _showReportDialog() {
+    final reasonController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text("Report Trainer"),
+        content: TextField(
+          controller: reasonController,
+          maxLines: 3,
+          decoration: const InputDecoration(hintText: "Reason for reporting"),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final reason = reasonController.text.trim();
+              if (reason.isEmpty) return;
+              final messenger = ScaffoldMessenger.of(context);
+              Navigator.of(context).pop();
+              final user = FirebaseAuth.instance.currentUser;
+              final tid = trainerProfile['uid'];
+              if (user == null || tid == null) return;
+              await FirebaseFirestore.instance.collection('reports').add({
+                'reportedBy': user.uid,
+                'reportedItemId': tid,
+                'reportedType': 'trainer',
+                'reason': reason,
+                'timestamp': FieldValue.serverTimestamp(),
+              });
+              final count = (await FirebaseFirestore.instance
+                      .collection('reports')
+                      .where('reportedItemId', isEqualTo: tid)
+                      .where('reportedType', isEqualTo: 'trainer')
+                      .get())
+                  .docs
+                  .length;
+              await FirebaseFirestore.instance
+                  .collection('trainer_profiles')
+                  .doc(tid)
+                  .set({'reportCount': count, if (count >= 3) 'flagged': true},
+                      SetOptions(merge: true));
+              if (!mounted) return;
+              messenger.showSnackBar(
+                  const SnackBar(content: Text("Trainer reported.")));
+            },
+            child: const Text("Submit"),
+          ),
+        ],
+      ),
+    );
   }
 
   Map<String, String> _parseLocation(String? location) {
@@ -302,8 +352,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text("$reviewerName left a review.")),
-              );
+                  SnackBar(content: Text("$reviewerName left a review.")));
             });
           },
           child: Container(
@@ -311,7 +360,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
             color: Colors.greenAccent,
             padding: const EdgeInsets.all(8.0),
             child: Text(
-              "New review from $reviewerName. Tap to acknowledge.",
+              "New review from $reviewerName. Tap here.",
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ),
@@ -334,19 +383,14 @@ class TrainerHomePageState extends State<TrainerHomePage> {
   Widget build(BuildContext context) {
     final User? currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
-      return const Scaffold(
-        body: Center(child: Text("No user found")),
-      );
+      return const Scaffold(body: Center(child: Text("No user found")));
     }
     if (currentUserRole == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    // Use the properly formatted displayName from Firestore if available.
+
     String displayName =
         trainerProfile["displayName"] ?? currentUser.displayName ?? "Trainer";
-
     final parsedLocation = _parseLocation(trainerProfile["location"]);
     final suburb = parsedLocation["suburb"]!;
     final state = parsedLocation["state"]!;
@@ -362,7 +406,16 @@ class TrainerHomePageState extends State<TrainerHomePage> {
           },
         ),
         title: Text(displayName, style: const TextStyle(color: Colors.white)),
-        backgroundColor: const Color(0xFFFFA726),
+        backgroundColor: kBrandOrange,
+        actions: [
+          // REPORT ICON
+          IconButton(
+            icon: const Icon(Icons.flag_outlined,
+                color: Colors.white), // Use an outlined flag icon
+            tooltip: 'Report Trainer',
+            onPressed: _showReportDialog, // Call the report dialog when pressed
+          ),
+        ],
       ),
       backgroundColor: Colors.white,
       body: SingleChildScrollView(
@@ -430,10 +483,9 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                             if (snapshot.connectionState ==
                                 ConnectionState.waiting) {
                               return const SizedBox(
-                                height: 24,
-                                child:
-                                    Center(child: CircularProgressIndicator()),
-                              );
+                                  height: 24,
+                                  child: Center(
+                                      child: CircularProgressIndicator()));
                             }
                             if (snapshot.hasError) {
                               return const Text("Error loading rating");
@@ -468,19 +520,18 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                             text: TextSpan(
                               children: [
                                 const TextSpan(
-                                  text: "Experience: ",
-                                  style: TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.black),
-                                ),
+                                    text: "Experience: ",
+                                    style: TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.black)),
                                 TextSpan(
-                                  text: trainerProfile["experience"].toString(),
-                                  style: const TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.normal,
-                                      color: Colors.black),
-                                ),
+                                    text:
+                                        trainerProfile["experience"].toString(),
+                                    style: const TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.normal,
+                                        color: Colors.black)),
                               ],
                             ),
                           )
@@ -561,75 +612,76 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                       ],
                     ),
                   ),
+                  if (trainerProfile["workImageUrls"] != null &&
+                      (trainerProfile["workImageUrls"] as List).isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16.0, vertical: 8.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text("Trainer Portfolio",
+                              style: TextStyle(
+                                  fontSize: 20, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 8),
+                          GridView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: (trainerProfile["workImageUrls"] as List)
+                                .length,
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 3,
+                              crossAxisSpacing: 8,
+                              mainAxisSpacing: 8,
+                            ),
+                            itemBuilder: (context, index) {
+                              String imageUrl =
+                                  trainerProfile["workImageUrls"][index];
+                              return GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          FullScreenImage(imageUrl: imageUrl),
+                                    ),
+                                  );
+                                },
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.network(
+                                    imageUrl,
+                                    height: 100,
+                                    width: 100,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return Image.asset(
+                                        'assets/default_profile.png',
+                                        height: 100,
+                                        width: 100,
+                                        fit: BoxFit.cover,
+                                      );
+                                    },
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    const Padding(
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                      child: Text("No work images available.",
+                          style: TextStyle(
+                              fontSize: 16, fontStyle: FontStyle.italic)),
+                    ),
                 ],
               ),
             ),
-            // Trainer Portfolio Section.
-            if (trainerProfile["workImageUrls"] != null &&
-                (trainerProfile["workImageUrls"] as List).isNotEmpty)
-              Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text("Trainer Portfolio",
-                        style: TextStyle(
-                            fontSize: 20, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
-                    GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount:
-                          (trainerProfile["workImageUrls"] as List).length,
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        crossAxisSpacing: 8,
-                        mainAxisSpacing: 8,
-                      ),
-                      itemBuilder: (context, index) {
-                        String imageUrl =
-                            trainerProfile["workImageUrls"][index];
-                        return GestureDetector(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) =>
-                                      FullScreenImage(imageUrl: imageUrl)),
-                            );
-                          },
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: Image.network(
-                              imageUrl,
-                              height: 100,
-                              width: 100,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Image.asset(
-                                  'assets/default_profile.png',
-                                  height: 100,
-                                  width: 100,
-                                  fit: BoxFit.cover,
-                                );
-                              },
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              )
-            else
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                child: Text("No work images available.",
-                    style:
-                        TextStyle(fontSize: 16, fontStyle: FontStyle.italic)),
-              ),
             if (trainerProfile["uid"] != null &&
                 trainerProfile["uid"] != currentUser.uid &&
                 currentUserRole != null &&
@@ -648,7 +700,8 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                     textStyle: const TextStyle(
                         fontSize: 20, fontWeight: FontWeight.w600),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
                   ),
                   onPressed: () {
                     final trainerUid = trainerProfile["uid"];
@@ -675,28 +728,25 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                         onSubmit: (int rating, String comment) async {
                           if (rating <= 0 || comment.trim().isEmpty) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                  content: Text(
-                                      "Please provide a rating and a review comment.")),
-                            );
+                                const SnackBar(
+                                    content: Text(
+                                        "Please provide a rating and a review comment.")));
                             return;
                           }
                           final messenger = ScaffoldMessenger.of(context);
                           await _submitReview(rating: rating, comment: comment);
                           if (!mounted) return;
-                          messenger.showSnackBar(
-                            const SnackBar(content: Text("Review submitted!")),
-                          );
+                          messenger.showSnackBar(const SnackBar(
+                              content: Text("Review submitted!")));
                           setState(() {}); // Refresh stats/reviews if needed.
                         },
                       ),
                     )
                   : Padding(
                       padding: const EdgeInsets.all(16.0),
-                      child: Text(
-                        "Please verify your email to leave a review.",
-                        style: TextStyle(color: Colors.red[700], fontSize: 16),
-                      ),
+                      child: Text("Please verify your email to leave a review.",
+                          style:
+                              TextStyle(color: Colors.red[700], fontSize: 16)),
                     ),
           ],
         ),
@@ -709,6 +759,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
 
 class ReviewForm extends StatefulWidget {
   final Future<void> Function(int rating, String comment) onSubmit;
+
   const ReviewForm({super.key, required this.onSubmit});
 
   @override
@@ -725,10 +776,8 @@ class _ReviewFormState extends State<ReviewForm> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          "Submit Your Review",
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
+        const Text("Submit Your Review",
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         Row(
           children: List.generate(5, (index) {
@@ -751,9 +800,7 @@ class _ReviewFormState extends State<ReviewForm> {
         TextField(
           controller: _commentController,
           decoration: const InputDecoration(
-            labelText: "Your review",
-            border: OutlineInputBorder(),
-          ),
+              labelText: "Your review", border: OutlineInputBorder()),
           maxLines: 3,
         ),
         const SizedBox(height: 8),
@@ -763,11 +810,9 @@ class _ReviewFormState extends State<ReviewForm> {
               : () async {
                   if (_selectedRating <= 0 ||
                       _commentController.text.trim().isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                          content: Text(
-                              "Please provide a rating and a review comment.")),
-                    );
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text(
+                            "Please provide a rating and a review comment.")));
                     return;
                   }
                   setState(() {
@@ -783,8 +828,7 @@ class _ReviewFormState extends State<ReviewForm> {
                     _isSubmitting = false;
                   });
                   messenger.showSnackBar(
-                    const SnackBar(content: Text("Review submitted!")),
-                  );
+                      const SnackBar(content: Text("Review submitted!")));
                 },
           child: _isSubmitting
               ? const CircularProgressIndicator()
@@ -803,6 +847,7 @@ class _ReviewFormState extends State<ReviewForm> {
 
 class FullScreenImage extends StatelessWidget {
   final String imageUrl;
+
   const FullScreenImage({super.key, required this.imageUrl});
 
   @override

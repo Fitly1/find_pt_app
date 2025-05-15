@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:multi_select_flutter/multi_select_flutter.dart';
+
 import 'marketplace_page.dart';
 import 'trainer_home_page.dart';
 
-/// Predefined specialties with their corresponding colors.
 const Map<String, Color> specialtiesMap = {
   'Strength Training': Colors.blue,
   'Recovery': Colors.green,
@@ -35,110 +35,108 @@ class TrainerProfileSetupPage extends StatefulWidget {
 
 class TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
   final _formKey = GlobalKey<FormState>();
-
-  // Controllers for text fields.
   final TextEditingController _descriptionController = TextEditingController();
   final TextEditingController _locationController = TextEditingController();
   final TextEditingController _rateController = TextEditingController();
 
-  // For specialties selection.
   List<String> _selectedSpecialties = [];
-  final List<String> _allSpecialties = [
-    'Strength Training',
-    'Recovery',
-    'Yoga',
-    'Group Training',
-    'Pilates',
-    'Cardio',
-    'HIIT',
-    'Endurance',
-    'Aerobics',
-    'CrossFit',
-    'Dance Fitness',
-    'Martial Arts',
-    'Weight Loss',
-    'Pre/Post Pregnancy',
-    'Other'
-  ];
-
-  // Training Methods selection: "Online" or "Face-to-Face".
+  final List<String> _allSpecialties = specialtiesMap.keys.toList();
   final List<String> _selectedMethods = [];
 
   bool _isSaving = false;
-  final int _selectedIndex = 2; // Default to Profile tab
+  final int _selectedIndex = 2;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkUserRole();
+  }
+
+  Future<void> _checkUserRole() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final DocumentSnapshot userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+
+      // Ensure the widget is still mounted before using context
+      if (!mounted) return;
+
+      if (userDoc.exists && userDoc['role'] != 'trainer') {
+        // Redirect to MarketplacePage if the user role is not trainer
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const MarketplacePage()),
+        );
+      }
+    }
+  }
 
   Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() {
-      _isSaving = true;
-    });
+    setState(() => _isSaving = true);
 
     try {
-      User? user = FirebaseAuth.instance.currentUser;
+      final User? user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
-      // Retrieve the user's full name from the "users" collection.
-      DocumentSnapshot userDoc = await FirebaseFirestore.instance
+      final DocumentSnapshot userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .get();
+
       String displayName = "No Name";
       if (userDoc.exists) {
         final data = userDoc.data() as Map<String, dynamic>;
         String firstName = data["firstName"] ?? "";
         String lastName = data["lastName"] ?? "";
-        if (firstName.trim().isNotEmpty || lastName.trim().isNotEmpty) {
-          displayName = "$firstName $lastName".trim();
-        } else {
-          displayName = data["displayName"] ?? "No Name";
-        }
+        displayName = "$firstName $lastName".trim().isNotEmpty
+            ? "$firstName $lastName".trim()
+            : (data["displayName"] ?? "No Name");
       }
 
-      // For now, we leave the profile image URL empty.
-      String imageUrl = "";
-
-      // Save the trainer profile.
       await FirebaseFirestore.instance
           .collection("trainer_profiles")
           .doc(user.uid)
           .set({
-        "name": displayName, // Save the full name.
+        "name": displayName,
         "description": _descriptionController.text.trim(),
         "location": _locationController.text.trim(),
         "rate": double.tryParse(_rateController.text.trim()) ?? 0.0,
         "specialties": _selectedSpecialties,
-        "profileImageUrl": imageUrl,
+        "profileImageUrl": "",
         "trainingMethods": _selectedMethods,
         "completed": true,
       }, SetOptions(merge: true));
 
-      print("✅ Trainer profile saved successfully for UID: ${user.uid}");
-      print("Saved specialties: $_selectedSpecialties");
-      print("Saved training methods: $_selectedMethods");
+      print("✅ Trainer profile saved for UID: ${user.uid}");
 
-      if (!mounted) return;
-      setState(() {
-        _isSaving = false;
-      });
+      if (!mounted) return; // Check if the widget is still mounted
+
+      setState(() => _isSaving = false);
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Profile saved successfully!")),
       );
 
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const TrainerHomePage()),
-      );
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const TrainerHomePage()),
+        );
+      }
     } catch (e) {
       print("❌ Error saving profile: $e");
-      if (!mounted) return;
+
+      if (!mounted) return; // Check if the widget is still mounted
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Failed to save profile: ${e.toString()}")),
       );
-      setState(() {
-        _isSaving = false;
-      });
+
+      setState(() => _isSaving = false);
     }
   }
 
@@ -161,12 +159,81 @@ class TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
     }
   }
 
+  Future<void> _showReportDialog() async {
+    final TextEditingController reasonController = TextEditingController();
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    showDialog(
+      context: context,
+      builder: (_) {
+        return AlertDialog(
+          title: const Text("Report Trainer"),
+          content: TextField(
+            controller: reasonController,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              hintText: "Why are you reporting this trainer?",
+            ),
+          ),
+          actions: [
+            TextButton(
+              child: const Text("Cancel"),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            ElevatedButton(
+              child: const Text("Submit"),
+              onPressed: () async {
+                final String reason = reasonController.text.trim();
+                if (reason.isEmpty) return;
+
+                Navigator.of(context).pop(); // Close the dialog
+
+                final User? user = FirebaseAuth.instance.currentUser;
+                final String? trainerId = user?.uid;
+
+                try {
+                  await FirebaseFirestore.instance.collection('reports').add({
+                    'reportedBy': user?.uid ?? 'unknown',
+                    'reportedItemId': trainerId,
+                    'reportedType': 'trainer',
+                    'reason': reason,
+                    'timestamp': FieldValue.serverTimestamp(),
+                  });
+
+                  if (mounted) {
+                    scaffoldMessenger.showSnackBar(
+                      const SnackBar(content: Text("Trainer reported.")),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    scaffoldMessenger.showSnackBar(
+                      SnackBar(
+                          content: Text("Error reporting: ${e.toString()}")),
+                    );
+                  }
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Trainer Profile Setup"),
         backgroundColor: Colors.blueAccent,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.flag),
+            tooltip: 'Report this trainer',
+            onPressed: _showReportDialog,
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
