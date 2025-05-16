@@ -31,11 +31,12 @@ class TrainerHomePage extends StatefulWidget {
   final Map<String, dynamic>? trainerData;
   final bool viewAsCustomer;
 
-  const TrainerHomePage(
-      {super.key,
-      this.showProfileCompleteMessage = false,
-      this.trainerData,
-      this.viewAsCustomer = false});
+  const TrainerHomePage({
+    super.key,
+    this.showProfileCompleteMessage = false,
+    this.trainerData,
+    this.viewAsCustomer = false,
+  });
 
   @override
   TrainerHomePageState createState() => TrainerHomePageState();
@@ -157,6 +158,9 @@ class TrainerHomePageState extends State<TrainerHomePage> {
     final customerUid = currentUser.uid;
     final conversationsCollection =
         FirebaseFirestore.instance.collection("conversations");
+
+    debugPrint("Message button pressed for trainer UID: $trainerUid");
+
     try {
       QuerySnapshot query = await conversationsCollection
           .where("participants", arrayContains: customerUid)
@@ -168,6 +172,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
         if (participants.contains(trainerUid) &&
             participants.contains(customerUid)) {
           conversationId = doc.id;
+          debugPrint("Found existing conversation ID: $conversationId");
           break;
         }
       }
@@ -247,7 +252,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
     }
   }
 
-  // REPORT-DIALOG
+  // Report dialog
   void _showReportDialog() {
     final reasonController = TextEditingController();
     showDialog(
@@ -410,10 +415,9 @@ class TrainerHomePageState extends State<TrainerHomePage> {
         actions: [
           // REPORT ICON
           IconButton(
-            icon: const Icon(Icons.flag_outlined,
-                color: Colors.white), // Use an outlined flag icon
+            icon: const Icon(Icons.flag_outlined, color: Colors.white),
             tooltip: 'Report Trainer',
-            onPressed: _showReportDialog, // Call the report dialog when pressed
+            onPressed: _showReportDialog,
           ),
         ],
       ),
@@ -706,6 +710,8 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                   onPressed: () {
                     final trainerUid = trainerProfile["uid"];
                     if (trainerUid != null) {
+                      debugPrint(
+                          "Message button pressed for trainer UID: $trainerUid");
                       _messageTrainer(trainerUid);
                     } else {
                       debugPrint("Trainer UID not found in trainerProfile.");

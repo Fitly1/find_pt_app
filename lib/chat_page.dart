@@ -21,9 +21,8 @@ class _ChatPageState extends State<ChatPage> {
   String? _otherUserId;
   String _otherDisplayName = "Loading...";
   String _otherImageUrl = "";
-  bool _isOtherTrainer =
-      false; // true if other user's data was found in trainer_profiles
-  bool _hasListing = false; // true if the conversation has a listing attached
+  bool _isOtherTrainer = false;
+  bool _hasListing = false;
 
   @override
   void initState() {
@@ -32,7 +31,6 @@ class _ChatPageState extends State<ChatPage> {
     _markConversationAsRead();
   }
 
-  /// Mark the conversation as read by removing the current user's UID from unreadBy.
   Future<void> _markConversationAsRead() async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) return;
@@ -43,14 +41,11 @@ class _ChatPageState extends State<ChatPage> {
           .update({
         "unreadBy": FieldValue.arrayRemove([currentUser.uid])
       });
-      debugPrint(
-          "Conversation ${widget.conversationId} marked as read for ${currentUser.uid}.");
     } catch (e) {
       debugPrint("Error marking conversation as read: $e");
     }
   }
 
-  /// Fetch conversation doc, determine listing context, find the "other" participant, then fetch their profile.
   Future<void> _loadConversationData() async {
     try {
       final conversationDoc = await FirebaseFirestore.instance
@@ -58,40 +53,25 @@ class _ChatPageState extends State<ChatPage> {
           .doc(widget.conversationId)
           .get();
 
-      if (!conversationDoc.exists) {
-        debugPrint("Conversation ${widget.conversationId} does not exist.");
-        return;
-      }
+      if (!conversationDoc.exists) return;
 
       final data = conversationDoc.data() as Map<String, dynamic>;
 
-      // Set listing flag based on presence of a listingId field.
       setState(() {
         _hasListing = data["listingId"] != null &&
             (data["listingId"] as String).isNotEmpty;
       });
 
       final List<dynamic> participants = data["participants"] ?? [];
-
-      if (participants.isEmpty) {
-        debugPrint(
-            "No participants found in conversation ${widget.conversationId}.");
-        return;
-      }
-
       final currentUid = FirebaseAuth.instance.currentUser?.uid;
-      if (currentUid == null) {
-        debugPrint("No current user logged in.");
-        return;
-      }
 
-      // Determine the other user's UID.
+      debugPrint("Current User ID: $currentUid");
+      debugPrint("Participants: ${participants.toString()}");
+
       _otherUserId = (participants.first == currentUid)
           ? participants.last
           : participants.first;
-      debugPrint("Other user ID: $_otherUserId");
 
-      // Attempt to fetch from trainer_profiles first.
       DocumentSnapshot userDoc = await FirebaseFirestore.instance
           .collection("trainer_profiles")
           .doc(_otherUserId)
@@ -100,7 +80,6 @@ class _ChatPageState extends State<ChatPage> {
       if (userDoc.exists) {
         _isOtherTrainer = true;
       } else {
-        // Fallback to users collection.
         userDoc = await FirebaseFirestore.instance
             .collection("users")
             .doc(_otherUserId)
@@ -109,7 +88,6 @@ class _ChatPageState extends State<ChatPage> {
       }
 
       if (!userDoc.exists) {
-        debugPrint("No profile document found for user $_otherUserId.");
         setState(() {
           _otherDisplayName = "Unknown User";
           _otherImageUrl = "";
@@ -119,111 +97,39 @@ class _ChatPageState extends State<ChatPage> {
 
       final userData = userDoc.data() as Map<String, dynamic>;
       setState(() {
-        // Prefer displayName if available; otherwise, build from firstName + lastName.
         _otherDisplayName = userData["displayName"] ??
             ("${userData["firstName"] ?? ""} ${userData["lastName"] ?? ""}")
                 .trim();
         _otherImageUrl = userData["profileImageUrl"] ?? "";
       });
-      debugPrint("Loaded other user's display name: $_otherDisplayName");
     } catch (e) {
       debugPrint("Error loading conversation data: $e");
     }
   }
 
-  /// Navigate based on listing context and user role.
-  void _navigateToOtherProfile() {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null || _otherUserId == null) return;
-
-    // If the other user is a trainer, then current user is a customer.
-    if (_isOtherTrainer) {
-      // For customers: always go to trainer profile page.
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => TrainerHomePage(
-            trainerData: {
-              "uid": _otherUserId,
-              "displayName": _otherDisplayName,
-              "profileImageUrl": _otherImageUrl,
-            },
-            viewAsCustomer: true,
-          ),
-        ),
-      );
-    } else {
-      // Otherwise, current user is a personal trainer and the other is a customer.
-      if (_hasListing) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const MarketplacePage(),
-          ),
-        );
-      } else {
-        // No listing exists. Show a pop-up message.
-        showDialog(
-          context: context,
-          builder: (context) {
-            return AlertDialog(
-              title: const Text("No Listing Found"),
-              content: const Text(
-                  "Customer didn't create a listing. Chat to clarify their training needs?"),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text("OK"),
-                ),
-              ],
-            );
-          },
-        );
-      }
-    }
-  }
-
-  /// Send a new message and update conversation doc.
   void _sendMessage() async {
     final messageText = _messageController.text.trim();
-    if (messageText.isEmpty) {
-      debugPrint("Attempted to send an empty message.");
-      return;
-    }
+    if (messageText.isEmpty) return;
 
     final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) {
-      debugPrint("No current user logged in when sending a message.");
-      return;
-    }
+    if (currentUser == null) return;
 
-    debugPrint(
-        "Sending message: '$messageText' from user ${currentUser.uid} in conversation ${widget.conversationId}");
-    debugPrint("Recipient (_otherUserId): $_otherUserId");
-
-    // ADDING 'recipientId' FIELD HERE
     final messageData = {
       "senderId": currentUser.uid,
-      "recipientId": _otherUserId, // <--- NEW FIELD
+      "recipientId": _otherUserId,
       "message": messageText,
       "timestamp": FieldValue.serverTimestamp(),
     };
 
     try {
-      // 1. Add the message to the subcollection.
       await FirebaseFirestore.instance
           .collection("conversations")
           .doc(widget.conversationId)
           .collection("messages")
           .add(messageData);
 
-      // 2. Update the conversation doc:
-      //    - lastMessage
-      //    - timestamp
-      //    - add the OTHER user's UID to `unreadBy`
+      // Update last message
       if (_otherUserId != null && _otherUserId != currentUser.uid) {
-        debugPrint(
-            "Adding $_otherUserId to unreadBy for conversation ${widget.conversationId}");
         await FirebaseFirestore.instance
             .collection("conversations")
             .doc(widget.conversationId)
@@ -233,8 +139,6 @@ class _ChatPageState extends State<ChatPage> {
           "unreadBy": FieldValue.arrayUnion([_otherUserId]),
         });
       } else {
-        debugPrint(
-            "No valid recipient. Updating doc without unreadBy arrayUnion.");
         await FirebaseFirestore.instance
             .collection("conversations")
             .doc(widget.conversationId)
@@ -251,7 +155,6 @@ class _ChatPageState extends State<ChatPage> {
     _scrollToBottom();
   }
 
-  /// Scroll the message list to the bottom.
   void _scrollToBottom() {
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollController.hasClients) {
@@ -262,6 +165,74 @@ class _ChatPageState extends State<ChatPage> {
         );
       }
     });
+  }
+
+  void _showReportDialog() {
+    final TextEditingController reasonController = TextEditingController();
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Report User"),
+        content: TextField(
+          controller: reasonController,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            hintText: "Why are you reporting this user?",
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            child: const Text("Submit"),
+            onPressed: () async {
+              final reason = reasonController.text.trim();
+              if (reason.isEmpty) return;
+
+              Navigator.of(context).pop();
+
+              final currentUser = FirebaseAuth.instance.currentUser;
+              if (_otherUserId == null || currentUser == null) return;
+
+              await FirebaseFirestore.instance.collection('reports').add({
+                'reportedBy': currentUser.uid,
+                'reportedItemId': _otherUserId,
+                'reportedType': _isOtherTrainer ? 'trainer' : 'customer',
+                'reason': reason,
+                'timestamp': FieldValue.serverTimestamp(),
+              });
+
+              final reportSnapshot = await FirebaseFirestore.instance
+                  .collection('reports')
+                  .where('reportedItemId', isEqualTo: _otherUserId)
+                  .where('reportedType',
+                      isEqualTo: _isOtherTrainer ? 'trainer' : 'customer')
+                  .get();
+
+              final reportCount = reportSnapshot.docs.length;
+              final targetCollection =
+                  _isOtherTrainer ? 'trainer_profiles' : 'users';
+
+              await FirebaseFirestore.instance
+                  .collection(targetCollection)
+                  .doc(_otherUserId)
+                  .set({
+                'reportCount': reportCount,
+                if (reportCount >= 3) 'flagged': true,
+              }, SetOptions(merge: true));
+
+              scaffoldMessenger.showSnackBar(
+                const SnackBar(content: Text("User reported.")),
+              );
+            },
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -279,7 +250,11 @@ class _ChatPageState extends State<ChatPage> {
           automaticallyImplyLeading: false,
           elevation: 0,
           actions: [
-            // Button to navigate to the other participant's profile or listing
+            IconButton(
+              icon: const Icon(Icons.flag, color: Colors.white),
+              tooltip: 'Report User',
+              onPressed: _showReportDialog,
+            ),
             IconButton(
               icon: const Icon(Icons.account_circle, color: Colors.white),
               onPressed: _navigateToOtherProfile,
@@ -311,10 +286,6 @@ class _ChatPageState extends State<ChatPage> {
                           ? NetworkImage(_otherImageUrl)
                           : const AssetImage("assets/default_profile.png")
                               as ImageProvider,
-                      onBackgroundImageError: (error, stackTrace) {
-                        debugPrint(
-                            "Error loading image for user $_otherUserId: $error");
-                      },
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -337,29 +308,25 @@ class _ChatPageState extends State<ChatPage> {
       ),
       body: Column(
         children: [
-          // Message list
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: messagesQuery.snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
-                  debugPrint("Error retrieving messages: ${snapshot.error}");
                   return Center(child: Text("Error: ${snapshot.error}"));
                 }
                 if (!snapshot.hasData) {
-                  debugPrint("Waiting for messages...");
                   return const Center(child: CircularProgressIndicator());
                 }
                 final docs = snapshot.data!.docs;
-                debugPrint(
-                    "Retrieved ${docs.length} messages for conversation ${widget.conversationId}");
                 if (docs.isEmpty) {
                   return const Center(child: Text("No messages yet."));
                 }
-                // Auto-scroll when new messages arrive.
+
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   _scrollToBottom();
                 });
+
                 return ListView.builder(
                   controller: _scrollController,
                   itemCount: docs.length,
@@ -371,14 +338,10 @@ class _ChatPageState extends State<ChatPage> {
                     final bool isMe =
                         senderId == FirebaseAuth.instance.currentUser?.uid;
 
-                    // Format timestamp
                     String timeString = "";
                     if (ts != null) {
                       final DateTime dt = ts.toDate();
                       timeString = DateFormat("h:mm a").format(dt);
-                    } else {
-                      debugPrint(
-                          "Message ${docs[index].id} missing timestamp.");
                     }
 
                     return _buildMessageBubble(
@@ -391,14 +354,12 @@ class _ChatPageState extends State<ChatPage> {
               },
             ),
           ),
-          // Message input field
           _buildMessageInput(),
         ],
       ),
     );
   }
 
-  /// Build a single message bubble with the message text and timestamp.
   Widget _buildMessageBubble({
     required String messageText,
     required bool isMe,
@@ -451,7 +412,6 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  /// Build the input field and send button.
   Widget _buildMessageInput() {
     return Container(
       color: Colors.grey[100],
@@ -476,5 +436,52 @@ class _ChatPageState extends State<ChatPage> {
         ],
       ),
     );
+  }
+
+  void _navigateToOtherProfile() {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null || _otherUserId == null) return;
+
+    if (_isOtherTrainer) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => TrainerHomePage(
+            trainerData: {
+              "uid": _otherUserId,
+              "displayName": _otherDisplayName,
+              "profileImageUrl": _otherImageUrl,
+            },
+            viewAsCustomer: true,
+          ),
+        ),
+      );
+    } else {
+      if (_hasListing) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const MarketplacePage(),
+          ),
+        );
+      } else {
+        showDialog(
+          context: context,
+          builder: (context) {
+            return AlertDialog(
+              title: const Text("No Listing Found"),
+              content: const Text(
+                  "Customer didn't create a listing. Chat to clarify their training needs?"),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("OK"),
+                ),
+              ],
+            );
+          },
+        );
+      }
+    }
   }
 }

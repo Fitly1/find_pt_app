@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'chat_page.dart' as chat; // Use alias for ChatPage
-import 'bottom_navigation.dart'; // Trainer nav
-import 'bottom_navigation_customers.dart'; // Customer nav
+import 'bottom_navigation.dart'; // Trainer navigation
+import 'bottom_navigation_customers.dart'; // Customer navigation
 import 'trainer_home_page.dart';
 import 'marketplace_page.dart'; // For customer back navigation
 import 'package:intl/intl.dart'; // For formatted time
@@ -17,8 +17,7 @@ class MessagesPage extends StatefulWidget {
 }
 
 class MessagesPageState extends State<MessagesPage> {
-  // Default role is 'customer'
-  String userRole = 'customer';
+  String userRole = 'customer'; // Default role is customer
 
   @override
   void initState() {
@@ -39,6 +38,7 @@ class MessagesPageState extends State<MessagesPage> {
     bool isTrainer = (userRole == 'trainer' ||
         userRole == 'personal trainer' ||
         userRole == 'personaltrainer');
+
     return isTrainer
         ? const BottomNavigation(currentIndex: 1)
         : const BottomNavigationCustomers(currentIndex: 1);
@@ -57,8 +57,7 @@ class MessagesPageState extends State<MessagesPage> {
     final conversationsQuery = FirebaseFirestore.instance
         .collection("conversations")
         .where("participants", arrayContains: currentUser.uid)
-        .orderBy("timestamp", descending: true)
-        .orderBy(FieldPath.documentId, descending: true);
+        .orderBy("timestamp", descending: true);
 
     return Scaffold(
       appBar: AppBar(
@@ -71,22 +70,15 @@ class MessagesPageState extends State<MessagesPage> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, size: 28, color: Colors.white),
           onPressed: () {
-            bool isTrainer = (userRole == 'trainer' ||
-                userRole == 'personal trainer' ||
-                userRole == 'personaltrainer');
-            if (isTrainer) {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                    builder: (context) => const TrainerHomePage()),
-              );
-            } else {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                    builder: (context) => const MarketplacePage()),
-              );
-            }
+            bool isTrainer =
+                userRole == 'trainer' || userRole == 'personal trainer';
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                  builder: (context) => isTrainer
+                      ? const TrainerHomePage()
+                      : const MarketplacePage()),
+            );
           },
         ),
       ),
@@ -122,7 +114,7 @@ class MessagesPageState extends State<MessagesPage> {
               final conversation = conversationDocs[index];
               final data = conversation.data() as Map<String, dynamic>;
 
-              final dynamic participants = data["participants"];
+              final participants = data["participants"];
               if (participants == null || participants is! List) {
                 debugPrint(
                     "Conversation ${conversation.id} has invalid 'participants': $participants");
@@ -134,6 +126,7 @@ class MessagesPageState extends State<MessagesPage> {
                 (p) => p != currentUser.uid,
                 orElse: () => null,
               );
+
               if (otherUid == null) {
                 debugPrint(
                     "Could not find another participant in conversation ${conversation.id}");
@@ -148,7 +141,7 @@ class MessagesPageState extends State<MessagesPage> {
               final formattedTime = DateFormat('h:mm a').format(time);
 
               // Unread indicator logic.
-              final dynamic unreadData = data["unreadBy"];
+              final unreadData = data["unreadBy"];
               final List<dynamic> unreadList =
                   (unreadData is List) ? unreadData : [];
               final bool isUnread = unreadList.contains(currentUser.uid);
