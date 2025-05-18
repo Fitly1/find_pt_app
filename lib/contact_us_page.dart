@@ -62,15 +62,15 @@ class ContactUsPage extends StatelessWidget {
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(15),
                           ),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(
                               horizontal: 20.0,
                               vertical: 30.0,
                             ),
                             child: Column(
                               children: [
                                 // Heading
-                                const Text(
+                                Text(
                                   'Need Assistance?',
                                   style: TextStyle(
                                     fontSize: 26,
@@ -78,9 +78,9 @@ class ContactUsPage extends StatelessWidget {
                                     color: Colors.black87,
                                   ),
                                 ),
-                                const SizedBox(height: 10),
+                                SizedBox(height: 10),
                                 // Body text
-                                const Text(
+                                Text(
                                   'For support or any inquiries, reach out to us:',
                                   style: TextStyle(
                                     fontSize: 18,
@@ -88,11 +88,11 @@ class ContactUsPage extends StatelessWidget {
                                   ),
                                   textAlign: TextAlign.center,
                                 ),
-                                const SizedBox(height: 20),
+                                SizedBox(height: 20),
                                 // Selectable Email Link (for copying)
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
-                                  children: const [
+                                  children: [
                                     Icon(
                                       Icons.email,
                                       color: Colors.blue,
@@ -109,9 +109,9 @@ class ContactUsPage extends StatelessWidget {
                                     ),
                                   ],
                                 ),
-                                const SizedBox(height: 20),
+                                SizedBox(height: 20),
                                 // Office Hours
-                                const Text(
+                                Text(
                                   'Office Hours: Mon - Fri, 9:00 AM - 5:00 PM',
                                   style: TextStyle(
                                     fontSize: 16,

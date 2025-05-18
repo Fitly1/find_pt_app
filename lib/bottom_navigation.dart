@@ -82,7 +82,7 @@ class BottomNavigation extends ConsumerWidget {
         nextPage = const TrainerHomePage(showProfileCompleteMessage: false);
         break;
       case 4:
-        nextPage = profile.ProfilePage();
+        nextPage = const profile.ProfilePage();
         break;
       default:
         nextPage = const MarketplacePage();

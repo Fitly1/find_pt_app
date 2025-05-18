@@ -852,7 +852,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("Training Method:",
+                  const Text("Training Method:",
                       style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
