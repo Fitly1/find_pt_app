@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cached_network_image/cached_network_image.dart'; // Import Cached Network Image
+import 'package:firebase_crashlytics/firebase_crashlytics.dart'; // Import Crashlytics for error logging
 
 class TrainerCard extends StatefulWidget {
   final String name;
@@ -61,14 +63,12 @@ class _TrainerCardState extends State<TrainerCard> {
   @override
   Widget build(BuildContext context) {
     // Combine firstName and lastName if available; otherwise use the provided name.
-    String displayName = '';
-    if (widget.trainerData["firstName"] != null) {
-      displayName = widget.trainerData["firstName"];
-      if (widget.trainerData["lastName"] != null &&
-          widget.trainerData["lastName"].toString().trim().isNotEmpty) {
-        displayName += " ${widget.trainerData["lastName"]}";
-      }
-    }
+    String displayName = (widget.trainerData["firstName"] ?? '') +
+        (widget.trainerData["lastName"] != null &&
+                widget.trainerData["lastName"].toString().trim().isNotEmpty
+            ? " ${widget.trainerData["lastName"]}"
+            : "");
+
     if (displayName.isEmpty) {
       displayName = widget.name.isNotEmpty ? widget.name : "Trainer";
     }
@@ -91,11 +91,16 @@ class _TrainerCardState extends State<TrainerCard> {
                     const BorderRadius.vertical(top: Radius.circular(12)),
                 child: (widget.profileImageUrl != null &&
                         widget.profileImageUrl!.isNotEmpty)
-                    ? Image.network(
-                        widget.profileImageUrl!,
+                    ? CachedNetworkImage(
+                        imageUrl: widget.profileImageUrl!,
                         fit: BoxFit.cover,
                         width: double.infinity,
-                        errorBuilder: (context, error, stackTrace) {
+                        errorWidget: (context, url, error) {
+                          FirebaseCrashlytics.instance.recordError(
+                            error,
+                            StackTrace.current,
+                            reason: 'Trainer profile image failed to load',
+                          );
                           return Image.asset(
                             'assets/default_profile.png',
                             fit: BoxFit.cover,

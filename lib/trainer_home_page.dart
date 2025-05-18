@@ -5,6 +5,8 @@ import 'bottom_navigation.dart';
 import 'trainer_reviews_section.dart';
 import 'chat_page.dart';
 import 'bottom_navigation_customers.dart';
+import 'package:cached_network_image/cached_network_image.dart'; // Import Cached Network Image
+import 'package:firebase_crashlytics/firebase_crashlytics.dart'; // Import Crashlytics for error logging
 
 final Map<String, Color> categoryColors = {
   'Strength Training': Colors.blue,
@@ -413,7 +415,6 @@ class TrainerHomePageState extends State<TrainerHomePage> {
         title: Text(displayName, style: const TextStyle(color: Colors.white)),
         backgroundColor: kBrandOrange,
         actions: [
-          // REPORT ICON
           IconButton(
             icon: const Icon(Icons.flag_outlined, color: Colors.white),
             tooltip: 'Report Trainer',
@@ -448,12 +449,17 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                             trainerProfile["profileImageUrl"]
                                 .toString()
                                 .isNotEmpty)
-                        ? Image.network(
-                            trainerProfile["profileImageUrl"],
+                        ? CachedNetworkImage(
+                            imageUrl: trainerProfile["profileImageUrl"],
                             height: 400,
                             width: double.infinity,
                             fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
+                            errorWidget: (context, url, error) {
+                              FirebaseCrashlytics.instance.recordError(
+                                error,
+                                StackTrace.current,
+                                reason: 'Profile image failed to load',
+                              );
                               return Image.asset(
                                 'assets/default_profile.png',
                                 height: 400,
@@ -511,7 +517,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                         ),
                         const SizedBox(height: 20),
                         Text(
-                          formatRate(trainerProfile["rate"]),
+                          formatRate(trainerProfile["rate"] ?? 0),
                           style: const TextStyle(fontSize: 20),
                         ),
                         const SizedBox(height: 20),
@@ -654,12 +660,12 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                                 },
                                 child: ClipRRect(
                                   borderRadius: BorderRadius.circular(8),
-                                  child: Image.network(
-                                    imageUrl,
+                                  child: CachedNetworkImage(
+                                    imageUrl: imageUrl,
                                     height: 100,
                                     width: 100,
                                     fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) {
+                                    errorWidget: (context, url, error) {
                                       return Image.asset(
                                         'assets/default_profile.png',
                                         height: 100,
@@ -865,9 +871,16 @@ class FullScreenImage extends StatelessWidget {
       ),
       body: Center(
         child: InteractiveViewer(
-          child: Image.network(
-            imageUrl,
+          child: CachedNetworkImage(
+            // Use CachedNetworkImage here
+            imageUrl: imageUrl,
             fit: BoxFit.contain,
+            errorWidget: (context, url, error) {
+              return Image.asset(
+                'assets/default_profile.png',
+                fit: BoxFit.contain,
+              );
+            },
           ),
         ),
       ),

@@ -1,19 +1,20 @@
-// Import Gen2 APIs for non-webhook routes and Firestore triggers 
-const { onRequest, onCall } = require("firebase-functions/v2/https");
+"use strict";
+
+// Import Gen2 APIs for non-webhook routes and triggers 
+const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const functions = require("firebase-functions"); // Use v1 import
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config(); // Loads local .env if present (for dev)
 
-const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 admin.initializeApp();
 
 // Retrieve the Stripe secret key from environment variables
 const STRIPE_SECRET_KEY =
   process.env.STRIPE_SECRET_KEY ||
-  functions.config().stripe.secret_key ||
   "";
 
 if (!STRIPE_SECRET_KEY) {
@@ -25,7 +26,6 @@ const stripe = require("stripe")(STRIPE_SECRET_KEY);
 // Retrieve the Stripe webhook secret from environment variables
 const WEBHOOK_SECRET =
   process.env.STRIPE_WEBHOOK_SECRET ||
-  functions.config().stripe.webhook_secret ||
   "";
 
 if (!WEBHOOK_SECRET) {
@@ -64,7 +64,6 @@ app.post("/createPaymentIntent", async (req, res) => {
     }
 
     const idempotencyKey = `pi_${trainerUid}_${amount}_${Date.now()}`;
-
     const paymentIntent = await stripe.paymentIntents.create(
       {
         amount,
@@ -144,6 +143,7 @@ exports.createPaymentRequest = onDocumentCreated(
         cancel_url: "https://fitly1.github.io/billing-redirect/redirect.html?type=cancel",
         customer_email: data.email || "",
       });
+
       await admin.firestore().doc(`stripe_payment_requests/${event.params.docId}`).update({
         url: session.url,
         sessionId: session.id,
@@ -263,11 +263,11 @@ exports.createBillingPortalSession = onCall(async (data, context) => {
   console.log("context.auth:", JSON.stringify(context.auth));
   
   if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated.');
+    throw new HttpsError('unauthenticated', 'User must be authenticated.');
   }
   const customerId = data.customerId;
   if (!customerId) {
-    throw new functions.https.HttpsError('invalid-argument', 'Customer ID is required.');
+    throw new HttpsError('invalid-argument', 'Customer ID is required.');
   }
   try {
     const session = await stripe.billingPortal.sessions.create({
@@ -278,7 +278,7 @@ exports.createBillingPortalSession = onCall(async (data, context) => {
     return { url: session.url };
   } catch (error) {
     console.error("Error creating billing portal session:", error);
-    throw new functions.https.HttpsError('internal', error.message);
+    throw new HttpsError('internal', error.message);
   }
 });
 
@@ -301,101 +301,114 @@ console.log("Using Webhook Secret:", WEBHOOK_SECRET);
 
 webhookApp.post("/", async (req, res) => {
   let event;
+  const sig = req.headers["stripe-signature"];
+  
   try {
-    event = stripe.webhooks.constructEvent(
-      req.rawBody,
-      req.headers["stripe-signature"],
-      WEBHOOK_SECRET
-    );
-    console.log("Webhook event received:", JSON.stringify(event.data.object));
-  } catch (err) {
-    console.error("Webhook signature verification failed.", err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+    event = stripe.webhooks.constructEvent(req.rawBody, sig, WEBHOOK_SECRET);
+  } catch (error) {
+    console.error("Webhook signature verification failed.", error.message);
+    return res.status(400).send(`Webhook Error: ${error.message}`);
   }
 
-  console.log("Received event type:", event.type);
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    if (session.mode === "subscription") {
+      const trainerId = session.metadata && session.metadata.trainerId;
+      const customerId = session.customer;
 
-  switch (event.type) {
-    case "checkout.session.completed": {
-      const session = event.data.object;
-      if (session.mode === "subscription") {
-        const trainerId = session.metadata && session.metadata.trainerId;
-        const customerId = session.customer;
-
-        // Only proceed if the user is a trainer
-        if (trainerId) {
-          const userDoc = await admin.firestore().collection('users').doc(trainerId).get();
-          if (userDoc.exists && userDoc.data().role === 'trainer') {
-            await admin.firestore().doc(`trainer_profiles/${trainerId}`).set(
-              {
-                isActive: true,
-                stripeId: customerId,
-              },
-              { merge: true }
-            );
-            console.log(`Subscription activated for trainer ${trainerId}`);
-          } else {
-            console.error("User is not a trainer; skipping profile creation.");
-          }
+      // Only proceed if the user is a trainer
+      if (trainerId) {
+        const userDoc = await admin.firestore().collection('users').doc(trainerId).get();
+        if (userDoc.exists && userDoc.data().role === 'trainer') {
+          await admin.firestore().doc(`trainer_profiles/${trainerId}`).set(
+            {
+              isActive: true,
+              stripeId: customerId,
+            },
+            { merge: true }
+          );
+          console.log(`Subscription activated for trainer ${trainerId}`);
+        } else {
+          console.error("User is not a trainer; skipping profile creation.");
         }
       }
-      break;
     }
-    // ... (Other switch cases remain unchanged)
   }
 
   res.send({ received: true });
 });
 
 // Export the Gen2 webhook function with raw body parsing.
-exports.handleStripeWebhook = onRequest({ region: "us-central1" }, webhookApp);
+exports.handleStripeWebhook = onRequest(webhookApp);
 
 // ------------------------------------------
 // 6) Scheduled Function: Reconcile Subscriptions (Edge Case Reconciliation)
 // ------------------------------------------
 exports.reconcileSubscriptions = onSchedule("every 24 hours", async (event) => {
-  try {
-    // Query trainer profiles with a non-empty stripeId
-    const trainerSnapshot = await admin.firestore().collection("trainer_profiles")
-      .where("stripeId", ">", "")
-      .get();
+    try {
+        const trainerSnapshot = await admin.firestore().collection("trainer_profiles")
+            .where("stripeId", ">", "")
+            .get();
 
-    trainerSnapshot.forEach(async (doc) => {
-      const trainerData = doc.data();
-      const stripeId = trainerData.stripeId;
-      if (!stripeId) return;
+        trainerSnapshot.forEach(async (doc) => {
+            const trainerData = doc.data();
+            const stripeId = trainerData.stripeId;
+            if (!stripeId) return;
 
-      try {
-        // List subscriptions for the customer in Stripe (limit to 1 for simplicity)
-        const subscriptions = await stripe.subscriptions.list({ customer: stripeId, limit: 1 });
-        if (subscriptions.data.length > 0) {
-          const subscription = subscriptions.data[0];
-          const status = subscription.status;
-          console.log(`Reconciliation: Trainer ${doc.id} subscription status is ${status}`);
-          // Update Firestore based on Stripe status
-          await doc.ref.set(
-            {
-              isActive: status === "active",
-              subscriptionStatus: status,
-            },
-            { merge: true }
-          );
-        } else {
-          // No subscription found; mark as inactive.
-          await doc.ref.set(
-            {
-              isActive: false,
-              subscriptionStatus: "none",
-            },
-            { merge: true }
-          );
-        }
-      } catch (stripeError) {
-        console.error(`Error reconciling subscription for trainer ${doc.id}:`, stripeError);
-      }
-    });
-    console.log("Subscription reconciliation completed.");
-  } catch (error) {
-    console.error("Error during subscription reconciliation:", error);
+            try {
+                const subscriptions = await stripe.subscriptions.list({ customer: stripeId, limit: 1 });
+                if (subscriptions.data.length > 0) {
+                    const subscription = subscriptions.data[0];
+                    const status = subscription.status;
+                    console.log(`Reconciliation: Trainer ${doc.id} subscription status is ${status}`);
+                    await doc.ref.set(
+                        {
+                            isActive: status === "active",
+                            subscriptionStatus: status,
+                        },
+                        { merge: true }
+                    );
+                } else {
+                    await doc.ref.set(
+                        {
+                            isActive: false,
+                            subscriptionStatus: "none",
+                        },
+                        { merge: true }
+                    );
+                }
+            } catch (stripeError) {
+                console.error(`Error reconciling subscription for trainer ${doc.id}:`, stripeError);
+            }
+        });
+        console.log("Subscription reconciliation completed.");
+    } catch (error) {
+        console.error("Error during subscription reconciliation:", error);
+    }
+});
+
+// New function to create Stripe customer for trainers
+exports.createTrainerCustomer = functions.auth.user().onCreate(async (user) => {
+  const userRef = admin.firestore().doc(`users/${user.uid}`);
+  const userSnap = await userRef.get();
+
+  // Check the role
+  const role = userSnap.data()?.role;
+
+  // Skip if user is not a trainer
+  if (role !== "trainer") {
+    console.log(`Skipping non-trainer ${user.uid}`);
+    return null;
   }
+
+  // Create Stripe customer for trainers
+  const customer = await stripe.customers.create({
+    email: user.email,
+    metadata: { firebaseUID: user.uid },
+  });
+
+  // Write the Stripe customer ID back to Firestore
+  await userRef.update({ stripeCustomerId: customer.id });
+  console.log(`✨ Created Stripe customer ${customer.id} for trainer ${user.uid}`);
+  return null;
 });

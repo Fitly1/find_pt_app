@@ -36,7 +36,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint('Handling a background message: ${message.messageId}');
 }
 
-/* ───────── Deep‑link handler widget ───────── */
+/* ───────── Deep-link handler widget ───────── */
 class DeepLinkHandler extends StatefulWidget {
   final Widget child;
   const DeepLinkHandler({super.key, required this.child});
@@ -130,7 +130,7 @@ Future<void> startStripeCheckout(BuildContext context) async {
   }
 }
 
-/* ───────── Anonymous‑auth helper (kept) ───────── */
+/* ───────── Anonymous-auth helper (kept) ───────── */
 Future<void> initAuth() async {
   final user = FirebaseAuth.instance.currentUser;
   if (user != null && user.isAnonymous) {
@@ -155,22 +155,38 @@ Future<void> main() async {
     );
 
     await initAuth();
-
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
     Stripe.publishableKey = dotenv.env['STRIPE_PUBLISHABLE_KEY'] ?? "";
 
+    // Leave this on so you can flip collection on/off elsewhere if needed
     await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
-    FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+
+    // → Wrap the default FlutterError handler so network failures in Crashlytics upload won't re-crash the app
+    FlutterError.onError = (FlutterErrorDetails details) {
+      try {
+        FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+      } catch (e) {
+        // Swallow any upload errors
+        debugPrint('⚠️ Crashlytics upload failed: $e');
+      }
+    };
 
     runApp(
       ProviderScope(
         child: DeepLinkHandler(child: const FindPTApp()),
       ),
     );
-  }, (error, stack) => FirebaseCrashlytics.instance.recordError(error, stack));
+  }, (error, stack) {
+    // Catch any zone errors and report them safely
+    try {
+      FirebaseCrashlytics.instance.recordError(error, stack);
+    } catch (_) {
+      debugPrint('⚠️ Crashlytics recordError failed');
+    }
+  });
 }
 
-/* ───────── Root gate to keep users logged‑in ───────── */
+/* ───────── Root gate to keep users logged-in ───────── */
 class RootGate extends StatelessWidget {
   const RootGate({super.key});
 
@@ -184,7 +200,6 @@ class RootGate extends StatelessWidget {
               body: Center(child: CircularProgressIndicator()));
         }
         final user = snap.data;
-        // Anonymous or null → Welcome, otherwise Marketplace
         if (user == null || user.isAnonymous) return const WelcomePage();
         return const MarketplacePage();
       },
@@ -201,7 +216,7 @@ class FindPTApp extends StatelessWidget {
     return MaterialApp(
       title: 'Find PT App',
       debugShowCheckedModeBanner: false,
-      home: const RootGate(), // ← auto‑routes based on auth
+      home: const RootGate(),
       routes: {
         '/welcome': (context) => const WelcomePage(),
         '/marketplace': (context) => const MarketplacePage(),
