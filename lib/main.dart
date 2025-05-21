@@ -10,6 +10,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:app_links/app_links.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:firebase_app_check/firebase_app_check.dart'; // Added this import for App Check
+import 'package:firebase_messaging/firebase_messaging.dart'; // Added this import for Firebase Messaging
 import 'firebase_options.dart';
 import 'welcome_page.dart';
 import 'marketplace_page.dart';
@@ -25,8 +27,6 @@ import 'messages_page.dart';
 import 'manage_subscription.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
-import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:logger/logger.dart';
 
 final Logger logger = Logger(printer: PrettyPrinter());
@@ -63,12 +63,9 @@ class _DeepLinkHandlerState extends State<DeepLinkHandler> {
       debugPrint('Failed to get initial deep link: $e');
     }
 
-    _linkSub = _appLinks.uriLinkStream.listen(
-      (Uri? uri) {
-        if (uri != null) _handleDeepLink(uri.toString());
-      },
-      onError: (err) => debugPrint('Error receiving deep link: $err'),
-    );
+    _linkSub = _appLinks.uriLinkStream.listen((Uri? uri) {
+      if (uri != null) _handleDeepLink(uri.toString());
+    }, onError: (err) => debugPrint('Error receiving deep link: $err'));
   }
 
   void _handleDeepLink(String link) {
@@ -101,7 +98,8 @@ Future<void> startStripeCheckout(BuildContext context) async {
 
     final response = await http.post(
       Uri.parse(
-          "https://us-central1-findptapp.cloudfunctions.net/api/createCheckoutSession"),
+        "https://us-central1-findptapp.cloudfunctions.net/api/createCheckoutSession",
+      ),
       headers: {"Content-Type": "application/json"},
       body: jsonEncode({
         "trainerUid": FirebaseAuth.instance.currentUser?.uid ?? "12345",
@@ -146,44 +144,46 @@ Future<void> main() async {
   await dotenv.load(fileName: ".env");
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  runZonedGuarded(() async {
-    await FirebaseAppCheck.instance.activate(
-      androidProvider:
-          kReleaseMode ? AndroidProvider.playIntegrity : AndroidProvider.debug,
-      appleProvider:
-          kReleaseMode ? AppleProvider.deviceCheck : AppleProvider.debug,
-    );
+  // 🔧 DEBUG App Check provider:
+  await FirebaseAppCheck.instance.activate(
+    androidProvider:
+        kReleaseMode ? AndroidProvider.playIntegrity : AndroidProvider.debug,
+    appleProvider:
+        kReleaseMode ? AppleProvider.deviceCheck : AppleProvider.debug,
+  );
 
-    await initAuth();
-    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-    Stripe.publishableKey = dotenv.env['STRIPE_PUBLISHABLE_KEY'] ?? "";
+  runZonedGuarded(
+    () async {
+      await initAuth();
+      FirebaseMessaging.onBackgroundMessage(
+        _firebaseMessagingBackgroundHandler,
+      );
+      Stripe.publishableKey = dotenv.env['STRIPE_PUBLISHABLE_KEY'] ?? "";
 
-    // Leave this on so you can flip collection on/off elsewhere if needed
-    await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
+      // Leave this on so you can flip collection on/off elsewhere if needed
+      await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
 
-    // → Wrap the default FlutterError handler so network failures in Crashlytics upload won't re-crash the app
-    FlutterError.onError = (FlutterErrorDetails details) {
+      // → Wrap the default FlutterError handler so network failures in Crashlytics upload won't re-crash the app
+      FlutterError.onError = (FlutterErrorDetails details) {
+        try {
+          FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+        } catch (e) {
+          // Swallow any upload errors
+          debugPrint('⚠️ Crashlytics upload failed: $e');
+        }
+      };
+
+      runApp(ProviderScope(child: DeepLinkHandler(child: const FindPTApp())));
+    },
+    (error, stack) {
+      // Catch any zone errors and report them safely
       try {
-        FirebaseCrashlytics.instance.recordFlutterFatalError(details);
-      } catch (e) {
-        // Swallow any upload errors
-        debugPrint('⚠️ Crashlytics upload failed: $e');
+        FirebaseCrashlytics.instance.recordError(error, stack);
+      } catch (_) {
+        debugPrint('⚠️ Crashlytics recordError failed');
       }
-    };
-
-    runApp(
-      ProviderScope(
-        child: DeepLinkHandler(child: const FindPTApp()),
-      ),
-    );
-  }, (error, stack) {
-    // Catch any zone errors and report them safely
-    try {
-      FirebaseCrashlytics.instance.recordError(error, stack);
-    } catch (_) {
-      debugPrint('⚠️ Crashlytics recordError failed');
-    }
-  });
+    },
+  );
 }
 
 /* ───────── Root gate to keep users logged-in ───────── */
@@ -193,11 +193,13 @@ class RootGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
+      // User stream to check Authentication status
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Scaffold(
-              body: Center(child: CircularProgressIndicator()));
+            body: Center(child: CircularProgressIndicator()),
+          );
         }
         final user = snap.data;
         if (user == null || user.isAnonymous) return const WelcomePage();

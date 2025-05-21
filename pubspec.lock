@@ -873,7 +873,7 @@ packages:
     source: hosted
     version: "1.6.0"
   image_editor_common:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: image_editor_common
       sha256: "93d2f5c8b636f862775dd62a9ec20d09c8272598daa02f935955a4640e1844ee"

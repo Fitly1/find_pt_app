@@ -1,49 +1,45 @@
-"use strict";
+"use strict"; 
 
 // Import Gen2 APIs for non-webhook routes and triggers 
-const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
-const { onDocumentCreated } = require("firebase-functions/v2/firestore");
-const { onSchedule } = require("firebase-functions/v2/scheduler");
-const functions = require("firebase-functions"); // Use v1 import
-const express = require("express");
-const cors = require("cors");
+const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https"); 
+const { onDocumentCreated } = require("firebase-functions/v2/firestore"); 
+const { onSchedule } = require("firebase-functions/v2/scheduler"); 
+const auth = require("firebase-functions/v1/auth");
+const express = require("express"); 
+const cors = require("cors"); 
 require("dotenv").config(); // Loads local .env if present (for dev)
 
-const admin = require("firebase-admin");
+const admin = require("firebase-admin"); 
 admin.initializeApp();
 
 // Retrieve the Stripe secret key from environment variables
-const STRIPE_SECRET_KEY =
-  process.env.STRIPE_SECRET_KEY ||
-  "";
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
 
-if (!STRIPE_SECRET_KEY) {
-  console.error("❌ Missing Stripe Secret Key!");
+if (!STRIPE_SECRET_KEY) { 
+  console.error("❌ Missing Stripe Secret Key!"); 
 }
 
 const stripe = require("stripe")(STRIPE_SECRET_KEY);
 
 // Retrieve the Stripe webhook secret from environment variables
-const WEBHOOK_SECRET =
-  process.env.STRIPE_WEBHOOK_SECRET ||
-  "";
+const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
 
-if (!WEBHOOK_SECRET) {
-  console.error("❌ Missing Stripe Webhook Secret!");
+if (!WEBHOOK_SECRET) { 
+  console.error("❌ Missing Stripe Webhook Secret!"); 
 }
 
 // ------------------------------------------
 // 1) Create an Express app for NON-webhook routes (Gen2)
 // ------------------------------------------
-const app = express();
+const app = express(); 
 app.use(cors({ origin: true }));
 
 // Only parse JSON for /api routes
 app.use("/api", express.json());
 
 // Health-check route
-app.get("/", (req, res) => {
-  res.send("Stripe server is running!");
+app.get("/", (req, res) => { 
+  res.send("Stripe server is running!"); 
 });
 
 /**
@@ -116,7 +112,7 @@ exports.createPaymentRequest = onDocumentCreated(
   "stripe_payment_requests/{docId}",
   async (event) => {
     try {
-      const data = event.data;
+      const data = event.data.data(); // Ensure we retrieve the data correctly
       console.log("New payment request data:", data);
       
       // Check user role before creating payment request. 
@@ -297,48 +293,69 @@ webhookApp.use(
   })
 );
 
-console.log("Using Webhook Secret:", WEBHOOK_SECRET);
-
 webhookApp.post("/", async (req, res) => {
   let event;
   const sig = req.headers["stripe-signature"];
-  
+
   try {
     event = stripe.webhooks.constructEvent(req.rawBody, sig, WEBHOOK_SECRET);
-  } catch (error) {
-    console.error("Webhook signature verification failed.", error.message);
-    return res.status(400).send(`Webhook Error: ${error.message}`);
+  } catch (err) {
+    console.error("❌ Webhook signature verification failed:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object;
-    if (session.mode === "subscription") {
-      const trainerId = session.metadata && session.metadata.trainerId;
-      const customerId = session.customer;
+  const data = event.data.object; // shorthand
 
-      // Only proceed if the user is a trainer
-      if (trainerId) {
-        const userDoc = await admin.firestore().collection('users').doc(trainerId).get();
-        if (userDoc.exists && userDoc.data().role === 'trainer') {
-          await admin.firestore().doc(`trainer_profiles/${trainerId}`).set(
-            {
-              isActive: true,
-              stripeId: customerId,
-            },
-            { merge: true }
-          );
-          console.log(`Subscription activated for trainer ${trainerId}`);
-        } else {
-          console.error("User is not a trainer; skipping profile creation.");
-        }
+  switch (event.type) {
+    /* ─── INITIAL SUBSCRIPTION ✔ ─────────────────────────── */
+    case "checkout.session.completed": {
+      if (data.mode === "subscription") {
+        const trainerId = data.metadata?.trainerId;
+        const customerId = data.customer;
+        await admin.firestore()
+          .doc(`trainer_profiles/${trainerId}`)
+          .set({ isActive: true,
+                 stripeId: customerId,
+                 subscriptionStatus: "active" }, { merge: true });
+        console.log(`✅ Trainer ${trainerId} is now ACTIVE`);
       }
+      break;
+    }
+
+    /* ─── ANY CHANGE TO SUBSCRIPTION STATUS ─────────────── */
+    case "customer.subscription.updated":
+    case "customer.subscription.deleted": {
+      const trainerId = data.metadata?.trainerId;
+      if (trainerId) {
+        // status can be 'active' | 'canceled' | 'past_due' | 'unpaid' | …
+        await admin.firestore()
+          .doc(`trainer_profiles/${trainerId}`)
+          .set({ isActive: data.status === "active",
+                 subscriptionStatus: data.status }, { merge: true });
+        console.log(`🔄 Trainer ${trainerId} status → ${data.status}`);
+      }
+      break;
+    }
+
+    /* ─── FAILED PAYMENT (optional but recommended) ─────── */
+    case "invoice.payment_failed": {
+      const subId = data.subscription;
+      const sub = await stripe.subscriptions.retrieve(subId);
+      const trainerId = sub.metadata?.trainerId;
+      if (trainerId) {
+        await admin.firestore()
+          .doc(`trainer_profiles/${trainerId}`)
+          .set({ isActive: false,
+                 subscriptionStatus: sub.status }, { merge: true });
+        console.log(`⚠️  Trainer ${trainerId} payment failed → ${sub.status}`);
+      }
+      break;
     }
   }
 
-  res.send({ received: true });
+  res.json({ received: true });
 });
 
-// Export the Gen2 webhook function with raw body parsing.
 exports.handleStripeWebhook = onRequest(webhookApp);
 
 // ------------------------------------------
@@ -360,7 +377,7 @@ exports.reconcileSubscriptions = onSchedule("every 24 hours", async (event) => {
                 if (subscriptions.data.length > 0) {
                     const subscription = subscriptions.data[0];
                     const status = subscription.status;
-                    console.log(`Reconciliation: Trainer ${doc.id} subscription status is ${status}`);
+                    console.log(`Reconciliation: Trainer ${doc.id} subscription status is ${status}`); 
                     await doc.ref.set(
                         {
                             isActive: status === "active",
@@ -387,28 +404,35 @@ exports.reconcileSubscriptions = onSchedule("every 24 hours", async (event) => {
     }
 });
 
-// New function to create Stripe customer for trainers
-exports.createTrainerCustomer = functions.auth.user().onCreate(async (user) => {
-  const userRef = admin.firestore().doc(`users/${user.uid}`);
-  const userSnap = await userRef.get();
+// Updated createTrainerCustomer with Firestore trigger version
+exports.createTrainerCustomer = onDocumentCreated("users/{uid}", async (event) => { // Firestore trigger
+  const userData = event.data.data(); // Updated to use .data() method
+  const uid = event.params.uid;
 
-  // Check the role
-  const role = userSnap.data()?.role;
-
-  // Skip if user is not a trainer
-  if (role !== "trainer") {
-    console.log(`Skipping non-trainer ${user.uid}`);
-    return null;
+  if (userData.role !== "trainer") {
+    console.log(`Skipping non-trainer ${uid}`);
+    return;
   }
 
-  // Create Stripe customer for trainers
+  // Don’t create a duplicate if one already exists
+  if (userData.stripeCustomerId) {
+    console.log(`Trainer ${uid} already has Stripe customer ${userData.stripeCustomerId}`);
+    return;
+  }
+
+  // 1) Create the customer
   const customer = await stripe.customers.create({
-    email: user.email,
-    metadata: { firebaseUID: user.uid },
+    email: userData.email, // Ensure the email is stored in the users doc
+    metadata: { firebaseUID: uid },
   });
 
-  // Write the Stripe customer ID back to Firestore
-  await userRef.update({ stripeCustomerId: customer.id });
-  console.log(`✨ Created Stripe customer ${customer.id} for trainer ${user.uid}`);
-  return null;
+  // 2) Save to BOTH collections
+  await Promise.all([
+    event.ref.update({ stripeCustomerId: customer.id }), // users/{uid}
+    admin.firestore()
+         .doc(`trainer_profiles/${uid}`) // trainer_profiles/{uid}
+         .set({ stripeId: customer.id, isActive: false }, { merge: true }),
+  ]);
+
+  console.log(`✨ Created Stripe customer ${customer.id} for trainer ${uid}`);
 });

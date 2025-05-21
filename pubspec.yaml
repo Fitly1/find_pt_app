@@ -56,6 +56,7 @@ dependencies:
   crop_image: ^1.0.16
   flutter_secure_storage: ^9.2.4
   cached_network_image: ^3.4.1
+  image_editor_common: ^1.2.0
 
   
 
