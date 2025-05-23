@@ -204,7 +204,7 @@ class SignupPageState extends State<SignupPage> {
                       style: TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFFFFA726),
+                        color: Color.fromARGB(255, 0, 0, 0),
                       ),
                     ),
                     const SizedBox(height: 20),
