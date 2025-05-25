@@ -9,8 +9,7 @@ import 'login_page.dart';
 import 'email_verification_page.dart';
 import 'profile_page.dart' as profile;
 import 'trainer_profile_setup_page.dart';
-import 'bottom_navigation_customers.dart';
-import 'bottom_navigation.dart';
+import 'marketplace_page.dart'; // ← NEW import
 
 import 'secure_storage_service.dart';
 
@@ -31,7 +30,7 @@ class RoleRedirectState extends State<RoleRedirect> {
     _handleFirstLaunch().then((_) => _checkUserRole());
   }
 
-  /// Detect brand-new install → sign out so user must log in manually.
+  /* ───────────────── first-launch sign-out */
   Future<void> _handleFirstLaunch() async {
     final prefs = await SharedPreferences.getInstance();
     final hasRunBefore = prefs.getBool('hasRunBefore') ?? false;
@@ -43,40 +42,34 @@ class RoleRedirectState extends State<RoleRedirect> {
     }
   }
 
-  /// Makes sure we give Firebase Auth a little time to restore any cached token.
+  /* ───────────────── wait for token restore */
   Future<User?> _getCurrentUserWithGracePeriod() async {
     User? user = FirebaseAuth.instance.currentUser;
-
     if (user != null) return user;
 
-    // Wait up to 5 s for authStateChanges() to emit a user.
     try {
       user = await FirebaseAuth.instance
           .authStateChanges()
           .firstWhere((u) => u != null)
           .timeout(const Duration(seconds: 5));
-    } catch (_) {
-      // Timeout or stream error → keep user as null.
-    }
+    } catch (_) {}
     return user;
   }
 
+  /* ───────────────── main checker */
   Future<void> _checkUserRole() async {
     debugPrint("🔍 Checking user authentication status…");
-
     Widget nextPage = const LoginPage();
 
     try {
-      // ───────────────── current Firebase user
       final User? user = await _getCurrentUserWithGracePeriod();
       if (user == null) {
-        debugPrint("❌ No user after grace period. Going to LoginPage…");
+        debugPrint("❌ No user after grace period → LoginPage");
         _navigateTo(nextPage);
         return;
       }
       debugPrint("✅ User is logged in: ${user.email}");
 
-      // ───────────────── e-mail verification
       await user.reload();
       if (!user.emailVerified) {
         debugPrint("⚠️ Email NOT verified → EmailVerificationPage");
@@ -85,7 +78,6 @@ class RoleRedirectState extends State<RoleRedirect> {
         return;
       }
 
-      // ───────────────── ALWAYS read role from Firestore
       final snap = await FirebaseFirestore.instance
           .collection("users")
           .doc(user.uid)
@@ -100,14 +92,13 @@ class RoleRedirectState extends State<RoleRedirect> {
       final String role = snap['role'].toString().trim().toLowerCase();
       debugPrint("🚀 Role fetched from Firestore: $role");
 
-      // Cache role
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString("userRole", role);
 
-      // ───────────────── redirect
+      /* ───────── redirect logic */
       if (role == 'customer') {
-        debugPrint("🚀 CUSTOMER → BottomNavigationCustomers");
-        nextPage = const BottomNavigationCustomers(currentIndex: 0);
+        debugPrint("🚀 CUSTOMER → MarketplacePage (with customer nav)");
+        nextPage = const MarketplacePage();
       } else if (role == 'trainer' ||
           role == 'personal trainer' ||
           role == 'personaltrainer') {
@@ -128,11 +119,11 @@ class RoleRedirectState extends State<RoleRedirect> {
               debugPrint("⚠️ Profile incomplete → TrainerProfileSetupPage");
               nextPage = const TrainerProfileSetupPage();
             } else if (!paymentCompleted) {
-              debugPrint("⚠️ Payment incomplete → ProfilePage (Pay-Now)");
+              debugPrint("⚠️ Payment incomplete → ProfilePage");
               nextPage = const profile.ProfilePage();
             } else {
-              debugPrint("✅ All good → BottomNavigation (trainer)");
-              nextPage = const BottomNavigation(currentIndex: 0);
+              debugPrint("✅ All good → MarketplacePage (trainer nav)");
+              nextPage = const MarketplacePage();
             }
           } else {
             debugPrint("⚠️ No trainer profile doc → TrainerProfileSetupPage");
@@ -151,7 +142,6 @@ class RoleRedirectState extends State<RoleRedirect> {
       nextPage = const LoginPage();
     }
 
-    // ───────────────── secure-storage timestamp (optional existing feature)
     await secureStorage.writeData(
       'last_role_redirect',
       DateTime.now().toIso8601String(),
@@ -160,6 +150,7 @@ class RoleRedirectState extends State<RoleRedirect> {
     _navigateTo(nextPage);
   }
 
+  /* ───────────────── helper nav */
   void _navigateTo(Widget page) {
     if (!mounted) return;
     debugPrint("🔥 NAVIGATING to $page");

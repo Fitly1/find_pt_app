@@ -1,17 +1,15 @@
+// lib/login_page.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import 'trainer_home_page.dart';
+import 'role_redirect.dart'; // ← where we hand off
 import 'forgot_password_page.dart';
 import 'email_verification_page.dart';
-import 'customer_profile_page.dart';
 import 'secure_storage_service.dart';
 
 import 'package:logger/logger.dart';
 
-// ───────────────────────────────────────────────────── logger
+// ───────────────────────────────────────── logger
 final Logger logger = Logger(
   printer: PrettyPrinter(
     methodCount: 0,
@@ -23,7 +21,7 @@ final Logger logger = Logger(
   ),
 );
 
-// ───────────────────────────────────────────────────── widget
+// ───────────────────────────────────────── widget
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -36,11 +34,10 @@ class LoginPageState extends State<LoginPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _fs = FirebaseFirestore.instance;
 
   final SecureStorageService secureStorage = SecureStorageService();
 
-  /* ───────────────────────────────────────── login logic */
+  /* ────────────────────────────── login logic */
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) {
       logger.w("Form validation failed");
@@ -66,7 +63,7 @@ class LoginPageState extends State<LoginPage> {
 
       if (user == null) return;
 
-      /* ───────── email verification */
+      /* ───── email verification */
       await user.reload();
       if (!user.emailVerified) {
         logger.w("Email not verified. Redirecting to verification page…");
@@ -78,50 +75,16 @@ class LoginPageState extends State<LoginPage> {
         return;
       }
 
-      /* ───────── store ID token securely */
+      /* ───── store ID token securely */
       final idToken = await user.getIdToken();
       await secureStorage.writeData('auth_token', idToken!);
       logger.i("ID Token stored securely.");
 
-      /* ───────── get role from Firestore */
-      logger.i("Fetching user role from Firestore…");
-      final snap = await _fs.collection('users').doc(user.uid).get();
-
-      if (!snap.exists) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("User document not found.")),
-        );
-        return;
-      }
-
-      final String role =
-          snap['role'].toString().trim().toLowerCase(); // ← trimmed + lower
-
-      /* ───────── cache role (wipe stale first) */
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('userRole'); // ← clear old value
-      await prefs.setString('userRole', role); // write fresh one
-      logger.i("Processed role: $role");
-
-      /* ───────── pick next page (unchanged) */
-      Widget nextPage = const LoginPage(); // fallback
-      if (role == 'customer') {
-        nextPage = const CustomerProfilePage();
-      } else if (role == 'trainer' || role == 'personal trainer') {
-        nextPage = const TrainerHomePage();
-      } else {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Invalid role. Contact support.")),
-        );
-        return;
-      }
-
+      /* ───── hand off to RoleRedirect & clear back-stack */
       if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => nextPage),
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const RoleRedirect()),
+        (route) => false, // removes every previous page
       );
     } catch (e) {
       logger.e("Login failed: $e");
@@ -132,7 +95,7 @@ class LoginPageState extends State<LoginPage> {
     }
   }
 
-  /* ───────────────────────────────────────── UI */
+  /* ────────────────────────────── UI */
   @override
   Widget build(BuildContext context) {
     return Scaffold(

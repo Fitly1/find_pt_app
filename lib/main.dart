@@ -203,7 +203,7 @@ class RootGate extends StatelessWidget {
         }
         final user = snap.data;
         if (user == null || user.isAnonymous) return const WelcomePage();
-        return const MarketplacePage();
+        return const RoleRedirect();
       },
     );
   }

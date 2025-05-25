@@ -65,9 +65,6 @@ class _ChatPageState extends State<ChatPage> {
       final List<dynamic> participants = data["participants"] ?? [];
       final currentUid = FirebaseAuth.instance.currentUser?.uid;
 
-      debugPrint("Current User ID: $currentUid");
-      debugPrint("Participants: ${participants.toString()}");
-
       _otherUserId = (participants.first == currentUid)
           ? participants.last
           : participants.first;
@@ -244,22 +241,20 @@ class _ChatPageState extends State<ChatPage> {
         .orderBy("timestamp", descending: false);
 
     return Scaffold(
+      // ---------- HEADER ----------
       appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(120),
+        // trim vertical space: toolbar height + a few pixels
+        preferredSize: const Size.fromHeight(kToolbarHeight + 8),
         child: AppBar(
-          automaticallyImplyLeading: false,
           elevation: 0,
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.flag, color: Colors.white),
-              tooltip: 'Report User',
-              onPressed: _showReportDialog,
-            ),
-            IconButton(
-              icon: const Icon(Icons.account_circle, color: Colors.white),
-              onPressed: _navigateToOtherProfile,
-            ),
-          ],
+          backgroundColor: Colors.transparent,
+          titleSpacing: 0,
+          // native back arrow now lives in the leading slot
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: () => Navigator.pop(context),
+          ),
+          leadingWidth: 40, // narrower than default 56
           flexibleSpace: Container(
             decoration: const BoxDecoration(
               gradient: LinearGradient(
@@ -271,41 +266,45 @@ class _ChatPageState extends State<ChatPage> {
                 end: Alignment.bottomRight,
               ),
             ),
-            child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.arrow_back, color: Colors.white),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                    CircleAvatar(
-                      radius: 40,
-                      backgroundImage: _otherImageUrl.isNotEmpty
-                          ? NetworkImage(_otherImageUrl)
-                          : const AssetImage("assets/default_profile.png")
-                              as ImageProvider,
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Text(
-                        _otherDisplayName,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
+          ),
+          title: Row(
+            children: [
+              CircleAvatar(
+                radius: 24,
+                backgroundImage: _otherImageUrl.isNotEmpty
+                    ? NetworkImage(_otherImageUrl)
+                    : const AssetImage("assets/default_profile.png")
+                        as ImageProvider,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _otherDisplayName,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22, // bumped back up
+                    fontWeight: FontWeight.bold,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
-            ),
+            ],
           ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.flag, color: Colors.white),
+              tooltip: 'Report User',
+              onPressed: _showReportDialog,
+            ),
+            IconButton(
+              icon: const Icon(Icons.account_circle, color: Colors.white),
+              tooltip: 'View profile',
+              onPressed: _navigateToOtherProfile,
+            ),
+          ],
         ),
       ),
+      // ---------- END HEADER ----------
       body: Column(
         children: [
           Expanded(

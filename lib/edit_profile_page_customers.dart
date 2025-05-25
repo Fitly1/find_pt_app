@@ -119,17 +119,27 @@ class EditProfilePageCustomersState extends State<EditProfilePageCustomers> {
       try {
         final user = FirebaseAuth.instance.currentUser;
         if (user != null) {
+          // split full name
           List<String> names = _fullNameController.text.trim().split(' ');
           String firstName = names.isNotEmpty ? names.first : '';
           String lastName = names.length > 1 ? names.sublist(1).join(' ') : '';
+
+          // build combined name once
+          final fullName = '$firstName $lastName'.trim();
+
           await FirebaseFirestore.instance
               .collection('users')
               .doc(user.uid)
               .update({
             'firstName': firstName,
+            'firstName_lowerCase': firstName.toLowerCase(),
             'lastName': lastName,
+            'lastName_lowerCase': lastName.toLowerCase(),
+            'displayName': fullName, // ← added
+            'displayName_lowerCase': fullName.toLowerCase(), // ← added
             'phone': _phoneController.text.trim(),
           });
+
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Profile updated successfully!')),
