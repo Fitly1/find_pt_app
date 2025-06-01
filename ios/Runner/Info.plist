@@ -66,10 +66,14 @@
     <string>Fitly requires access to the camera to capture images for profiles and documents.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>Fitly uses your location to provide you with nearby trainer and gym recommendations.</string>
-    <!-- Optional: Enable Background Location Access if needed -->
-    <!--
-    <key>NSLocationAlwaysUsageDescription</key>
-    <string>Fitly requires access to your location even when the app is running in the background to continuously provide updates.</string>
-    -->
+
+    <!-- Apple IAP Support -->
+    <key>SKAdNetworkItems</key>
+    <array>
+      <dict>
+        <key>SKAdNetworkIdentifier</key>
+        <string>cstr6suwn9.skadnetwork</string>
+      </dict>
+    </array>
   </dict>
 </plist>

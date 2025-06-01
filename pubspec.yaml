@@ -57,6 +57,9 @@ dependencies:
   flutter_secure_storage: ^9.2.4
   cached_network_image: ^3.4.1
   image_editor_common: ^1.2.0
+  in_app_purchase: ^3.2.3
+  in_app_purchase_storekit: ^0.4.0
+
 
   
 

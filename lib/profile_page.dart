@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -5,32 +7,36 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:logger/logger.dart'; // Import logger
+import 'package:logger/logger.dart';
+import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart'; // NEW
 
-// Import your secure storage service
 import 'secure_storage_service.dart';
-
 import 'edit_profile_page.dart';
 import 'marketplace_page.dart';
 import 'faq_page.dart';
 import 'contact_us_page.dart';
 import 'refund_policy_page.dart';
-import 'bottom_navigation.dart'; // Trainer bottom nav
-import 'bottom_navigation_customers.dart'; // Customer bottom nav
-import 'welcome_page.dart'; // For Log Out redirection
-import 'terms_conditions_page.dart'; // Terms & Conditions page
-import 'privacy_policy_page.dart'; // Privacy Policy page
+import 'bottom_navigation.dart';
+import 'bottom_navigation_customers.dart';
+import 'welcome_page.dart';
+import 'terms_conditions_page.dart';
+import 'privacy_policy_page.dart';
 import 'legal_documents_page.dart';
-import 'manage_subscription.dart'; // Manage Subscription Page
-import 'login_page.dart'; // For sign in/up prompt
+import 'manage_subscription.dart';
+import 'login_page.dart';
 
-// Initialize a logger instance.
+//─────────────────────────────────────────────────────────────────────────────
+// Globals
+//─────────────────────────────────────────────────────────────────────────────
 final Logger logger = Logger();
+const Set<String> _kProductIds = <String>{'fitly.membership.1'}; // Apple SKU
 
-/// Widget for starting a subscription
+//─────────────────────────────────────────────────────────────────────────────
+// Optional standalone buttons (unchanged)
+//─────────────────────────────────────────────────────────────────────────────
 class ActivateSubscriptionButton extends StatefulWidget {
   const ActivateSubscriptionButton({super.key});
-
   @override
   State<ActivateSubscriptionButton> createState() =>
       _ActivateSubscriptionButtonState();
@@ -40,66 +46,41 @@ class _ActivateSubscriptionButtonState
     extends State<ActivateSubscriptionButton> {
   Future<void> _startSubscription() async {
     try {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Loading...")),
-      );
-      logger.i("ActivateSubscriptionButton pressed");
-
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text("Loading...")));
       final callable = FirebaseFunctions.instance
           .httpsCallable('createSubscriptionCheckoutSession');
       final result = await callable.call();
       if (!mounted) return;
-      logger.i("Cloud Function returned: ${result.data}");
-
       final sessionUrl = result.data['sessionUrl'];
       if (sessionUrl == null) {
-        logger.e("No sessionUrl returned from Cloud Function");
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Failed to get checkout URL.")),
-        );
+            const SnackBar(content: Text("Failed to get checkout URL.")));
         return;
       }
-
       if (await canLaunchUrl(Uri.parse(sessionUrl))) {
         await launchUrl(Uri.parse(sessionUrl),
             mode: LaunchMode.externalApplication);
-        logger.i("Launched Stripe Checkout URL");
       } else {
         throw 'Could not launch $sessionUrl';
       }
     } catch (e) {
       logger.e('Error starting subscription: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error Loading: $e")),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text("Error Loading: $e")));
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    return ElevatedButton(
-      onPressed: _startSubscription,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.grey.shade700,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
-        textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-        elevation: 2,
-      ),
-      child:
-          const Text('Pay to Activate', style: TextStyle(color: Colors.white)),
-    );
-  }
+  Widget build(BuildContext context) => ElevatedButton(
+      onPressed: _startSubscription, child: const Text('Pay to Activate'));
 }
 
-/// Widget for managing an existing subscription via Stripe Billing Portal
+/// Manage-subscription button (unchanged, used by Android)
 class ManageSubscriptionButton extends StatefulWidget {
   final String customerId;
   const ManageSubscriptionButton({super.key, required this.customerId});
-
   @override
   State<ManageSubscriptionButton> createState() =>
       _ManageSubscriptionButtonState();
@@ -125,133 +106,216 @@ class _ManageSubscriptionButtonState extends State<ManageSubscriptionButton> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return ElevatedButton(
-      onPressed: _openBillingPortal,
-      child: const Text('Manage Subscription'),
-    );
-  }
+  Widget build(BuildContext context) => ElevatedButton(
+      onPressed: _openBillingPortal, child: const Text('Manage Subscription'));
 }
 
+//─────────────────────────────────────────────────────────────────────────────
+// PROFILE PAGE
+//─────────────────────────────────────────────────────────────────────────────
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
-
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  String userRole = 'trainer'; // Default role for trainer
-
-  // Create an instance of SecureStorageService (singleton)
+  // State
+  String userRole = 'trainer';
   final SecureStorageService secureStorage = SecureStorageService();
 
+  // IAP
+  StreamSubscription<List<PurchaseDetails>>? _purchaseSub;
+  ProductDetails? _membershipProduct;
+  InAppPurchaseStoreKitPlatformAddition? _skAddition; // iOS helper
+
+  //──────────────── init ────────────────
   @override
   void initState() {
     super.initState();
     _loadUserRole();
+    _initIAP();
 
-    // --- Security Integration: Save and log the profile view timestamp ---
+    // store last profile-view timestamp
     secureStorage
-        .writeData(
-      'last_profile_view',
-      DateTime.now().toIso8601String(),
-    )
-        .then((_) {
-      return secureStorage.readData('last_profile_view');
-    }).then((timestamp) {
-      logger.i("Last profile view timestamp stored: $timestamp");
-    }).catchError((error) {
-      logger.e("Error storing last profile view timestamp: $error");
-    });
+        .writeData('last_profile_view', DateTime.now().toIso8601String())
+        .catchError((e) => logger.e("SecureStorage error: $e"));
   }
 
+  //──────────────── IAP bootstrap ───────
+  Future<void> _initIAP() async {
+    if (!Platform.isIOS) return;
+
+    if (!await InAppPurchase.instance.isAvailable()) {
+      logger.w('IAP not available');
+      return;
+    }
+
+    final res = await InAppPurchase.instance.queryProductDetails(_kProductIds);
+    if (res.error != null) {
+      logger.e('IAP query error: ${res.error}');
+      return;
+    }
+    if (res.productDetails.isEmpty) {
+      logger.e('IAP: product not found');
+      return;
+    }
+    _membershipProduct = res.productDetails.first;
+
+    _purchaseSub = InAppPurchase.instance.purchaseStream.listen(
+        _onPurchaseUpdate,
+        onError: (e) => logger.e('Purchase stream error: $e'));
+
+    await InAppPurchase.instance.restorePurchases();
+
+    _skAddition = InAppPurchase.instance
+        .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
+  }
+
+  //──────────────── handle transactions ─
+  Future<void> _onPurchaseUpdate(List<PurchaseDetails> purchases) async {
+    for (final p in purchases) {
+      switch (p.status) {
+        case PurchaseStatus.pending:
+          break;
+        case PurchaseStatus.error:
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(p.error?.message ?? 'Purchase error')));
+          }
+          break;
+        case PurchaseStatus.purchased:
+        case PurchaseStatus.restored:
+          await _unlockTrainerAccess();
+          if (p.pendingCompletePurchase) {
+            await InAppPurchase.instance.completePurchase(p);
+          }
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  //──────────────── unlock Firestore flag ─
+  Future<void> _unlockTrainerAccess() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    await FirebaseFirestore.instance
+        .collection('trainer_profiles')
+        .doc(user.uid)
+        .set({'isActive': true}, SetOptions(merge: true));
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Trainer access unlocked!')));
+  }
+
+  //──────────────── iOS helper sheets ────
+  Future<void> _openIOSManage() async {
+    if (!Platform.isIOS) return;
+
+    // Try StoreKit native sheet (if the method exists in your plugin version)
+    try {
+      final dynamic addition = _skAddition;
+      if (addition != null) {
+        await addition.showManageSubscriptionsSheet();
+        return; // success – we’re done
+      }
+    } catch (_) {
+      // fall through to URL fallback
+    }
+
+    // Fallback: open Apple’s subscriptions page in Safari
+    const url = 'https://apps.apple.com/account/subscriptions';
+    if (await canLaunchUrl(Uri.parse(url))) {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Future<void> _askRefund() async {
+    if (!Platform.isIOS || _membershipProduct == null) return;
+
+    // Try StoreKit2 API first
+    try {
+      final dynamic addition = _skAddition;
+      if (addition != null) {
+        final status =
+            await addition.beginRefundRequest(_membershipProduct!.id);
+        logger.i('Refund request status: $status');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Refund flow status: $status')));
+        return;
+      }
+    } catch (_) {
+      // fall through to URL fallback
+    }
+
+    // Fallback: Apple’s “Report a problem” web page
+    const url = 'https://reportaproblem.apple.com/';
+    if (await canLaunchUrl(Uri.parse(url))) {
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    }
+  }
+
+  //──────────────── load role ────────────
   Future<void> _loadUserRole() async {
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() {
       userRole = prefs.getString("userRole")?.toLowerCase() ?? 'trainer';
     });
-    debugPrint("ProfilePage: Loaded user role: $userRole");
   }
 
-  /// Returns a bell icon with a red dot if there are new (unnotified) reviews.
-  Widget _buildReviewBellIcon(String trainerUid) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection("trainer_profiles")
-          .doc(trainerUid)
-          .collection("reviews")
-          .where("notified", isEqualTo: false)
-          .snapshots(),
-      builder: (context, snapshot) {
-        final newReviewsCount =
-            snapshot.hasData ? snapshot.data!.docs.length : 0;
-        final hasNewReviews = newReviewsCount > 0;
-        return Stack(
-          clipBehavior: Clip.none,
-          children: [
-            IconButton(
-              icon: const Icon(Icons.notifications_none, color: Colors.white),
-              onPressed: _handleReviewBellTap,
-            ),
-            if (hasNewReviews)
-              const Positioned(
-                right: 8,
-                top: 8,
-                child: Icon(
-                  Icons.brightness_1,
-                  color: Colors.red,
-                  size: 10,
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _handleReviewBellTap() async {
-    final User? user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
-    final reviewsRef = FirebaseFirestore.instance
-        .collection("trainer_profiles")
-        .doc(user.uid)
-        .collection("reviews");
-
-    try {
-      final snapshot =
-          await reviewsRef.where("notified", isEqualTo: false).get();
-      final batch = FirebaseFirestore.instance.batch();
-      for (var doc in snapshot.docs) {
-        batch.update(doc.reference, {"notified": true});
+  //──────────────── start subscription ───
+  Future<void> _activateSubscription() async {
+    // iOS → Apple IAP
+    if (Platform.isIOS) {
+      if (_membershipProduct == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Product not ready. Try again.')));
+        }
+        return;
       }
-      await batch.commit();
-      if (!mounted) return;
-    } catch (e) {
-      logger.e("Error marking reviews as notified: $e");
+      final param = PurchaseParam(productDetails: _membershipProduct!);
+      InAppPurchase.instance.buyNonConsumable(purchaseParam: param);
+      return;
     }
 
-    SchedulerBinding.instance.addPostFrameCallback((_) {
+    // Android → Stripe
+    try {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text("Loading…")));
+      final callable = FirebaseFunctions.instance
+          .httpsCallable('createSubscriptionCheckoutSession');
+      final result = await callable.call();
       if (!mounted) return;
-      showDialog(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text("New Review Received"),
-          content: const Text("You have received a new review!"),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text("OK", style: TextStyle(fontSize: 18)),
-            ),
-          ],
-        ),
-      );
-    });
+      final sessionUrl = result.data['sessionUrl'];
+      if (sessionUrl == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Failed to get checkout URL.")));
+        return;
+      }
+      await launchUrl(Uri.parse(sessionUrl),
+          mode: LaunchMode.externalApplication);
+    } catch (e) {
+      logger.e('Stripe error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
   }
 
-  /// Returns the appropriate bottom navigation based on the user's role.
+  //──────────────── dispose ──────────────
+  @override
+  void dispose() {
+    _purchaseSub?.cancel();
+    super.dispose();
+  }
+
+  //──────────────── helpers (unchanged) ─
   Widget _buildBottomNavigation() {
     bool isTrainer = (userRole == 'trainer' ||
         userRole == 'personal trainer' ||
@@ -261,36 +325,93 @@ class _ProfilePageState extends State<ProfilePage> {
         : const BottomNavigationCustomers(currentIndex: 4);
   }
 
-  /// Shows a confirmation dialog for account deletion.
-  void _confirmDeleteAccount() {
+  Widget _buildReviewBellIcon(String trainerUid) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection("trainer_profiles")
+          .doc(trainerUid)
+          .collection("reviews")
+          .where("notified", isEqualTo: false)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final hasNew = snapshot.hasData && snapshot.data!.docs.isNotEmpty;
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.notifications_none, color: Colors.white),
+              onPressed: _handleReviewBellTap,
+            ),
+            if (hasNew)
+              const Positioned(
+                right: 8,
+                top: 8,
+                child: Icon(Icons.brightness_1, color: Colors.red, size: 10),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _handleReviewBellTap() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final reviewsRef = FirebaseFirestore.instance
+        .collection("trainer_profiles")
+        .doc(user.uid)
+        .collection("reviews");
+    try {
+      final snap = await reviewsRef.where("notified", isEqualTo: false).get();
+      final batch = FirebaseFirestore.instance.batch();
+      for (var doc in snap.docs) {
+        batch.update(doc.reference, {"notified": true});
+      }
+      await batch.commit();
+    } catch (e) {
+      logger.e("Mark reviews notified error: $e");
+    }
+    if (!mounted) return;
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Confirm Account Deletion"),
-        content: const Text(
-            "Are you sure you want to delete your account? This action cannot be undone."),
+      builder: (_) => AlertDialog(
+        title: const Text("New Review Received"),
+        content: const Text("You have received a new review!"),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text("Cancel"),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _deleteAccount();
-            },
-            child: const Text("Delete", style: TextStyle(color: Colors.red)),
-          ),
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text("OK"))
         ],
       ),
     );
   }
 
-  /// Deletes user data from Firestore and then deletes the Firebase Auth account.
-  Future<void> _deleteAccount() async {
-    final User? user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+  void _confirmDeleteAccount() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text("Confirm Account Deletion"),
+        content: const Text(
+            "Are you sure you want to delete your account? This action cannot be undone."),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text("Cancel")),
+          TextButton(
+            child: const Text("Delete", style: TextStyle(color: Colors.red)),
+            onPressed: () {
+              Navigator.of(context).pop();
+              _deleteAccount();
+            },
+          )
+        ],
+      ),
+    );
+  }
 
+  Future<void> _deleteAccount() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
     try {
       await FirebaseFirestore.instance
           .collection("trainer_profiles")
@@ -299,18 +420,14 @@ class _ProfilePageState extends State<ProfilePage> {
       await user.delete();
       if (!mounted) return;
       Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const WelcomePage()),
-      );
+          context, MaterialPageRoute(builder: (_) => const WelcomePage()));
     } catch (e) {
-      logger.e("Error deleting account: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error deleting account: $e")),
-      );
+      logger.e("Delete account error: $e");
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text("Error: $e")));
     }
   }
 
-  /// Shows a dialog prompting the user to sign in or sign up.
   void _showSignUpPrompt() {
     showDialog(
       context: context,
@@ -320,460 +437,283 @@ class _ProfilePageState extends State<ProfilePage> {
             "Please sign in or sign up to manage your subscription."),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text("Cancel"),
-          ),
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text("Cancel")),
           TextButton(
+            child: const Text("Sign In / Sign Up"),
             onPressed: () {
               Navigator.of(context).pop();
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (_) => const LoginPage()),
-              );
+              Navigator.pushReplacement(context,
+                  MaterialPageRoute(builder: (_) => const LoginPage()));
             },
-            child: const Text("Sign In / Sign Up"),
-          ),
+          )
         ],
       ),
     );
   }
 
-  /// Function to start the subscription process.
-  Future<void> _activateSubscription() async {
-    try {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Loading...")),
-      );
-      logger.i("Pay to Activate tapped");
-
-      final callable = FirebaseFunctions.instance
-          .httpsCallable('createSubscriptionCheckoutSession');
-      final result = await callable.call();
-      if (!mounted) return;
-      logger.i("Cloud Function returned: ${result.data}");
-
-      final sessionUrl = result.data['sessionUrl'];
-      if (sessionUrl == null) {
-        logger.e("No sessionUrl returned from Cloud Function");
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Failed to get checkout URL.")),
-        );
-        return;
-      }
-
-      if (await canLaunchUrl(Uri.parse(sessionUrl))) {
-        await launchUrl(Uri.parse(sessionUrl),
-            mode: LaunchMode.externalApplication);
-        logger.i("Launched Stripe Checkout URL");
-      } else {
-        throw 'Could not launch $sessionUrl';
-      }
-    } catch (e) {
-      logger.e('Error starting subscription: $e');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error Loading: $e")),
-      );
-    }
-  }
-
+  //──────────────── UI ───────────────────
   @override
   Widget build(BuildContext context) {
-    final User? user = FirebaseAuth.instance.currentUser;
+    final user = FirebaseAuth.instance.currentUser;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Profile', style: TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFFFFA726),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => const MarketplacePage()),
-            );
-          },
-        ),
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: () => Navigator.pushReplacement(context,
+                MaterialPageRoute(builder: (_) => const MarketplacePage()))),
         actions: [
           if (userRole == 'trainer' && user != null)
-            _buildReviewBellIcon(user.uid),
+            _buildReviewBellIcon(user.uid)
         ],
       ),
       backgroundColor: Colors.white,
+      bottomNavigationBar: _buildBottomNavigation(),
       body: ListView(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         children: [
-          // Profile Card (membership status above name)
+          //──────────────── PROFILE CARD ───────────────
           Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16.0),
-            ),
-            elevation: 4.0,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            elevation: 4,
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(vertical: 24.0, horizontal: 16.0),
+              padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
               child: FutureBuilder<DocumentSnapshot>(
                 future: FirebaseFirestore.instance
                     .collection("trainer_profiles")
                     .doc(user?.uid)
                     .get(),
-                builder: (context, snapshot) {
-                  if (!snapshot.hasData) {
-                    return const CircularProgressIndicator();
+                builder: (ctx, snap) {
+                  if (!snap.hasData) {
+                    return const Center(child: CircularProgressIndicator());
                   }
-                  final data =
-                      snapshot.data!.data() as Map<String, dynamic>? ?? {};
-                  final String imageUrl = data["profileImageUrl"] ?? '';
-                  final bool isActive = data['isActive'] ?? false;
-                  String membershipStatus = isActive ? "Active" : "Inactive";
-                  String displayName = data["displayName"] ?? "";
+                  final data = snap.data!.data() as Map<String, dynamic>? ?? {};
+                  final img = data['profileImageUrl'] ?? '';
+                  final isActive = data['isActive'] ?? false;
+                  final status = isActive ? "Active" : "Inactive";
+                  String displayName = data['displayName'] ?? '';
                   if (displayName.isEmpty) {
-                    displayName = user?.displayName ?? "No Name";
+                    displayName = user?.displayName ?? 'No Name';
                   }
 
                   return Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      // Profile picture
                       Stack(
                         alignment: Alignment.bottomRight,
                         children: [
                           CircleAvatar(
                             radius: 50,
-                            backgroundImage: imageUrl.isNotEmpty
-                                ? NetworkImage(imageUrl)
+                            backgroundImage: img.isNotEmpty
+                                ? NetworkImage(img)
                                 : const AssetImage('assets/default_profile.png')
                                     as ImageProvider,
                           ),
                           IconButton(
-                            icon: const Icon(Icons.camera_alt,
-                                color: Colors.white),
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const EditProfilePage(),
-                                ),
-                              );
-                            },
-                          ),
+                              icon: const Icon(Icons.camera_alt,
+                                  color: Colors.white),
+                              onPressed: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) => const EditProfilePage())))
                         ],
                       ),
-                      const SizedBox(height: 8.0),
-                      // Membership status
-                      Text(
-                        "Membership Status: $membershipStatus",
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w500,
-                          color: isActive ? Colors.green : Colors.red,
-                        ),
-                      ),
-                      const SizedBox(height: 8.0),
-                      // Display name
-                      Text(
-                        displayName,
-                        style: const TextStyle(
-                          fontSize: 22.0,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      const SizedBox(height: 8),
+                      Text("Membership Status: $status",
+                          style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                              color: isActive ? Colors.green : Colors.red)),
+                      const SizedBox(height: 8),
+                      Text(displayName,
+                          style: const TextStyle(
+                              fontSize: 22, fontWeight: FontWeight.bold)),
                     ],
                   );
                 },
               ),
             ),
           ),
-          const SizedBox(height: 16.0),
-          // SUBSCRIPTION TILE: (Placed FIRST after Profile Card)
+          const SizedBox(height: 16),
+
+          //──────────────── SUBSCRIPTION TILE ──────────
           StreamBuilder<DocumentSnapshot>(
             stream: FirebaseFirestore.instance
                 .collection("trainer_profiles")
                 .doc(user?.uid)
                 .snapshots(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) {
-                logger.i("Subscription StreamBuilder: No data yet");
-                return const SizedBox();
-              }
-              final data = snapshot.data!.data() as Map<String, dynamic>? ?? {};
-              final bool isActive = data['isActive'] ?? false;
-              final String stripeId = data['stripeId'] ?? '';
-              logger.i(
-                  "Subscription data: isActive = $isActive, stripeId = $stripeId");
+            builder: (ctx, snap) {
+              if (!snap.hasData) return const SizedBox();
+              final d = snap.data!.data() as Map<String, dynamic>? ?? {};
+              final active = d['isActive'] ?? false;
+              final stripeId = d['stripeId'] ?? '';
 
-              if (isActive && stripeId.isNotEmpty) {
-                // Manage Subscription tile (neutral styling)
+              //──────── MANAGE SUBSCRIPTION ────────
+              if (active) {
                 return Card(
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16.0),
-                  ),
-                  color: Colors.white,
-                  elevation: 2.0,
+                      borderRadius: BorderRadius.circular(16)),
                   child: ListTile(
-                    leading: const Icon(Icons.payment, color: Colors.black),
+                    leading: const Icon(Icons.manage_accounts),
                     title: const Text('Manage Subscription'),
-                    trailing: const Icon(Icons.arrow_forward_ios,
-                        color: Colors.black),
-                    onTap: () {
-                      final currentUser = FirebaseAuth.instance.currentUser;
-                      if (currentUser == null || currentUser.isAnonymous) {
-                        _showSignUpPrompt();
-                      } else {
+                    trailing: const Icon(Icons.arrow_forward_ios),
+                    onTap: () async {
+                      if (Platform.isIOS) {
+                        await _openIOSManage();
+                      } else if (stripeId.isNotEmpty) {
                         Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                ManageSubscriptionPage(trainerUid: user!.uid),
-                          ),
-                        );
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => ManageSubscriptionPage(
+                                    trainerUid: user!.uid)));
+                      } else {
+                        _showSignUpPrompt();
                       }
                     },
-                  ),
-                );
-              } else {
-                // Pay to Activate tile with accent styling to draw attention.
-                return Card(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16.0),
-                  ),
-                  color: Colors.orange.shade200, // Lighter accent background
-                  elevation: 2.0,
-                  child: ListTile(
-                    leading: const Icon(Icons.payment, color: Colors.black),
-                    title: Text(
-                      'Pay to Activate',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color:
-                            Colors.orange.shade900, // Darker text for contrast
-                      ),
-                    ),
-                    trailing: const Icon(Icons.arrow_forward_ios,
-                        color: Colors.black),
-                    onTap: _activateSubscription,
+                    onLongPress: () async {
+                      // optional refund shortcut
+                      if (Platform.isIOS) await _askRefund();
+                    },
                   ),
                 );
               }
+
+              //──────── PAY TO ACTIVATE ─────────────
+              return Card(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16)),
+                color: Colors.orange.shade200,
+                child: ListTile(
+                  leading: const Icon(Icons.payment),
+                  title: Text('Pay to Activate',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.orange.shade900)),
+                  trailing: const Icon(Icons.arrow_forward_ios),
+                  onTap: _activateSubscription,
+                ),
+              );
             },
           ),
-          const SizedBox(height: 16.0),
-          // EDIT PROFILE TILE (Now appears after subscription tile)
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16.0),
-            ),
-            color: Colors.white,
-            elevation: 2.0,
-            child: ListTile(
-              leading: const Icon(Icons.edit, color: Colors.black),
-              title: const Text('Edit Profile'),
-              trailing:
-                  const Icon(Icons.arrow_forward_ios, color: Colors.black),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const EditProfilePage()),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 16.0),
-          // FAQ / Help
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16.0),
-            ),
-            color: Colors.white,
-            elevation: 2.0,
-            child: ListTile(
-              leading: const Icon(Icons.help_outline, color: Colors.black),
-              title: const Text('FAQ / Help'),
-              trailing:
-                  const Icon(Icons.arrow_forward_ios, color: Colors.black),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const FAQPage()),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 16.0),
-          // Contact Us / Support
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16.0),
-            ),
-            color: Colors.white,
-            elevation: 2.0,
-            child: ListTile(
-              leading: const Icon(Icons.contact_mail, color: Colors.black),
-              title: const Text('Contact Us / Support'),
-              trailing:
-                  const Icon(Icons.arrow_forward_ios, color: Colors.black),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ContactUsPage()),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 16.0),
-          // Refund Policy
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16.0),
-            ),
-            color: Colors.white,
-            elevation: 2.0,
-            child: ListTile(
-              leading: const Icon(Icons.receipt_long, color: Colors.black),
-              title: const Text('Refund Policy'),
-              trailing:
-                  const Icon(Icons.arrow_forward_ios, color: Colors.black),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const RefundPolicyPage()),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 16.0),
-          // Terms & Conditions
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16.0),
-            ),
-            color: Colors.white,
-            elevation: 2.0,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Terms & Conditions',
-                    style:
-                        TextStyle(fontSize: 18.0, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8.0),
-                  const Text(
-                    'By using this platform, you agree to our Terms & Conditions. '
-                    'Please review them carefully to understand your rights and responsibilities.',
-                    style: TextStyle(fontSize: 14.0),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (_) => const TermsConditionsPage()),
-                      );
-                    },
-                    child: const Text(
-                      'View Terms & Conditions',
-                      style: TextStyle(decoration: TextDecoration.underline),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16.0),
-          // Privacy Policy
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16.0),
-            ),
-            color: Colors.white,
-            elevation: 2.0,
-            child: ListTile(
-              title: const Text('Privacy Policy'),
-              trailing:
-                  const Icon(Icons.arrow_forward_ios, color: Colors.black),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const PrivacyPolicyPage()),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 16.0),
-          // Legal Documents
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16.0),
-            ),
-            color: Colors.white,
-            elevation: 2.0,
-            child: ListTile(
-              leading: const Icon(Icons.library_books, color: Colors.black),
-              title: const Text('Legal Documents'),
-              trailing:
-                  const Icon(Icons.arrow_forward_ios, color: Colors.black),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LegalDocumentsPage()),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 16.0),
-          // Delete Account Feature
-          Card(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16.0),
-            ),
-            color: Colors.white,
-            elevation: 2.0,
-            child: ListTile(
-              leading: const Icon(Icons.delete_forever, color: Colors.red),
-              title: const Text('Delete Account',
-                  style: TextStyle(color: Colors.red)),
-              trailing: const Icon(Icons.arrow_forward_ios, color: Colors.red),
-              onTap: _confirmDeleteAccount,
-            ),
-          ),
-          const SizedBox(height: 16.0),
-          // Log Out Button with Secure Storage Clearing
-          ElevatedButton(
-            onPressed: () async {
-              final BuildContext currentContext = context;
-              // Sign out from Firebase Authentication.
-              await FirebaseAuth.instance.signOut();
+          const SizedBox(height: 16),
 
-              // Clear sensitive data stored locally.
+          //──────────────── TILE LIST (unchanged) ──────
+          _simpleTile(
+              icon: Icons.edit,
+              label: 'Edit Profile',
+              page: const EditProfilePage()),
+          _simpleTile(
+              icon: Icons.help_outline,
+              label: 'FAQ / Help',
+              page: const FAQPage()),
+          _simpleTile(
+              icon: Icons.contact_mail,
+              label: 'Contact Us / Support',
+              page: const ContactUsPage()),
+          _simpleTile(
+              icon: Icons.receipt_long,
+              label: 'Refund Policy',
+              page: const RefundPolicyPage()),
+          _termsTile(),
+          _simpleTile(
+              icon: Icons.privacy_tip,
+              label: 'Privacy Policy',
+              page: const PrivacyPolicyPage()),
+          _simpleTile(
+              icon: Icons.library_books,
+              label: 'Legal Documents',
+              page: const LegalDocumentsPage()),
+          _deleteTile(),
+          const SizedBox(height: 16),
+
+          //──────────────── LOG-OUT BUTTON ────────────
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                padding: const EdgeInsets.symmetric(vertical: 14)),
+            child: const Text('Log Out',
+                style: TextStyle(color: Colors.white, fontSize: 18)),
+            onPressed: () async {
+              final ctx = context;
+              await FirebaseAuth.instance.signOut();
               await secureStorage.deleteData('userToken');
               await secureStorage.deleteData('last_profile_view');
-              // Add any additional keys you want to clear here.
-
               if (!mounted) return;
-              SchedulerBinding.instance.addPostFrameCallback((_) {
-                if (!mounted) return;
-                Navigator.pushReplacement(
-                  currentContext,
-                  MaterialPageRoute(builder: (_) => const WelcomePage()),
-                );
-              });
+              SchedulerBinding.instance.addPostFrameCallback((_) =>
+                  Navigator.pushReplacement(ctx,
+                      MaterialPageRoute(builder: (_) => const WelcomePage())));
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-            ),
-            child: const Text(
-              'Log Out',
-              style: TextStyle(fontSize: 18, color: Colors.white),
-            ),
           ),
         ],
       ),
-      bottomNavigationBar: _buildBottomNavigation(),
     );
   }
+
+  //──────────────── helper tile builders ─────────────
+  Widget _simpleTile(
+          {required IconData icon,
+          required String label,
+          required Widget page}) =>
+      Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: Card(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: ListTile(
+            leading: Icon(icon, color: Colors.black),
+            title: Text(label),
+            trailing: const Icon(Icons.arrow_forward_ios, color: Colors.black),
+            onTap: () => Navigator.push(
+                context, MaterialPageRoute(builder: (_) => page)),
+          ),
+        ),
+      );
+
+  Widget _deleteTile() => Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: Card(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: ListTile(
+            leading: const Icon(Icons.delete_forever, color: Colors.red),
+            title: const Text('Delete Account',
+                style: TextStyle(color: Colors.red)),
+            trailing: const Icon(Icons.arrow_forward_ios, color: Colors.red),
+            onTap: _confirmDeleteAccount,
+          ),
+        ),
+      );
+
+  Widget _termsTile() => Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: Card(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Terms & Conditions',
+                    style:
+                        TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                const SizedBox(height: 8),
+                const Text(
+                    'By using this platform, you agree to our Terms & Conditions.'),
+                TextButton(
+                  child: const Text('View Terms & Conditions',
+                      style: TextStyle(decoration: TextDecoration.underline)),
+                  onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const TermsConditionsPage())),
+                )
+              ],
+            ),
+          ),
+        ),
+      );
 }
