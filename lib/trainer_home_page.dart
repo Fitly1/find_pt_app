@@ -5,8 +5,8 @@ import 'bottom_navigation.dart';
 import 'trainer_reviews_section.dart';
 import 'chat_page.dart';
 import 'bottom_navigation_customers.dart';
-import 'package:cached_network_image/cached_network_image.dart'; // Import Cached Network Image
-import 'package:firebase_crashlytics/firebase_crashlytics.dart'; // Import Crashlytics for error logging
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 
 final Map<String, Color> categoryColors = {
   'Strength Training': Colors.blue,
@@ -196,8 +196,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => ChatPage(conversationId: conversationId!),
-          ),
+              builder: (_) => ChatPage(conversationId: conversationId!)),
         );
       });
     } catch (e) {
@@ -268,9 +267,8 @@ class TrainerHomePageState extends State<TrainerHomePage> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text("Cancel"),
-          ),
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text("Cancel")),
           ElevatedButton(
             onPressed: () async {
               final reason = reasonController.text.trim();
@@ -406,12 +404,11 @@ class TrainerHomePageState extends State<TrainerHomePage> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () {
-            Navigator.pop(context);
-          },
-        ),
+        // Back button hidden ONLY when this is a real trainer
+        // viewing their own dashboard (not view-as-customer).
+        automaticallyImplyLeading:
+            !(currentUserRole == "trainer" && !widget.viewAsCustomer),
+        iconTheme: const IconThemeData(color: Colors.white),
         title: Text(displayName, style: const TextStyle(color: Colors.white)),
         backgroundColor: kBrandOrange,
         actions: [
@@ -435,8 +432,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
               margin: const EdgeInsets.all(16.0),
               elevation: 4,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16.0),
-              ),
+                  borderRadius: BorderRadius.circular(16.0)),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -481,11 +477,9 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          displayName,
-                          style: const TextStyle(
-                              fontSize: 24, fontWeight: FontWeight.bold),
-                        ),
+                        Text(displayName,
+                            style: const TextStyle(
+                                fontSize: 24, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 4),
                         FutureBuilder<double>(
                           future: _fetchAverageRating(trainerUid),
@@ -505,21 +499,17 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                               children: [
                                 const Icon(Icons.star, color: Colors.amber),
                                 const SizedBox(width: 4),
-                                Text(
-                                  avgRating.toStringAsFixed(1),
-                                  style: const TextStyle(
-                                      fontSize: 23,
-                                      fontWeight: FontWeight.bold),
-                                ),
+                                Text(avgRating.toStringAsFixed(1),
+                                    style: const TextStyle(
+                                        fontSize: 23,
+                                        fontWeight: FontWeight.bold)),
                               ],
                             );
                           },
                         ),
                         const SizedBox(height: 20),
-                        Text(
-                          formatRate(trainerProfile["rate"] ?? 0),
-                          style: const TextStyle(fontSize: 20),
-                        ),
+                        Text(formatRate(trainerProfile["rate"] ?? 0),
+                            style: const TextStyle(fontSize: 20)),
                         const SizedBox(height: 20),
                         if (trainerProfile["experience"] != null &&
                             trainerProfile["experience"]
@@ -554,10 +544,9 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                                 fontSize: 20, fontWeight: FontWeight.bold)),
                         const SizedBox(height: 4),
                         Text(
-                          trainerProfile["description"] ??
-                              "No description available.",
-                          style: const TextStyle(fontSize: 20),
-                        ),
+                            trainerProfile["description"] ??
+                                "No description available.",
+                            style: const TextStyle(fontSize: 20)),
                         const SizedBox(height: 20),
                         const Text("Location:",
                             style: TextStyle(
@@ -587,15 +576,13 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                             spacing: 8.0,
                             children:
                                 (trainerProfile["specialties"] as List<dynamic>)
-                                    .map((specialty) {
+                                    .map((s) {
                               final Color color =
-                                  categoryColors[specialty] ?? Colors.grey;
+                                  categoryColors[s] ?? Colors.grey;
                               return Chip(
-                                label: Text(
-                                  specialty.toString(),
-                                  style: const TextStyle(
-                                      color: Colors.white, fontSize: 16),
-                                ),
+                                label: Text(s.toString(),
+                                    style: const TextStyle(
+                                        color: Colors.white, fontSize: 16)),
                                 backgroundColor: color,
                               );
                             }).toList(),
@@ -653,9 +640,8 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (_) =>
-                                          FullScreenImage(imageUrl: imageUrl),
-                                    ),
+                                        builder: (_) => FullScreenImage(
+                                            imageUrl: imageUrl)),
                                   );
                                 },
                                 child: ClipRRect(
@@ -710,8 +696,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                     textStyle: const TextStyle(
                         fontSize: 20, fontWeight: FontWeight.w600),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+                        borderRadius: BorderRadius.circular(8)),
                   ),
                   onPressed: () {
                     final trainerUid = trainerProfile["uid"];
@@ -750,7 +735,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                           if (!mounted) return;
                           messenger.showSnackBar(const SnackBar(
                               content: Text("Review submitted!")));
-                          setState(() {}); // Refresh stats/reviews if needed.
+                          setState(() {}); // refresh page if needed
                         },
                       ),
                     )
@@ -827,10 +812,7 @@ class _ReviewFormState extends State<ReviewForm> {
                             "Please provide a rating and a review comment.")));
                     return;
                   }
-                  setState(() {
-                    _isSubmitting = true;
-                  });
-                  final messenger = ScaffoldMessenger.of(context);
+                  setState(() => _isSubmitting = true);
                   await widget.onSubmit(
                       _selectedRating, _commentController.text);
                   if (!mounted) return;
@@ -839,8 +821,6 @@ class _ReviewFormState extends State<ReviewForm> {
                     _commentController.clear();
                     _isSubmitting = false;
                   });
-                  messenger.showSnackBar(
-                      const SnackBar(content: Text("Review submitted!")));
                 },
           child: _isSubmitting
               ? const CircularProgressIndicator()
@@ -866,20 +846,16 @@ class FullScreenImage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Trainer Portfolio"),
-        backgroundColor: kBrandOrange,
-      ),
+          title: const Text("Trainer Portfolio"),
+          backgroundColor: kBrandOrange),
       body: Center(
         child: InteractiveViewer(
           child: CachedNetworkImage(
-            // Use CachedNetworkImage here
             imageUrl: imageUrl,
             fit: BoxFit.contain,
             errorWidget: (context, url, error) {
-              return Image.asset(
-                'assets/default_profile.png',
-                fit: BoxFit.contain,
-              );
+              return Image.asset('assets/default_profile.png',
+                  fit: BoxFit.contain);
             },
           ),
         ),
