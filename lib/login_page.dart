@@ -1,15 +1,15 @@
 // lib/login_page.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-import 'role_redirect.dart'; // ← where we hand off
+import 'role_redirect.dart';
 import 'forgot_password_page.dart';
 import 'email_verification_page.dart';
 import 'secure_storage_service.dart';
 
 import 'package:logger/logger.dart';
 
-// ───────────────────────────────────────── logger
 final Logger logger = Logger(
   printer: PrettyPrinter(
     methodCount: 0,
@@ -21,7 +21,6 @@ final Logger logger = Logger(
   ),
 );
 
-// ───────────────────────────────────────── widget
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -37,14 +36,12 @@ class LoginPageState extends State<LoginPage> {
 
   final SecureStorageService secureStorage = SecureStorageService();
 
-  /* ────────────────────────────── login logic */
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) {
       logger.w("Form validation failed");
       return;
     }
 
-    // Sign-out an anonymous session if present
     final current = _auth.currentUser;
     if (current != null && current.isAnonymous) {
       await _auth.signOut();
@@ -63,7 +60,6 @@ class LoginPageState extends State<LoginPage> {
 
       if (user == null) return;
 
-      /* ───── email verification */
       await user.reload();
       if (!user.emailVerified) {
         logger.w("Email not verified. Redirecting to verification page…");
@@ -75,16 +71,20 @@ class LoginPageState extends State<LoginPage> {
         return;
       }
 
-      /* ───── store ID token securely */
       final idToken = await user.getIdToken();
       await secureStorage.writeData('auth_token', idToken!);
       logger.i("ID Token stored securely.");
 
-      /* ───── hand off to RoleRedirect & clear back-stack */
       if (!mounted) return;
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('userRole');
+
+      if (!mounted) return;
+
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const RoleRedirect()),
-        (route) => false, // removes every previous page
+        (route) => false,
       );
     } catch (e) {
       logger.e("Login failed: $e");
@@ -95,7 +95,6 @@ class LoginPageState extends State<LoginPage> {
     }
   }
 
-  /* ────────────────────────────── UI */
   @override
   Widget build(BuildContext context) {
     return Scaffold(

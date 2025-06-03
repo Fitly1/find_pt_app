@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'legal_agreement_page.dart';
 import 'email_verification_page.dart';
 import 'secure_storage_service.dart';
@@ -30,20 +31,14 @@ class SignupPageState extends State<SignupPage> {
   bool _isLoading = false;
   bool _agreedToTnC = false;
 
-  // Create an instance of SecureStorageService (singleton)
+  // Secure storage
   final SecureStorageService secureStorage = SecureStorageService();
 
-  // Helper function to capitalize the first letter.
-  String capitalize(String s) {
-    if (s.isEmpty) return s;
-    return s[0].toUpperCase() + s.substring(1).toLowerCase();
-  }
+  String capitalize(String s) =>
+      s.isEmpty ? s : s[0].toUpperCase() + s.substring(1).toLowerCase();
 
-  void _toggleAgreed(bool? newValue) {
-    setState(() {
-      _agreedToTnC = newValue ?? false;
-    });
-  }
+  void _toggleAgreed(bool? newValue) =>
+      setState(() => _agreedToTnC = newValue ?? false);
 
   Future<void> _submitForm() async {
     if (!mounted) return;
@@ -58,37 +53,33 @@ class SignupPageState extends State<SignupPage> {
         return;
       }
 
-      setState(() {
-        _isLoading = true;
-      });
+      setState(() => _isLoading = true);
 
       try {
-        // Create user with Firebase Auth
+        // 1️⃣ Create user
         UserCredential userCredential =
             await _auth.createUserWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
-
         User? user = userCredential.user;
 
-        // Send email verification
+        // 2️⃣ Send verification email
         await user?.sendEmailVerification();
 
-        // Retrieve and store the ID token securely (if available)
+        // 3️⃣ Securely store ID token
         if (user != null) {
           final String idToken = (await user.getIdToken())!;
           await secureStorage.writeData('auth_token', idToken);
         }
 
-        final String firstName = _firstNameController.text.trim();
-        final String lastName = _lastNameController.text.trim();
-        // Format names using the helper function.
-        final String formattedFirstName = capitalize(firstName);
-        final String formattedLastName = capitalize(lastName);
+        // 4️⃣ Prepare & save profile
+        final String formattedFirstName =
+            capitalize(_firstNameController.text.trim());
+        final String formattedLastName =
+            capitalize(_lastNameController.text.trim());
         final String displayName = "$formattedFirstName $formattedLastName";
 
-        // Save user details in Firestore with both normal and lower-case fields.
         await FirebaseFirestore.instance
             .collection('users')
             .doc(user!.uid)
@@ -110,6 +101,7 @@ class SignupPageState extends State<SignupPage> {
 
         if (!mounted) return;
 
+        // 5️⃣ Success UI
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -119,11 +111,16 @@ class SignupPageState extends State<SignupPage> {
           ),
         );
 
-        // Redirect every user (trainer or customer) to EmailVerificationPage!
+        // 6️⃣ Clear old SharedPreferences
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.clear();
+
+        if (!mounted) return; // ⬅️ NEW GUARD
+
+        // 7️⃣ Navigate to verification
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-              builder: (context) => const EmailVerificationPage()),
+          MaterialPageRoute(builder: (_) => const EmailVerificationPage()),
         );
       } catch (e) {
         if (!mounted) return;
@@ -135,26 +132,20 @@ class SignupPageState extends State<SignupPage> {
         );
       }
 
-      setState(() {
-        _isLoading = false;
-      });
+      setState(() => _isLoading = false);
     }
   }
 
   Future<void> _selectDate(BuildContext context) async {
-    DateTime initialDate = DateTime(1990, 1, 1);
-    DateTime firstDate = DateTime(1900);
-    DateTime lastDate = DateTime.now();
     final DateTime? pickedDate = await showDatePicker(
       context: context,
-      initialDate: initialDate,
-      firstDate: firstDate,
-      lastDate: lastDate,
+      initialDate: DateTime(1990, 1, 1),
+      firstDate: DateTime(1900),
+      lastDate: DateTime.now(),
     );
     if (pickedDate != null) {
-      setState(() {
-        _dobController.text = "${pickedDate.toLocal()}".split(' ')[0];
-      });
+      setState(
+          () => _dobController.text = "${pickedDate.toLocal()}".split(' ')[0]);
     }
   }
 
@@ -178,7 +169,7 @@ class SignupPageState extends State<SignupPage> {
           'Sign Up',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-        backgroundColor: const Color(0xFFFFA726), // Orange
+        backgroundColor: const Color(0xFFFFA726),
         iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
       ),
@@ -189,23 +180,20 @@ class SignupPageState extends State<SignupPage> {
           child: Card(
             elevation: 3,
             color: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16.0),
-            ),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             child: Padding(
               padding: const EdgeInsets.all(22.0),
               child: Form(
                 key: _formKey,
                 child: Column(
                   children: [
-                    // Large Title
                     const Text(
                       'Create your account',
                       style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: Color.fromARGB(255, 0, 0, 0),
-                      ),
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black),
                     ),
                     const SizedBox(height: 20),
 
@@ -216,14 +204,12 @@ class SignupPageState extends State<SignupPage> {
                         labelText: 'First Name',
                         border: OutlineInputBorder(),
                       ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Please enter your first name';
-                        }
-                        return null;
-                      },
+                      validator: (v) => v == null || v.trim().isEmpty
+                          ? 'Please enter your first name'
+                          : null,
                     ),
                     const SizedBox(height: 16),
+
                     // Last Name
                     TextFormField(
                       controller: _lastNameController,
@@ -231,15 +217,13 @@ class SignupPageState extends State<SignupPage> {
                         labelText: 'Last Name',
                         border: OutlineInputBorder(),
                       ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Please enter your last name';
-                        }
-                        return null;
-                      },
+                      validator: (v) => v == null || v.trim().isEmpty
+                          ? 'Please enter your last name'
+                          : null,
                     ),
                     const SizedBox(height: 16),
-                    // Date of Birth
+
+                    // DOB
                     TextFormField(
                       controller: _dobController,
                       decoration: const InputDecoration(
@@ -248,14 +232,12 @@ class SignupPageState extends State<SignupPage> {
                       ),
                       readOnly: true,
                       onTap: () => _selectDate(context),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Please select your date of birth';
-                        }
-                        return null;
-                      },
+                      validator: (v) => v == null || v.trim().isEmpty
+                          ? 'Please select your date of birth'
+                          : null,
                     ),
                     const SizedBox(height: 16),
+
                     // Email
                     TextFormField(
                       controller: _emailController,
@@ -264,28 +246,27 @@ class SignupPageState extends State<SignupPage> {
                         border: OutlineInputBorder(),
                       ),
                       keyboardType: TextInputType.emailAddress,
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) {
                           return 'Please enter your email';
-                        } else if (!RegExp(
-                                r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
-                            .hasMatch(value)) {
-                          return 'Enter a valid email';
                         }
-                        return null;
+                        final regex = RegExp(
+                            r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}");
+                        return regex.hasMatch(v) ? null : 'Enter a valid email';
                       },
                     ),
                     const SizedBox(height: 16),
-                    // Phone Number
+
+                    // Phone
                     TextFormField(
                       controller: _phoneController,
                       decoration: const InputDecoration(
-                        labelText: 'Phone Number (Optional)',
-                        border: OutlineInputBorder(),
-                      ),
+                          labelText: 'Phone Number (Optional)',
+                          border: OutlineInputBorder()),
                       keyboardType: TextInputType.phone,
                     ),
                     const SizedBox(height: 16),
+
                     // Password
                     TextFormField(
                       controller: _passwordController,
@@ -294,16 +275,17 @@ class SignupPageState extends State<SignupPage> {
                         border: OutlineInputBorder(),
                       ),
                       obscureText: true,
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) {
                           return 'Please enter a password';
-                        } else if (value.trim().length < 6) {
+                        } else if (v.trim().length < 6) {
                           return 'Password must be at least 6 characters long';
                         }
                         return null;
                       },
                     ),
                     const SizedBox(height: 16),
+
                     // Confirm Password
                     TextFormField(
                       controller: _confirmPasswordController,
@@ -312,10 +294,10 @@ class SignupPageState extends State<SignupPage> {
                         border: OutlineInputBorder(),
                       ),
                       obscureText: true,
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) {
                           return 'Please confirm your password';
-                        } else if (value.trim() !=
+                        } else if (v.trim() !=
                             _passwordController.text.trim()) {
                           return 'Passwords do not match';
                         }
@@ -323,7 +305,8 @@ class SignupPageState extends State<SignupPage> {
                       },
                     ),
                     const SizedBox(height: 16),
-                    // Role Selection
+
+                    // Role
                     DropdownButtonFormField<String>(
                       value: _selectedRole,
                       decoration: const InputDecoration(
@@ -331,23 +314,20 @@ class SignupPageState extends State<SignupPage> {
                         border: OutlineInputBorder(),
                       ),
                       items: const [
-                        DropdownMenuItem<String>(
+                        DropdownMenuItem(
                           value: 'customer',
                           child: Text('Customer'),
                         ),
-                        DropdownMenuItem<String>(
+                        DropdownMenuItem(
                           value: 'trainer',
                           child: Text('Personal Trainer'),
                         ),
                       ],
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedRole = value!;
-                        });
-                      },
+                      onChanged: (v) => setState(() => _selectedRole = v!),
                     ),
                     const SizedBox(height: 16),
-                    // Terms & Conditions & Legal Agreement Section
+
+                    // T&C
                     Row(
                       children: [
                         Checkbox(
@@ -356,28 +336,24 @@ class SignupPageState extends State<SignupPage> {
                         ),
                         Expanded(
                           child: GestureDetector(
-                            onTap: () {
-                              // Navigate to the Legal Agreement page.
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (context) =>
-                                        const LegalAgreementPage()),
-                              );
-                            },
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => const LegalAgreementPage()),
+                            ),
                             child: const Text(
                               'I agree to the Terms & Conditions',
                               style: TextStyle(
-                                decoration: TextDecoration.underline,
-                                color: Colors.blue,
-                              ),
+                                  decoration: TextDecoration.underline,
+                                  color: Colors.blue),
                             ),
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 24),
-                    // Sign Up Button
+
+                    // Sign Up button
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
@@ -392,10 +368,8 @@ class SignupPageState extends State<SignupPage> {
                                 valueColor:
                                     AlwaysStoppedAnimation<Color>(Colors.white),
                               )
-                            : const Text(
-                                'Sign Up',
-                                style: TextStyle(color: Colors.white),
-                              ),
+                            : const Text('Sign Up',
+                                style: TextStyle(color: Colors.white)),
                       ),
                     ),
                   ],

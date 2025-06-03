@@ -30,7 +30,6 @@ class RoleRedirectState extends State<RoleRedirect> {
     _handleFirstLaunch().then((_) => _checkUserRole());
   }
 
-  /* ───────────────── first-launch sign-out */
   Future<void> _handleFirstLaunch() async {
     final prefs = await SharedPreferences.getInstance();
     final hasRunBefore = prefs.getBool('hasRunBefore') ?? false;
@@ -42,7 +41,6 @@ class RoleRedirectState extends State<RoleRedirect> {
     }
   }
 
-  /* ───────────────── wait for token restore */
   Future<User?> _getCurrentUserWithGracePeriod() async {
     User? user = FirebaseAuth.instance.currentUser;
     if (user != null) return user;
@@ -56,7 +54,6 @@ class RoleRedirectState extends State<RoleRedirect> {
     return user;
   }
 
-  /* ───────────────── main checker */
   Future<void> _checkUserRole() async {
     debugPrint("🔍 Checking user authentication status…");
     Widget nextPage = const LoginPage();
@@ -93,9 +90,9 @@ class RoleRedirectState extends State<RoleRedirect> {
       debugPrint("🚀 Role fetched from Firestore: $role");
 
       final prefs = await SharedPreferences.getInstance();
+      await prefs.remove("userRole"); // ✅ Clear any old cached value
       await prefs.setString("userRole", role);
 
-      /* ───────── redirect logic */
       if (role == 'customer') {
         debugPrint("🚀 CUSTOMER → MarketplacePage (with customer nav)");
         nextPage = const MarketplacePage();
@@ -150,7 +147,6 @@ class RoleRedirectState extends State<RoleRedirect> {
     _navigateTo(nextPage);
   }
 
-  /* ───────────────── helper nav */
   void _navigateTo(Widget page) {
     if (!mounted) return;
     debugPrint("🔥 NAVIGATING to $page");
