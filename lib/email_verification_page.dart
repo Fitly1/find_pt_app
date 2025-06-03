@@ -26,8 +26,6 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
     _checkEmailVerified();
   }
 
-  /* ───────────────────────────────── ROLE ───────────────────────────────── */
-
   Future<void> _loadUserRole() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -51,12 +49,19 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
     if (mounted) setState(() => userRole = role);
   }
 
-  /* ───────────────────────────── VERIFY / RESEND ────────────────────────── */
-
   Future<void> _checkEmailVerified() async {
     setState(() => _isLoading = true);
     await FirebaseAuth.instance.currentUser?.reload();
-    final verified = FirebaseAuth.instance.currentUser?.emailVerified ?? false;
+    final user = FirebaseAuth.instance.currentUser;
+    final verified = user?.emailVerified ?? false;
+
+    if (verified) {
+      // ✅ Update Firestore with emailVerified: true
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user!.uid)
+          .set({'emailVerified': true}, SetOptions(merge: true));
+    }
 
     if (mounted) {
       setState(() {
@@ -68,20 +73,18 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
 
   Future<void> _resendEmail() async {
     await FirebaseAuth.instance.currentUser?.sendEmailVerification();
-    if (!mounted) return; // guard ①
+    if (!mounted) return;
     setState(() => _resent = true);
     _showSnack(const Text('Verification email resent!'));
   }
 
-  /* ─────────────────────────── CONTEXT HELPERS ─────────────────────────── */
-
   void _showSnack(Widget content) {
-    if (!mounted) return; // guard ② (directly before context)
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: content));
   }
 
   void _navigateAfterVerify() {
-    if (!mounted) return; // guard ③
+    if (!mounted) return;
     if (userRole == 'trainer' ||
         userRole == 'personal trainer' ||
         userRole == 'personaltrainer') {
@@ -96,8 +99,6 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
       );
     }
   }
-
-  /* ────────────────────────────────── UI ────────────────────────────────── */
 
   @override
   Widget build(BuildContext context) {
@@ -137,8 +138,6 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 20),
-
-                  /* ─────────── “I have verified” ─────────── */
                   ElevatedButton.icon(
                     icon: const Icon(Icons.refresh, color: Colors.white),
                     label: const Text('I have verified'),
@@ -153,7 +152,7 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
                         ? null
                         : () async {
                             await _checkEmailVerified();
-                            if (!mounted) return; // guard just after await
+                            if (!mounted) return;
                             if (_isEmailVerified) {
                               _navigateAfterVerify();
                             } else {
@@ -162,8 +161,6 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
                           },
                   ),
                   const SizedBox(height: 16),
-
-                  /* ─────────── Resend verification ─────────── */
                   ElevatedButton(
                     onPressed: _isLoading ? null : _resendEmail,
                     style: ElevatedButton.styleFrom(
