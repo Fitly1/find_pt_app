@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart'; // For date formatting
-import 'create_listing_page.dart'; // ✅ The new version that supports `isEditing`
-import 'bottom_navigation_customers.dart'; // Customer bottom nav
-import 'bottom_navigation.dart'; // Trainer bottom nav
-import 'listings_page.dart'; // Import ListingsPage for back navigation
+import 'create_listing_page.dart';
+import 'bottom_navigation_customers.dart';
+import 'bottom_navigation.dart';
+import 'listings_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class EditListingsPage extends StatefulWidget {
@@ -33,16 +33,16 @@ class _EditListingsPageState extends State<EditListingsPage> {
     debugPrint("EditListingsPage: Loaded user role: $userRole");
   }
 
-  /// Stream of listings where userId == current user's ID
+  /// ✅ Updated stream to exclude soft-deleted listings
   Stream<QuerySnapshot> _userListingsStream() {
     return FirebaseFirestore.instance
         .collection('listings')
         .where('userId', isEqualTo: user?.uid)
+        .where('deleted', isEqualTo: false) // ✅ Hide deleted listings
         .orderBy('timestamp', descending: true)
         .snapshots();
   }
 
-  /// When tapping the edit button, navigate to CreateListingPage in edit mode
   void _editListing(Map<String, dynamic> listingData, String listingId) {
     Navigator.push(
       context,
@@ -56,7 +56,6 @@ class _EditListingsPageState extends State<EditListingsPage> {
     );
   }
 
-  /// Button for creating a new listing.
   void _addNewListing() {
     Navigator.push(
       context,
@@ -68,7 +67,6 @@ class _EditListingsPageState extends State<EditListingsPage> {
     );
   }
 
-  /// Returns the appropriate bottom navigation widget based on the user's role.
   Widget _buildBottomNavigation() {
     bool isCustomer = (userRole == 'customer');
     return isCustomer
@@ -83,7 +81,6 @@ class _EditListingsPageState extends State<EditListingsPage> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
-            // For customers, pressing back should take them to ListingsPage.
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (context) => const ListingsPage()),
@@ -116,12 +113,10 @@ class _EditListingsPageState extends State<EditListingsPage> {
               final data = docs[index].data() as Map<String, dynamic>;
               final listingId = docs[index].id;
 
-              // Basic fields
               final title = data["title"] ?? "Untitled";
               final description = data["description"] ?? "";
               final location = data["location"] ?? "";
 
-              // Use createdAt if available; otherwise, fall back to timestamp
               final Timestamp? createdAtTs = data["createdAt"] as Timestamp?;
               final Timestamp? ts =
                   createdAtTs ?? data["timestamp"] as Timestamp?;
@@ -146,7 +141,6 @@ class _EditListingsPageState extends State<EditListingsPage> {
           );
         },
       ),
-      // Optional button for adding a new listing
       floatingActionButton: FloatingActionButton(
         backgroundColor: const Color.fromARGB(255, 255, 167, 38),
         onPressed: _addNewListing,

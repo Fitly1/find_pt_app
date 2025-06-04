@@ -9,8 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logger/logger.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
-import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart'; // NEW
-
+import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart';
 import 'secure_storage_service.dart';
 import 'edit_profile_page.dart';
 import 'marketplace_page.dart';
@@ -73,8 +72,8 @@ class _ActivateSubscriptionButtonState
   }
 
   @override
-  Widget build(BuildContext context) => ElevatedButton(
-      onPressed: _startSubscription, child: const Text('Pay to Activate'));
+  Widget build(BuildContext context) =>
+      ElevatedButton(onPressed: _startSubscription, child: const Text('Pay to Activate'));
 }
 
 /// Manage-subscription button (unchanged, used by Android)
@@ -106,8 +105,8 @@ class _ManageSubscriptionButtonState extends State<ManageSubscriptionButton> {
   }
 
   @override
-  Widget build(BuildContext context) => ElevatedButton(
-      onPressed: _openBillingPortal, child: const Text('Manage Subscription'));
+  Widget build(BuildContext context) =>
+      ElevatedButton(onPressed: _openBillingPortal, child: const Text('Manage Subscription'));
 }
 
 //─────────────────────────────────────────────────────────────────────────────
@@ -135,7 +134,6 @@ class _ProfilePageState extends State<ProfilePage> {
     super.initState();
     _loadUserRole();
     _initIAP();
-
     // store last profile-view timestamp
     secureStorage
         .writeData('last_profile_view', DateTime.now().toIso8601String())
@@ -145,12 +143,10 @@ class _ProfilePageState extends State<ProfilePage> {
   //──────────────── IAP bootstrap ───────
   Future<void> _initIAP() async {
     if (!Platform.isIOS) return;
-
     if (!await InAppPurchase.instance.isAvailable()) {
       logger.w('IAP not available');
       return;
     }
-
     final res = await InAppPurchase.instance.queryProductDetails(_kProductIds);
     if (res.error != null) {
       logger.e('IAP query error: ${res.error}');
@@ -161,13 +157,10 @@ class _ProfilePageState extends State<ProfilePage> {
       return;
     }
     _membershipProduct = res.productDetails.first;
-
     _purchaseSub = InAppPurchase.instance.purchaseStream.listen(
         _onPurchaseUpdate,
         onError: (e) => logger.e('Purchase stream error: $e'));
-
     await InAppPurchase.instance.restorePurchases();
-
     _skAddition = InAppPurchase.instance
         .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
   }
@@ -214,7 +207,6 @@ class _ProfilePageState extends State<ProfilePage> {
   //──────────────── iOS helper sheets ────
   Future<void> _openIOSManage() async {
     if (!Platform.isIOS) return;
-
     // Try StoreKit native sheet (if the method exists in your plugin version)
     try {
       final dynamic addition = _skAddition;
@@ -225,7 +217,6 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (_) {
       // fall through to URL fallback
     }
-
     // Fallback: open Apple’s subscriptions page in Safari
     const url = 'https://apps.apple.com/account/subscriptions';
     if (await canLaunchUrl(Uri.parse(url))) {
@@ -235,7 +226,6 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _askRefund() async {
     if (!Platform.isIOS || _membershipProduct == null) return;
-
     // Try StoreKit2 API first
     try {
       final dynamic addition = _skAddition;
@@ -251,7 +241,6 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (_) {
       // fall through to URL fallback
     }
-
     // Fallback: Apple’s “Report a problem” web page
     const url = 'https://reportaproblem.apple.com/';
     if (await canLaunchUrl(Uri.parse(url))) {
@@ -305,6 +294,71 @@ class _ProfilePageState extends State<ProfilePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
+  }
+
+  //────────────────────────── NEW ACCOUNT-DELETION HELPERS ──────────────
+  void _promptReauthAndDelete(String email) {
+    final TextEditingController _pwController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm Account Deletion'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Please re-enter your password to continue.'),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _pwController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Password',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _reauthAndDelete(email, _pwController.text);
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _reauthAndDelete(String email, String password) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw FirebaseAuthException(code: 'no-user');
+
+      final credential =
+          EmailAuthProvider.credential(email: email, password: password);
+
+      await user.reauthenticateWithCredential(credential);
+      await user.delete();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Account deleted successfully.")),
+      );
+
+      // Sign out and redirect
+      await FirebaseAuth.instance.signOut();
+      Navigator.pushReplacementNamed(context, '/login');
+    } on FirebaseAuthException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("❌ Failed: ${e.message}")),
+      );
     }
   }
 
@@ -386,55 +440,13 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  void _confirmDeleteAccount() {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("Confirm Account Deletion"),
-        content: const Text(
-            "Are you sure you want to delete your account? This action cannot be undone."),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text("Cancel")),
-          TextButton(
-            child: const Text("Delete", style: TextStyle(color: Colors.red)),
-            onPressed: () {
-              Navigator.of(context).pop();
-              _deleteAccount();
-            },
-          )
-        ],
-      ),
-    );
-  }
-
-  Future<void> _deleteAccount() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-    try {
-      await FirebaseFirestore.instance
-          .collection("trainer_profiles")
-          .doc(user.uid)
-          .delete();
-      await user.delete();
-      if (!mounted) return;
-      Navigator.pushReplacement(
-          context, MaterialPageRoute(builder: (_) => const WelcomePage()));
-    } catch (e) {
-      logger.e("Delete account error: $e");
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text("Error: $e")));
-    }
-  }
-
   void _showSignUpPrompt() {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text("Sign In Required"),
-        content: const Text(
-            "Please sign in or sign up to manage your subscription."),
+        content:
+            const Text("Please sign in or sign up to manage your subscription."),
         actions: [
           TextButton(
               onPressed: () => Navigator.of(context).pop(),
@@ -443,8 +455,8 @@ class _ProfilePageState extends State<ProfilePage> {
             child: const Text("Sign In / Sign Up"),
             onPressed: () {
               Navigator.of(context).pop();
-              Navigator.pushReplacement(context,
-                  MaterialPageRoute(builder: (_) => const LoginPage()));
+              Navigator.pushReplacement(
+                  context, MaterialPageRoute(builder: (_) => const LoginPage()));
             },
           )
         ],
@@ -456,7 +468,6 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Profile', style: TextStyle(color: Colors.white)),
@@ -477,8 +488,7 @@ class _ProfilePageState extends State<ProfilePage> {
         children: [
           //──────────────── PROFILE CARD ───────────────
           Card(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             elevation: 4,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
@@ -499,7 +509,6 @@ class _ProfilePageState extends State<ProfilePage> {
                   if (displayName.isEmpty) {
                     displayName = user?.displayName ?? 'No Name';
                   }
-
                   return Column(
                     children: [
                       Stack(
@@ -538,7 +547,6 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
           const SizedBox(height: 16),
-
           //──────────────── SUBSCRIPTION TILE ──────────
           StreamBuilder<DocumentSnapshot>(
             stream: FirebaseFirestore.instance
@@ -550,7 +558,6 @@ class _ProfilePageState extends State<ProfilePage> {
               final d = snap.data!.data() as Map<String, dynamic>? ?? {};
               final active = d['isActive'] ?? false;
               final stripeId = d['stripeId'] ?? '';
-
               //──────── MANAGE SUBSCRIPTION ────────
               if (active) {
                 return Card(
@@ -580,7 +587,6 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                 );
               }
-
               //──────── PAY TO ACTIVATE ─────────────
               return Card(
                 shape: RoundedRectangleBorder(
@@ -599,16 +605,13 @@ class _ProfilePageState extends State<ProfilePage> {
             },
           ),
           const SizedBox(height: 16),
-
           //──────────────── TILE LIST (unchanged) ──────
           _simpleTile(
               icon: Icons.edit,
               label: 'Edit Profile',
               page: const EditProfilePage()),
           _simpleTile(
-              icon: Icons.help_outline,
-              label: 'FAQ / Help',
-              page: const FAQPage()),
+              icon: Icons.help_outline, label: 'FAQ / Help', page: const FAQPage()),
           _simpleTile(
               icon: Icons.contact_mail,
               label: 'Contact Us / Support',
@@ -628,7 +631,6 @@ class _ProfilePageState extends State<ProfilePage> {
               page: const LegalDocumentsPage()),
           _deleteTile(),
           const SizedBox(height: 16),
-
           //──────────────── LOG-OUT BUTTON ────────────
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -660,8 +662,7 @@ class _ProfilePageState extends State<ProfilePage> {
       Padding(
         padding: const EdgeInsets.only(bottom: 16),
         child: Card(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: ListTile(
             leading: Icon(icon, color: Colors.black),
             title: Text(label),
@@ -675,14 +676,18 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _deleteTile() => Padding(
         padding: const EdgeInsets.only(bottom: 16),
         child: Card(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: ListTile(
             leading: const Icon(Icons.delete_forever, color: Colors.red),
             title: const Text('Delete Account',
                 style: TextStyle(color: Colors.red)),
             trailing: const Icon(Icons.arrow_forward_ios, color: Colors.red),
-            onTap: _confirmDeleteAccount,
+            onTap: () {
+              final user = FirebaseAuth.instance.currentUser;
+              if (user != null && user.email != null) {
+                _promptReauthAndDelete(user.email!);
+              }
+            },
           ),
         ),
       );
@@ -690,16 +695,14 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _termsTile() => Padding(
         padding: const EdgeInsets.only(bottom: 16),
         child: Card(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text('Terms & Conditions',
-                    style:
-                        TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                 const SizedBox(height: 8),
                 const Text(
                     'By using this platform, you agree to our Terms & Conditions.'),

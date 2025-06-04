@@ -4,8 +4,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_typeahead/flutter_typeahead.dart';
-
-/// Import your secure storage service.
 import 'secure_storage_service.dart';
 
 class CreateListingPage extends StatefulWidget {
@@ -31,18 +29,14 @@ class _CreateListingPageState extends State<CreateListingPage> {
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
 
-  // We'll store the selected location in a simple string.
   String? _selectedLocation;
-  Map<String, dynamic>? _selectedSuburb; // For lat/lng
+  Map<String, dynamic>? _selectedSuburb; // lat/lng
 
-  // Training method
   final List<String> _trainingMethods = ["Both", "Online", "Face-to-Face"];
   String _selectedTrainingMethod = "Both";
 
-  // Suburbs data (for lat/lng)
   List<Map<String, dynamic>> _suburbsData = [];
 
-  // Specialties list.
   final List<String> _allSpecialties = [
     "Strength Training",
     "Recovery",
@@ -60,10 +54,8 @@ class _CreateListingPageState extends State<CreateListingPage> {
     "Pre/Post Pregnancy",
     "Other",
   ];
-  // The user's selected specialties.
   final List<String> _selectedSpecialties = [];
 
-  // Create an instance of SecureStorageService (singleton)
   final SecureStorageService secureStorage = SecureStorageService();
 
   @override
@@ -71,7 +63,6 @@ class _CreateListingPageState extends State<CreateListingPage> {
     super.initState();
     _loadSuburbs();
 
-    // If editing, pre-fill fields from existingData.
     if (widget.isEditing && widget.existingData != null) {
       final data = widget.existingData!;
       _titleController.text = data["title"] ?? "";
@@ -81,12 +72,53 @@ class _CreateListingPageState extends State<CreateListingPage> {
         _selectedTrainingMethod = data["trainingMethod"];
       }
       if (data["specialties"] is List) {
-        _selectedSpecialties.addAll(
-          (data["specialties"] as List).map((e) => e.toString()),
-        );
+        _selectedSpecialties
+            .addAll((data["specialties"] as List).map((e) => e.toString()));
       }
     }
   }
+
+  // ────────────────────────── NEW: confirm-delete dialog ─────────────────────────
+  void _confirmDelete(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Listing'),
+        content:
+            const Text('Are you sure you want to delete this listing?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.pop(context); // close dialog
+
+              if (widget.listingId != null) {
+                await FirebaseFirestore.instance
+                    .collection('listings')
+                    .doc(widget.listingId)
+                    .update({'deleted': true});
+              }
+
+              if (!mounted) return;
+              Navigator.pop(context); // exit CreateListingPage
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Listing deleted')),
+              );
+            },
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  // ───────────────────────────────────────────────────────────────────────────────
 
   /// Loads suburb data from assets/Suburbs.json.
   Future<void> _loadSuburbs() async {
@@ -108,7 +140,6 @@ class _CreateListingPageState extends State<CreateListingPage> {
   Future<void> _submitListing() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // Check if at least one specialty is selected.
     if (_selectedSpecialties.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Please select at least one specialty.")),
@@ -116,7 +147,6 @@ class _CreateListingPageState extends State<CreateListingPage> {
       return;
     }
 
-    // Ensure location is selected.
     if (_selectedLocation == null || _selectedLocation!.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Please select a location.")),
@@ -132,9 +162,6 @@ class _CreateListingPageState extends State<CreateListingPage> {
       return;
     }
 
-    // Fetch additional user info if needed (omitted here for brevity).
-    // You can add code to fetch the user's firstName and profileImageUrl if needed.
-
     final listingData = {
       "title": _titleController.text.trim(),
       "description": _descriptionController.text.trim(),
@@ -145,12 +172,10 @@ class _CreateListingPageState extends State<CreateListingPage> {
       "userId": user.uid,
     };
 
-    // Add the new field "createdAt" only if it's a new listing.
     if (!widget.isEditing) {
       listingData["createdAt"] = FieldValue.serverTimestamp();
     }
 
-    // If a suburb was chosen, store lat/lng in geoLocation.
     if (_selectedSuburb != null) {
       double lat =
           double.tryParse(_selectedSuburb!["Latitude"]?.toString() ?? "0") ??
@@ -168,22 +193,20 @@ class _CreateListingPageState extends State<CreateListingPage> {
             .doc(widget.listingId)
             .update(listingData);
       } else {
-        await FirebaseFirestore.instance
-            .collection("listings")
-            .add(listingData);
+        await FirebaseFirestore.instance.collection("listings").add(listingData);
       }
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Listing saved successfully!")),
       );
       Navigator.pop(context);
 
-      // --- Security Integration: Save last listing submission timestamp securely ---
       await secureStorage.writeData(
         'last_listing_submission',
         DateTime.now().toIso8601String(),
       );
-      // For debugging, read and print the timestamp.
+
       String? submissionTimestamp =
           await secureStorage.readData('last_listing_submission');
       debugPrint("Last listing submission timestamp: $submissionTimestamp");
@@ -213,10 +236,7 @@ class _CreateListingPageState extends State<CreateListingPage> {
                 children: [
                   const Text(
                     "Search Location",
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 16),
                   TypeAheadField<Map<String, dynamic>>(
@@ -291,14 +311,13 @@ class _CreateListingPageState extends State<CreateListingPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Section: Basic Information
+              // ------------- Basic Information -------------
               const Text(
                 "Basic Information",
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const Divider(),
               const SizedBox(height: 8),
-              // Title Field
               const Text(
                 "What are your training goals?",
                 style: TextStyle(fontWeight: FontWeight.bold),
@@ -306,16 +325,16 @@ class _CreateListingPageState extends State<CreateListingPage> {
               const SizedBox(height: 4),
               TextFormField(
                 controller: _titleController,
-                validator: (value) => (value == null || value.trim().isEmpty)
-                    ? "This field is required"
-                    : null,
+                validator: (value) =>
+                    (value == null || value.trim().isEmpty)
+                        ? "This field is required"
+                        : null,
                 decoration: const InputDecoration(
                   hintText: "e.g., I need help with weight loss",
                   border: OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 16),
-              // Description Field
               const Text(
                 "Description:",
                 style: TextStyle(fontWeight: FontWeight.bold),
@@ -323,9 +342,10 @@ class _CreateListingPageState extends State<CreateListingPage> {
               const SizedBox(height: 4),
               TextFormField(
                 controller: _descriptionController,
-                validator: (value) => (value == null || value.trim().isEmpty)
-                    ? "Description is required"
-                    : null,
+                validator: (value) =>
+                    (value == null || value.trim().isEmpty)
+                        ? "Description is required"
+                        : null,
                 maxLines: 3,
                 decoration: const InputDecoration(
                   hintText: "Provide details about your training needs...",
@@ -333,14 +353,14 @@ class _CreateListingPageState extends State<CreateListingPage> {
                 ),
               ),
               const SizedBox(height: 16),
-              // Section: Location (Single Button)
+
+              // ------------- Location -------------
               const Text(
                 "Location (Suburb/Postcode):",
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const Divider(),
               const SizedBox(height: 8),
-              // Single button for location
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
@@ -357,14 +377,14 @@ class _CreateListingPageState extends State<CreateListingPage> {
                 ),
               ),
               const SizedBox(height: 16),
-              // Section: Preferences
+
+              // ------------- Preferences -------------
               const Text(
                 "Preferences",
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const Divider(),
               const SizedBox(height: 8),
-              // Training Method
               const Text(
                 "Preferred Training Method:",
                 style: TextStyle(fontWeight: FontWeight.bold),
@@ -383,15 +403,16 @@ class _CreateListingPageState extends State<CreateListingPage> {
                     _selectedTrainingMethod = value!;
                   });
                 },
-                validator: (value) => (value == null || value.trim().isEmpty)
-                    ? "Preferred training method is required"
-                    : null,
+                validator: (value) =>
+                    (value == null || value.trim().isEmpty)
+                        ? "Preferred training method is required"
+                        : null,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 16),
-              // Specialties
+
               const Text(
                 "Specialties:",
                 style: TextStyle(fontWeight: FontWeight.bold),
@@ -418,7 +439,8 @@ class _CreateListingPageState extends State<CreateListingPage> {
                 }).toList(),
               ),
               const SizedBox(height: 24),
-              // Submit Button
+
+              // ------------- Submit Button -------------
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -428,9 +450,32 @@ class _CreateListingPageState extends State<CreateListingPage> {
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
                   child: Text(
-                      widget.isEditing ? "Save Changes" : "Create Listing"),
+                    widget.isEditing ? "Save Changes" : "Create Listing",
+                  ),
                 ),
               ),
+
+              // ────────────────────── NEW: Delete Button ──────────────────────
+              if (widget.isEditing)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => _confirmDelete(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red.shade600,
+                        padding:
+                            const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: const Text(
+                        'Delete Listing',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ),
+              // ────────────────────────────────────────────────────────────────
             ],
           ),
         ),

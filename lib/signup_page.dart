@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import 'legal_agreement_page.dart';
 import 'email_verification_page.dart';
 import 'secure_storage_service.dart';
@@ -42,6 +43,7 @@ class SignupPageState extends State<SignupPage> {
 
   Future<void> _submitForm() async {
     if (!mounted) return;
+
     if (_formKey.currentState!.validate()) {
       if (!_agreedToTnC) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -56,34 +58,44 @@ class SignupPageState extends State<SignupPage> {
       setState(() => _isLoading = true);
 
       try {
-        // 1️⃣ Create user
+        /* ------------------------------------------------------------------
+           1️⃣  Create user with email & password
+        ------------------------------------------------------------------ */
         UserCredential userCredential =
             await _auth.createUserWithEmailAndPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
-        User? user = userCredential.user;
 
-        // 2️⃣ Send verification email
+        /* ------------------------------------------------------------------
+           ✅ Reload and fetch current user
+        ------------------------------------------------------------------ */
+        await FirebaseAuth.instance.currentUser?.reload();
+        User? user = FirebaseAuth.instance.currentUser;
+
+        /* ------------------------------------------------------------------
+           2️⃣  Send verification e-mail
+        ------------------------------------------------------------------ */
         await user?.sendEmailVerification();
 
-        // 3️⃣ Securely store ID token
+        /* ------------------------------------------------------------------
+           3️⃣  Securely store ID token (optional, if you need it later)
+        ------------------------------------------------------------------ */
         if (user != null) {
           final String idToken = (await user.getIdToken())!;
           await secureStorage.writeData('auth_token', idToken);
         }
 
-        // 4️⃣ Prepare & save profile
+        /* ------------------------------------------------------------------
+           4️⃣  Prepare & save Firestore user profile
+        ------------------------------------------------------------------ */
         final String formattedFirstName =
             capitalize(_firstNameController.text.trim());
         final String formattedLastName =
             capitalize(_lastNameController.text.trim());
         final String displayName = "$formattedFirstName $formattedLastName";
 
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user!.uid)
-            .set({
+        await FirebaseFirestore.instance.collection('users').doc(user!.uid).set({
           'firstName': formattedFirstName,
           'firstName_lowerCase': formattedFirstName.toLowerCase(),
           'lastName': formattedLastName,
@@ -101,7 +113,9 @@ class SignupPageState extends State<SignupPage> {
 
         if (!mounted) return;
 
-        // 5️⃣ Success UI
+        /* ------------------------------------------------------------------
+           5️⃣  Success feedback
+        ------------------------------------------------------------------ */
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -111,13 +125,17 @@ class SignupPageState extends State<SignupPage> {
           ),
         );
 
-        // 6️⃣ Clear old SharedPreferences
+        /* ------------------------------------------------------------------
+           6️⃣  Clear any old SharedPreferences
+        ------------------------------------------------------------------ */
         final prefs = await SharedPreferences.getInstance();
         await prefs.clear();
 
-        if (!mounted) return; // ⬅️ NEW GUARD
+        if (!mounted) return;
 
-        // 7️⃣ Navigate to verification
+        /* ------------------------------------------------------------------
+           7️⃣  Navigate to the e-mail verification page
+        ------------------------------------------------------------------ */
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const EmailVerificationPage()),
@@ -145,7 +163,8 @@ class SignupPageState extends State<SignupPage> {
     );
     if (pickedDate != null) {
       setState(
-          () => _dobController.text = "${pickedDate.toLocal()}".split(' ')[0]);
+        () => _dobController.text = "${pickedDate.toLocal()}".split(' ')[0],
+      );
     }
   }
 
@@ -176,7 +195,8 @@ class SignupPageState extends State<SignupPage> {
       backgroundColor: Colors.white,
       body: SingleChildScrollView(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 32.0),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 16.0, vertical: 32.0),
           child: Card(
             elevation: 3,
             color: Colors.white,
@@ -197,7 +217,7 @@ class SignupPageState extends State<SignupPage> {
                     ),
                     const SizedBox(height: 20),
 
-                    // First Name
+                    // ---------------- First Name ----------------
                     TextFormField(
                       controller: _firstNameController,
                       decoration: const InputDecoration(
@@ -210,7 +230,7 @@ class SignupPageState extends State<SignupPage> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Last Name
+                    // ---------------- Last Name ----------------
                     TextFormField(
                       controller: _lastNameController,
                       decoration: const InputDecoration(
@@ -223,7 +243,7 @@ class SignupPageState extends State<SignupPage> {
                     ),
                     const SizedBox(height: 16),
 
-                    // DOB
+                    // ---------------- Date of Birth ----------------
                     TextFormField(
                       controller: _dobController,
                       decoration: const InputDecoration(
@@ -238,7 +258,7 @@ class SignupPageState extends State<SignupPage> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Email
+                    // ---------------- Email ----------------
                     TextFormField(
                       controller: _emailController,
                       decoration: const InputDecoration(
@@ -252,22 +272,25 @@ class SignupPageState extends State<SignupPage> {
                         }
                         final regex = RegExp(
                             r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}");
-                        return regex.hasMatch(v) ? null : 'Enter a valid email';
+                        return regex.hasMatch(v)
+                            ? null
+                            : 'Enter a valid email';
                       },
                     ),
                     const SizedBox(height: 16),
 
-                    // Phone
+                    // ---------------- Phone (Optional) ----------------
                     TextFormField(
                       controller: _phoneController,
                       decoration: const InputDecoration(
-                          labelText: 'Phone Number (Optional)',
-                          border: OutlineInputBorder()),
+                        labelText: 'Phone Number (Optional)',
+                        border: OutlineInputBorder(),
+                      ),
                       keyboardType: TextInputType.phone,
                     ),
                     const SizedBox(height: 16),
 
-                    // Password
+                    // ---------------- Password ----------------
                     TextFormField(
                       controller: _passwordController,
                       decoration: const InputDecoration(
@@ -286,7 +309,7 @@ class SignupPageState extends State<SignupPage> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Confirm Password
+                    // ---------------- Confirm Password ----------------
                     TextFormField(
                       controller: _confirmPasswordController,
                       decoration: const InputDecoration(
@@ -306,7 +329,7 @@ class SignupPageState extends State<SignupPage> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Role
+                    // ---------------- Role Dropdown ----------------
                     DropdownButtonFormField<String>(
                       value: _selectedRole,
                       decoration: const InputDecoration(
@@ -327,7 +350,7 @@ class SignupPageState extends State<SignupPage> {
                     ),
                     const SizedBox(height: 16),
 
-                    // T&C
+                    // ---------------- Terms & Conditions ----------------
                     Row(
                       children: [
                         Checkbox(
@@ -353,7 +376,7 @@ class SignupPageState extends State<SignupPage> {
                     ),
                     const SizedBox(height: 24),
 
-                    // Sign Up button
+                    // ---------------- Sign Up Button ----------------
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
@@ -368,8 +391,10 @@ class SignupPageState extends State<SignupPage> {
                                 valueColor:
                                     AlwaysStoppedAnimation<Color>(Colors.white),
                               )
-                            : const Text('Sign Up',
-                                style: TextStyle(color: Colors.white)),
+                            : const Text(
+                                'Sign Up',
+                                style: TextStyle(color: Colors.white),
+                              ),
                       ),
                     ),
                   ],

@@ -12,7 +12,6 @@ import 'bottom_navigation_customers.dart'; // Customer bottom nav
 import 'marketplace_page.dart'; // For returning via the back arrow
 import 'bottom_navigation.dart'; // Trainer bottom nav
 import 'trainer_home_page.dart';
-
 import 'package:flutter_typeahead/flutter_typeahead.dart'; // Using flutter_typeahead (older API as in Marketplace page)
 
 class ListingsPage extends StatefulWidget {
@@ -46,6 +45,7 @@ class _ListingsPageState extends State<ListingsPage> {
   String _trainingMethodFilter = "all";
   String _suburbFilter =
       "all"; // e.g. "Mount Stromlo, Australian Capital Territory (2611)"
+
   // Use a dedicated controller for the suburb field (like in Marketplace page)
   final TextEditingController suburbController = TextEditingController();
 
@@ -56,16 +56,16 @@ class _ListingsPageState extends State<ListingsPage> {
 
   // For storing the chosen suburb data (with lat/lng).
   Map<String, dynamic>? selectedSuburbData;
+
   // For displaying the chosen suburb text (formatted).
   String selectedSuburbText = '';
-
-  // Other filtering criteria can be added here (if needed)
 
   // For role-based navigation.
   String userRole = 'customer'; // Default role
 
   // For suburb data
   List<Map<String, dynamic>> _suburbsData = [];
+
   final List<String> _trainingMethods = ["all", "online", "face-to-face"];
 
   @override
@@ -106,7 +106,8 @@ class _ListingsPageState extends State<ListingsPage> {
   }
 
   // Haversine formula to calculate distance.
-  double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+  double calculateDistance(
+      double lat1, double lon1, double lat2, double lon2) {
     const double earthRadius = 6371;
     double dLat = (lat2 - lat1) * (pi / 180);
     double dLon = (lon2 - lon1) * (pi / 180);
@@ -121,18 +122,22 @@ class _ListingsPageState extends State<ListingsPage> {
 
   /// Builds a Firestore query.
   Query _buildQuery() {
-    Query query = FirebaseFirestore.instance.collection('listings');
+    Query query = FirebaseFirestore.instance
+        .collection('listings')
+        .where('deleted', isEqualTo: false); // ✅ Only show non-deleted
+
     if (_trainingMethodFilter != "all") {
       debugPrint("🔍 Filtering by method: $_trainingMethodFilter");
       query = query.where("trainingMethodPreference",
           arrayContains: _trainingMethodFilter);
     }
+
     if (_suburbFilter != "all" && selectedSuburbData == null) {
       debugPrint("🔍 Filtering by suburb (exact match): $_suburbFilter");
       query = query.where("location", isEqualTo: _suburbFilter);
     }
-    query = query.orderBy('timestamp', descending: true);
-    return query;
+
+    return query.orderBy('timestamp', descending: true);
   }
 
   /// Applies distance-based filtering locally if we have selectedSuburbData.
@@ -228,8 +233,10 @@ class _ListingsPageState extends State<ListingsPage> {
     // Local variables for the dialog.
     String localMethod = _trainingMethodFilter;
     int localDistance = selectedDistance;
+
     // Use the same suburbController as in the Marketplace page.
     final TextEditingController localSuburbController = suburbController;
+
     // Local variables to hold the chosen suburb data and formatted text.
     Map<String, dynamic>? dialogSelectedSuburbData = selectedSuburbData;
     String dialogSelectedSuburbText = selectedSuburbText;
@@ -253,10 +260,11 @@ class _ListingsPageState extends State<ListingsPage> {
                     children: [
                       const Text(
                         'Filters',
-                        style: TextStyle(
-                            fontSize: 20, fontWeight: FontWeight.bold),
+                        style:
+                            TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 16),
+
                       // Training Method Section
                       const Text(
                         'Training Method:',
@@ -278,6 +286,7 @@ class _ListingsPageState extends State<ListingsPage> {
                         }).toList(),
                       ),
                       const SizedBox(height: 16),
+
                       // Suburb Section (copied exactly from Marketplace)
                       const Text(
                         'Suburb:',
@@ -292,8 +301,7 @@ class _ListingsPageState extends State<ListingsPage> {
                             Iterable<Map<String, dynamic>> matches =
                                 _suburbsData.where((item) {
                               String suburb =
-                                  item['Suburb']?.toString().toLowerCase() ??
-                                      '';
+                                  item['Suburb']?.toString().toLowerCase() ?? '';
                               String postcode =
                                   item['Postcode']?.toString() ?? '';
                               return suburb.contains(pattern.toLowerCase()) ||
@@ -341,6 +349,7 @@ class _ListingsPageState extends State<ListingsPage> {
                         ),
                       ),
                       const SizedBox(height: 16),
+
                       // Distance Section
                       const Text(
                         'Distance (km):',
@@ -361,6 +370,7 @@ class _ListingsPageState extends State<ListingsPage> {
                         }).toList(),
                       ),
                       const SizedBox(height: 24),
+
                       // Action Buttons
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -379,10 +389,10 @@ class _ListingsPageState extends State<ListingsPage> {
                             onPressed: () {
                               setState(() {
                                 _trainingMethodFilter = localMethod;
-                                _suburbFilter =
-                                    localSuburbController.text.isEmpty
-                                        ? "all"
-                                        : dialogSelectedSuburbText;
+                                _suburbFilter = localSuburbController
+                                        .text.isEmpty
+                                    ? "all"
+                                    : dialogSelectedSuburbText;
                                 selectedDistance = localDistance;
                                 maxDistance = localDistance.toDouble();
                                 selectedSuburbText = dialogSelectedSuburbText;
@@ -462,21 +472,26 @@ class _ListingsPageState extends State<ListingsPage> {
                   debugPrint("No data yet.");
                   return const Center(child: CircularProgressIndicator());
                 }
+
                 final rawListings = snapshot.data!.docs.map((doc) {
                   return {
                     ...doc.data() as Map<String, dynamic>,
                     "uid": doc.id,
                   };
                 }).toList();
+
                 final listings = (selectedSuburbData != null)
                     ? _applyLocalFilters(rawListings)
                     : rawListings;
+
                 if (listings.isEmpty) {
                   return const Center(child: Text("No listings available."));
                 }
+
                 return ListView.separated(
                   itemCount: listings.length,
-                  separatorBuilder: (ctx, index) => const SizedBox(height: 8),
+                  separatorBuilder: (ctx, index) =>
+                      const SizedBox(height: 8),
                   itemBuilder: (ctx, index) {
                     final data = listings[index];
                     final title = data["title"] ?? "No title";
@@ -496,9 +511,11 @@ class _ListingsPageState extends State<ListingsPage> {
                         labelStyle: const TextStyle(color: Colors.white),
                       );
                     }).toList();
+
                     final String creatorName = data["firstName"] ?? "Unknown";
                     final String profileImageUrl =
                         data["profileImageUrl"] ?? "";
+
                     return Card(
                       margin: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 4),
@@ -524,7 +541,8 @@ class _ListingsPageState extends State<ListingsPage> {
                             const SizedBox(height: 2),
                             Text("By: $creatorName",
                                 style: const TextStyle(
-                                    fontSize: 12, fontStyle: FontStyle.italic)),
+                                    fontSize: 12,
+                                    fontStyle: FontStyle.italic)),
                           ],
                         ),
                         subtitle: Column(
@@ -597,16 +615,13 @@ class _ListingsPageState extends State<ListingsPage> {
 class TrainerSearchDelegate extends SearchDelegate {
   final List<Map<String, dynamic>> trainers;
   final String userRole; // Passed from MarketplacePage
+
   TrainerSearchDelegate(this.trainers, this.userRole);
 
   @override
   List<Widget> buildActions(BuildContext context) {
     return [
-      IconButton(
-          icon: const Icon(Icons.clear),
-          onPressed: () {
-            query = '';
-          })
+      IconButton(icon: const Icon(Icons.clear), onPressed: () => query = '')
     ];
   }
 
@@ -614,20 +629,19 @@ class TrainerSearchDelegate extends SearchDelegate {
   Widget buildLeading(BuildContext context) {
     return IconButton(
         icon: const Icon(Icons.arrow_back),
-        onPressed: () {
-          close(context, null);
-        });
+        onPressed: () => close(context, null));
   }
 
   @override
   Widget buildResults(BuildContext context) {
     final results = trainers.where((trainer) {
       return (trainer['name']
-              ?.toString()
-              .toLowerCase()
-              .contains(query.toLowerCase()) ??
-          false);
+                  ?.toString()
+                  .toLowerCase()
+                  .contains(query.toLowerCase()) ??
+              false);
     }).toList();
+
     return ListView.builder(
       itemCount: results.length,
       itemBuilder: (context, index) {
@@ -658,11 +672,12 @@ class TrainerSearchDelegate extends SearchDelegate {
   Widget buildSuggestions(BuildContext context) {
     final suggestions = trainers.where((trainer) {
       return (trainer['name']
-              ?.toString()
-              .toLowerCase()
-              .startsWith(query.toLowerCase()) ??
-          false);
+                  ?.toString()
+                  .toLowerCase()
+                  .startsWith(query.toLowerCase()) ??
+              false);
     }).toList();
+
     return ListView.builder(
       itemCount: suggestions.length,
       itemBuilder: (context, index) {
