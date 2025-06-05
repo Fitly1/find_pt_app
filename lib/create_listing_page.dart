@@ -172,6 +172,8 @@ class _CreateListingPageState extends State<CreateListingPage> {
       "userId": user.uid,
     };
 
+    listingData["deleted"] = false;
+
     if (!widget.isEditing) {
       listingData["createdAt"] = FieldValue.serverTimestamp();
     }
