@@ -45,6 +45,8 @@
 	<string>Fitly requires access to your photo library so you can upload and select images.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Fitly uses your location to provide you with nearby trainer and gym recommendations.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Fitly uses your location to provide you with nearby trainer and gym recommendations.</string>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict>
