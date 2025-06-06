@@ -9,7 +9,7 @@ import 'login_page.dart';
 import 'email_verification_page.dart';
 import 'profile_page.dart' as profile;
 import 'trainer_profile_setup_page.dart';
-import 'marketplace_page.dart'; // ← NEW import
+import 'marketplace_page.dart';
 
 import 'secure_storage_service.dart';
 
@@ -80,17 +80,24 @@ class RoleRedirectState extends State<RoleRedirect> {
           .doc(user.uid)
           .get();
 
-      if (!snap.exists) {
-        debugPrint("❌ User doc not found → LoginPage");
+      if (!snap.exists || snap.data() == null) {
+        debugPrint("❌ User doc not found or empty → LoginPage");
         _navigateTo(nextPage);
         return;
       }
 
-      final String role = snap['role'].toString().trim().toLowerCase();
+      final dynamic rawRole = snap.data()?['role'];
+      if (rawRole == null) {
+        debugPrint("❌ 'role' field is missing or null in user doc → LoginPage");
+        _navigateTo(nextPage);
+        return;
+      }
+
+      final String role = rawRole.toString().trim().toLowerCase();
       debugPrint("🚀 Role fetched from Firestore: $role");
 
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove("userRole"); // ✅ Clear any old cached value
+      await prefs.remove("userRole");
       await prefs.setString("userRole", role);
 
       if (role == 'customer') {
@@ -107,10 +114,10 @@ class RoleRedirectState extends State<RoleRedirect> {
               .doc(user.uid)
               .get();
 
-          if (profileDoc.exists) {
-            final data = profileDoc.data() as Map<String, dynamic>;
-            final bool completed = data["completed"] ?? false;
-            final bool paymentCompleted = data["paymentCompleted"] ?? false;
+          if (profileDoc.exists && profileDoc.data() != null) {
+            final data = profileDoc.data()!;
+            final bool completed = data["completed"] == true;
+            final bool paymentCompleted = data["paymentCompleted"] == true;
 
             if (!completed) {
               debugPrint("⚠️ Profile incomplete → TrainerProfileSetupPage");
