@@ -1,0 +1,31 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "findptapp",
+          "appId": "1:794098237480:android:29084c1b1b031d0395f51d",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "findptapp",
+          "configurations": {
+            "android": "1:794098237480:android:29084c1b1b031d0395f51d",
+            "ios": "1:794098237480:ios:05ac7fbae2fcbe5d95f51d",
+            "web": "1:794098237480:web:6a10a0db29827ec395f51d",
+            "windows": "1:794098237480:web:d4be60cb0f10602595f51d"
+          }
+        }
+      }
+    }
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "runtime": "nodejs20",
+      "v2": true
+      }
+  ]
+}

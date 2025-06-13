@@ -1,0 +1,115 @@
+name: find_pt_app
+description: A new Flutter project.
+
+publish_to: 'none'
+
+version: 1.0.1+7
+
+environment:
+  sdk: ">=2.19.0 <4.0.0"
+
+include: package:lint/analysis_options.yaml
+
+dependencies:
+  flutter:
+    sdk: flutter
+  csv: ^6.0.0
+  stylish_bottom_bar: ^1.1.0
+  flutter_typeahead: ^5.2.0
+  geolocator: ^13.0.2
+  logger: ^2.5.0
+  firebase_core: ^3.13.0
+  firebase_auth: ^5.4.2
+  cloud_firestore: ^5.6.3
+  shared_preferences: ^2.5.1
+  image_picker: ^1.1.2
+  multi_select_flutter: ^4.1.3
+  flutter_rating_bar: ^4.0.0
+  firebase_storage: ^12.4.2
+  intl: ^0.20.2
+  flutter_stripe: ^11.4.0
+  url_launcher: ^6.3.1
+  riverpod: ^2.6.1
+  async: ^2.12.0
+  fake_async: ^1.3.2
+  freezed_annotation: ^2.4.4
+  leak_tracker: ^10.0.8
+  material_color_utilities: ^0.11.1
+  flutter_riverpod: ^2.6.1
+  hooks_riverpod: ^2.6.1
+  app_links: ^6.4.0
+  firebase_messaging: ^15.2.4
+  http: ^1.3.0
+  cloud_functions: ^5.3.4
+  firebase_app_check: ^0.3.2+5
+  flutter_image_compress: ^2.4.0
+  path_provider: ^2.1.5
+  path: ^1.9.1
+  flutter_email_sender: ^7.0.0
+  firebase_crashlytics: ^4.3.4
+  flutter_dotenv: ^5.2.1
+  extended_image: ^8.3.1
+  image_editor: ^1.6.0
+  image_editor_plus: ^1.0.6
+  image_cropper: ^8.0.0
+  crop: ^0.5.5
+  crop_image: ^1.0.16
+  flutter_secure_storage: ^9.2.4
+  cached_network_image: ^3.4.1
+  image_editor_common: ^1.2.0
+  in_app_purchase: ^3.2.3
+  in_app_purchase_storekit: ^0.4.0
+
+
+  
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  lint: ^2.7.0
+  flutter_launcher_icons: ^0.14.3  
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/FitlyIos.png"
+  min_sdk_android: 21 # android min sdk min:16, default 21
+  adaptive_icon_foreground: "assets/Fitly2.png"
+  adaptive_icon_background: "#F3B342"
+  web:
+    generate: false
+    image_path: "assets/ic_launcher_foreground.png"
+    background_color: "#hexcode"
+    theme_color: "#hexcode"
+  
+  windows:
+    generate: false
+    image_path: "assets/ic_launcher_foreground.png"
+    icon_size: 48 # min:48, max:256, default: 48
+  
+  macos:
+    generate: false
+    image_path: "assets/ic_launcher_foreground.png"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/default_profile.png
+    - assets/Suburbs.json
+    - assets/Fitly.png
+    - assets/Fitly2.png
+    - assets/fonts/Montserrat-Regular.ttf
+    - assets/fonts/Montserrat-Bold.ttf
+    - .env
+    - assets/background.png
+    - assets/1024.png
+
+dependency_overrides:
+  vm_service: 14.3.1
+  material_color_utilities: 0.11.1
+  http: ^1.3.0
+  flutter_secure_storage: ^9.2.4
+
+  
+

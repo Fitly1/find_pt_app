@@ -1,0 +1,49 @@
+{
+  "project_info": {
+    "project_number": "794098237480",
+    "firebase_url": "https://findptapp-default-rtdb.firebaseio.com",
+    "project_id": "findptapp",
+    "storage_bucket": "findptapp.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:794098237480:android:29084c1b1b031d0395f51d",
+        "android_client_info": {
+          "package_name": "com.fitly.findptapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC3zll-HAAqxTQKK2Hqpu_dmiNfN-ZIZWs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:794098237480:android:91c2d34b5a204e8a95f51d",
+        "android_client_info": {
+          "package_name": "com.fitly.findptapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC3zll-HAAqxTQKK2Hqpu_dmiNfN-ZIZWs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
