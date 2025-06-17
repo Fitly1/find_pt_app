@@ -996,10 +996,10 @@ packages:
     dependency: "direct main"
     description:
       name: in_app_purchase_storekit
-      sha256: "02f08d5688fc2776e3e386ff7d3071b7b375ea8222e8e6bd027b15c0708e4045"
+      sha256: ceddd5a70d268f762d29993ed470054bc2baf8793e41800bc82cde05110260d0
       url: "https://pub.dev"
     source: hosted
-    version: "0.4.0"
+    version: "0.4.2"
   intl:
     dependency: "direct main"
     description:
@@ -1606,7 +1606,7 @@ packages:
     source: hosted
     version: "3.1.4"
   uuid:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: uuid
       sha256: a5be9ef6618a7ac1e964353ef476418026db906c4facdedaa299b7a2e71690ff

@@ -180,7 +180,29 @@ class _ProfilePageState extends State<ProfilePage> {
           break;
         case PurchaseStatus.purchased:
         case PurchaseStatus.restored:
-          await _unlockTrainerAccess();
+          /* ── iOS → upload StoreKit receipt ─ */
+          if (Platform.isIOS && _skAddition != null) {
+            String? receipt;
+            try {
+              // Support both new & old methods
+              final dynamic addition = _skAddition;
+              try {
+                receipt = await addition.appStoreReceipt as String?;
+              } catch (_) {
+                receipt = await addition.getReceiptData() as String?;
+              }
+            } catch (e) {
+              logger.w('Could not get receipt: $e');
+            }
+
+            if (receipt != null && receipt.isNotEmpty) {
+              final callable =
+                  FirebaseFunctions.instance.httpsCallable('verifyIosReceipt');
+              await callable.call({'receiptData': receipt});
+            }
+          }
+          /* ────────────────────────────────────── */
+
           if (p.pendingCompletePurchase) {
             await InAppPurchase.instance.completePurchase(p);
           }
@@ -189,20 +211,6 @@ class _ProfilePageState extends State<ProfilePage> {
           break;
       }
     }
-  }
-
-  //──────────────── unlock Firestore flag ─
-  Future<void> _unlockTrainerAccess() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-    await FirebaseFirestore.instance
-        .collection('trainer_profiles')
-        .doc(user.uid)
-        .set({'isActive': true}, SetOptions(merge: true));
-    if (!mounted) return;
-    setState(() {});
-    ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Trainer access unlocked!')));
   }
 
   //──────────────── iOS helper sheets ────
@@ -261,7 +269,11 @@ class _ProfilePageState extends State<ProfilePage> {
         }
         return;
       }
-      final param = PurchaseParam(productDetails: _membershipProduct!);
+      final param = PurchaseParam(
+        productDetails: _membershipProduct!,
+        applicationUserName:
+            FirebaseAuth.instance.currentUser!.uid, // UID to Apple
+      );
       InAppPurchase.instance.buyNonConsumable(purchaseParam: param);
       return;
     }
@@ -292,8 +304,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   //──────────────────── ACCOUNT-DELETION HELPERS ────────────────────
   void _promptReauthAndDelete(String email) {
-    final TextEditingController pwController =
-        TextEditingController(); // fixed: no leading underscore
+    final TextEditingController pwController = TextEditingController();
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -486,11 +497,11 @@ class _ProfilePageState extends State<ProfilePage> {
             elevation: 4,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-              child: FutureBuilder<DocumentSnapshot>(
-                future: FirebaseFirestore.instance
+              child: StreamBuilder<DocumentSnapshot>(
+                stream: FirebaseFirestore.instance
                     .collection("trainer_profiles")
                     .doc(user?.uid)
-                    .get(),
+                    .snapshots(),
                 builder: (ctx, snap) {
                   if (!snap.hasData) {
                     return const Center(child: CircularProgressIndicator());
@@ -564,16 +575,25 @@ class _ProfilePageState extends State<ProfilePage> {
                     trailing: const Icon(Icons.arrow_forward_ios),
                     onTap: () async {
                       if (Platform.isIOS) {
+                        // iOS device → open Apple manage sheet
                         await _openIOSManage();
                       } else {
+                        // ───── ANDROID ────────────────────────────────────
                         if (stripeId.isNotEmpty) {
+                          // Customer exists in Stripe → show portal
                           Navigator.push(
                               context,
                               MaterialPageRoute(
                                   builder: (_) => ManageSubscriptionPage(
                                       trainerUid: user!.uid)));
+                        } else if (d['iosOriginalTxId'] != null) {
+                          // Bought on iOS originally → send to Apple
+                          const url =
+                              'https://apps.apple.com/account/subscriptions';
+                          await launchUrl(Uri.parse(url),
+                              mode: LaunchMode.externalApplication);
                         } else {
-                          _showSignUpPrompt();
+                          _showSignUpPrompt(); // rare edge-case
                         }
                       }
                     },

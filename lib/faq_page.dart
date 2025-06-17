@@ -5,7 +5,7 @@ class FAQPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Updated FAQs with additional payment-related questions.
+    // Added one Q&A about managing a subscription purchased on iOS while using Android.
     final List<Map<String, String>> faqs = [
       {
         'question': 'How do I update my profile?',
@@ -74,6 +74,12 @@ class FAQPage extends StatelessWidget {
             'What should I do if I do not receive an invoice or receipt?',
         'answer':
             'If you do not receive an invoice or receipt, please first check your spam folder and confirm that your email address is correct in your account settings. If the issue persists, contact our support team at support@fitly.live for further assistance.'
+      },
+      {
+        'question':
+            'I bought my membership on an iOS device but I’m now using Android. How do I manage or cancel it?',
+        'answer':
+            'Memberships purchased through Apple are managed with your Apple ID. On your Android device, tap “Manage Subscription” and you will be redirected to Apple’s manage-subscriptions page where you can view, change, or cancel the plan. Stripe’s billing portal is only shown for memberships purchased using Stripe on Android or the web.'
       },
     ];
 

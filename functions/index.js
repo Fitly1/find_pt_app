@@ -24,9 +24,11 @@ if (!WEBHOOK_SECRET)    console.error("❌ Missing Stripe Webhook Secret!");
 const stripe = require("stripe")(STRIPE_SECRET_KEY);
 
 /* ─── Apple-IAP config (NEW) ────────────────────────────────*/
+/* ─── Apple-IAP config ───────────────────────────────────── */
 const APPLE_SHARED_SECRET = process.env.APPLE_SHARED_SECRET || "";
-const APP_STORE_ENV       = (process.env.APP_STORE_ENV || "production").toLowerCase(); // 'sandbox'|'production'
-if (!APPLE_SHARED_SECRET) console.warn("⚠️  No APPLE_SHARED_SECRET set – Apple receipt validation disabled");
+const APP_STORE_ENV       = (process.env.APP_STORE_ENV || "production").toLowerCase();
+if (!APPLE_SHARED_SECRET)
+  console.warn("⚠️  No APPLE_SHARED_SECRET set – Apple receipt validation disabled");
 
 /* Cloud Functions on Node 18 already have fetch.  If for any
    reason it is missing we fall back to node-fetch.             */

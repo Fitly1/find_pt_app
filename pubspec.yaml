@@ -3,7 +3,7 @@ description: A new Flutter project.
 
 publish_to: 'none'
 
-version: 1.0.1+7
+version: 1.0.2+8
 
 environment:
   sdk: ">=2.19.0 <4.0.0"
@@ -58,7 +58,8 @@ dependencies:
   cached_network_image: ^3.4.1
   image_editor_common: ^1.2.0
   in_app_purchase: ^3.2.3
-  in_app_purchase_storekit: ^0.4.0
+  in_app_purchase_storekit: ^0.4.2
+  uuid: ^4.5.1
 
 
   
