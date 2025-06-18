@@ -1,11 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
 import 'marketplace_page.dart';
 import 'trainer_profile_setup_page.dart';
+import 'welcome_page.dart';
 
 class EmailVerificationPage extends StatefulWidget {
   const EmailVerificationPage({super.key});
@@ -15,7 +14,6 @@ class EmailVerificationPage extends StatefulWidget {
 }
 
 class _EmailVerificationPageState extends State<EmailVerificationPage> {
-  bool _isEmailVerified = false;
   bool _isLoading = false;
   bool _resent = false;
   String? userRole;
@@ -28,7 +26,8 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
   }
 
   void _startVerificationCheck() {
-    _verificationTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+    _verificationTimer =
+        Timer.periodic(const Duration(seconds: 3), (timer) async {
       await FirebaseAuth.instance.currentUser?.reload();
       final user = FirebaseAuth.instance.currentUser;
       final verified = user?.emailVerified ?? false;
@@ -43,7 +42,10 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
             .set({'emailVerified': true}, SetOptions(merge: true));
 
         // ✅ Load user role from Firestore before navigating
-        final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
         userRole = (doc.data()?['role'] as String?)?.toLowerCase();
 
         if (!mounted) return;
@@ -64,14 +66,16 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
           .doc(user!.uid)
           .set({'emailVerified': true}, SetOptions(merge: true));
 
-      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
       userRole = (doc.data()?['role'] as String?)?.toLowerCase();
 
       if (!mounted) return;
       _navigateAfterVerify();
     } else {
       setState(() {
-        _isEmailVerified = false;
         _isLoading = false;
       });
       _showSnack(const Text('Email not verified yet.'));
@@ -97,17 +101,25 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
   void _navigateAfterVerify() {
     if (!mounted) return;
 
-    if (userRole == 'trainer' ||
-        userRole == 'personal trainer' ||
-        userRole == 'personaltrainer') {
+    final lowerRole = (userRole ?? '').toLowerCase();
+
+    if (lowerRole == 'trainer' ||
+        lowerRole == 'personal trainer' ||
+        lowerRole == 'personaltrainer') {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const TrainerProfileSetupPage()),
       );
-    } else {
+    } else if (lowerRole == 'customer') {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const MarketplacePage()),
+      );
+    } else {
+      // fallback: unknown role, return to welcome page or error
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const WelcomePage()),
       );
     }
   }

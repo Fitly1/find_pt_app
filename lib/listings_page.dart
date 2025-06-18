@@ -1,18 +1,20 @@
 import 'dart:convert';
-import 'dart:math'; // For mathematical functions
+import 'dart:math';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // For loading assets
-import 'package:cloud_firestore/cloud_firestore.dart'; // For Firestore
-import 'package:intl/intl.dart'; // For DateFormat
-import 'package:firebase_auth/firebase_auth.dart'; // For FirebaseAuth
-import 'package:shared_preferences/shared_preferences.dart'; // For SharedPreferences
-import 'create_listing_page.dart'; // Page for customers to create/edit listings
-import 'listing_detail_page.dart'; // Page to view listing details
-import 'bottom_navigation_customers.dart'; // Customer bottom nav
-import 'marketplace_page.dart'; // For returning via the back arrow
-import 'bottom_navigation.dart'; // Trainer bottom nav
+import 'package:flutter/services.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'create_listing_page.dart';
+import 'listing_detail_page.dart';
+import 'bottom_navigation_customers.dart';
+import 'marketplace_page.dart';
+import 'bottom_navigation.dart';
 import 'trainer_home_page.dart';
-import 'package:flutter_typeahead/flutter_typeahead.dart'; // Using flutter_typeahead (older API as in Marketplace page)
+import 'package:flutter_typeahead/flutter_typeahead.dart';
 
 class ListingsPage extends StatefulWidget {
   const ListingsPage({super.key});
@@ -22,7 +24,11 @@ class ListingsPage extends StatefulWidget {
 }
 
 class _ListingsPageState extends State<ListingsPage> {
-  // Color coding for specialties.
+/* -------------------------------------------------------------------------- */
+/*                               STATE VARIABLES                              */
+/* -------------------------------------------------------------------------- */
+
+  // Category colours
   final Map<String, Color> categoryColors = {
     'Strength Training': Colors.blue,
     'Recovery': Colors.green,
@@ -41,106 +47,117 @@ class _ListingsPageState extends State<ListingsPage> {
     'Other': Colors.grey,
   };
 
-  // Filter state variables.
+  // Filters
   String _trainingMethodFilter = "all";
-  String _suburbFilter =
-      "all"; // e.g. "Mount Stromlo, Australian Capital Territory (2611)"
-
-  // Use a dedicated controller for the suburb field (like in Marketplace page)
+  String _suburbFilter = "all";
   final TextEditingController suburbController = TextEditingController();
-
-  // Other filter variables
   int selectedDistance = 50;
   double maxDistance = 50.0;
   double minRating = 0.0;
 
-  // For storing the chosen suburb data (with lat/lng).
   Map<String, dynamic>? selectedSuburbData;
-
-  // For displaying the chosen suburb text (formatted).
   String selectedSuburbText = '';
 
-  // For role-based navigation.
-  String userRole = 'customer'; // Default role
+  // Role handling
+  String userRole = 'customer';
+  bool _roleChecked = false; // shows loader until true
 
-  // For suburb data
+  // Suburb data
   List<Map<String, dynamic>> _suburbsData = [];
-
   final List<String> _trainingMethods = ["all", "online", "face-to-face"];
+
+/* -------------------------------------------------------------------------- */
+/*                               INITIALISATION                               */
+/* -------------------------------------------------------------------------- */
 
   @override
   void initState() {
     super.initState();
     _loadSuburbs();
     suburbController.text = (_suburbFilter == "all") ? "" : _suburbFilter;
-    _loadUserRole();
-  }
-
-  /// Helper: Formats a suburb map into full details.
-  /// E.g.: "Mount Stromlo, Australian Capital Territory (2611)"
-  String _formatSuburb(Map<String, dynamic> item) {
-    return "${item['Suburb']}, ${item['State']} (${item['Postcode']})";
+    _loadUserRole(); // loads but NO redirect
   }
 
   Future<void> _loadUserRole() async {
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
-    setState(() {
-      userRole = prefs.getString("userRole")?.toLowerCase() ?? 'customer';
-    });
-    debugPrint("ListingsPage: Loaded user role: $userRole");
+    final prefs = await SharedPreferences.getInstance();
+    final role = prefs.getString("userRole")?.toLowerCase() ?? 'customer';
+
+    if (mounted) {
+      setState(() {
+        userRole = role;
+        _roleChecked = true; // allow UI to render
+      });
+    }
+    debugPrint("ListingsPage: role loaded = $role");
   }
+
+/* -------------------------------------------------------------------------- */
+/*                         BACK-NAVIGATION HELPER                              */
+/* -------------------------------------------------------------------------- */
+
+  void _handleBack() {
+    final isTrainer = (userRole == 'trainer' ||
+        userRole == 'personal trainer' ||
+        userRole == 'personaltrainer');
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            isTrainer ? const TrainerHomePage() : const MarketplacePage(),
+      ),
+    );
+  }
+
+/* -------------------------------------------------------------------------- */
+/*                          OTHER HELPERS / LOADERS                           */
+/* -------------------------------------------------------------------------- */
 
   Future<void> _loadSuburbs() async {
     try {
       final String jsonString =
           await rootBundle.loadString('assets/Suburbs.json');
       final List<dynamic> jsonData = json.decode(jsonString) as List<dynamic>;
-      setState(() {
-        _suburbsData =
-            jsonData.map((item) => item as Map<String, dynamic>).toList();
-      });
-      debugPrint("✅ Loaded ${_suburbsData.length} suburbs from JSON.");
+      setState(() => _suburbsData = jsonData.cast<Map<String, dynamic>>());
     } catch (e) {
       debugPrint("❌ Error loading suburbs data: $e");
     }
   }
 
-  // Haversine formula to calculate distance.
-  double calculateDistance(
-      double lat1, double lon1, double lat2, double lon2) {
+  double calculateDistance(double lat1, double lon1, double lat2, double lon2) {
     const double earthRadius = 6371;
-    double dLat = (lat2 - lat1) * (pi / 180);
-    double dLon = (lon2 - lon1) * (pi / 180);
-    double a = sin(dLat / 2) * sin(dLat / 2) +
+    final double dLat = (lat2 - lat1) * (pi / 180);
+    final double dLon = (lon2 - lon1) * (pi / 180);
+    final double a = sin(dLat / 2) * sin(dLat / 2) +
         cos(lat1 * (pi / 180)) *
             cos(lat2 * (pi / 180)) *
             sin(dLon / 2) *
             sin(dLon / 2);
-    double c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    final double c = 2 * atan2(sqrt(a), sqrt(1 - a));
     return earthRadius * c;
   }
 
-  /// Builds a Firestore query.
+/* -------------------------------------------------------------------------- */
+/*                              FIRESTORE QUERY                               */
+/* -------------------------------------------------------------------------- */
+
   Query _buildQuery() {
     Query query = FirebaseFirestore.instance
         .collection('listings')
-        .where('deleted', isEqualTo: false); // ✅ Only show non-deleted
+        .where('deleted', isEqualTo: false);
 
     if (_trainingMethodFilter != "all") {
-      debugPrint("🔍 Filtering by method: $_trainingMethodFilter");
       query = query.where("trainingMethodPreference",
           arrayContains: _trainingMethodFilter);
     }
 
     if (_suburbFilter != "all" && selectedSuburbData == null) {
-      debugPrint("🔍 Filtering by suburb (exact match): $_suburbFilter");
       query = query.where("location", isEqualTo: _suburbFilter);
     }
 
     return query.orderBy('timestamp', descending: true);
   }
 
-  /// Applies distance-based filtering locally if we have selectedSuburbData.
   List<Map<String, dynamic>> _applyLocalFilters(
       List<Map<String, dynamic>> listings) {
     if (selectedSuburbData != null) {
@@ -157,8 +174,6 @@ class _ListingsPageState extends State<ListingsPage> {
                   0.0;
           double distance =
               calculateDistance(trainerLat, trainerLng, userLat, userLng);
-          debugPrint(
-              "Listing distance: $distance km vs maxDistance: $maxDistance");
           return distance <= maxDistance;
         }
         return false;
@@ -167,7 +182,10 @@ class _ListingsPageState extends State<ListingsPage> {
     return listings;
   }
 
-  /// Builds active filter chips.
+/* -------------------------------------------------------------------------- */
+/*                                UI HELPERS                                  */
+/* -------------------------------------------------------------------------- */
+
   Widget _buildActiveFilterChips() {
     List<Widget> chips = [];
     if (selectedSuburbText.isNotEmpty) {
@@ -189,11 +207,7 @@ class _ListingsPageState extends State<ListingsPage> {
       chips.add(
         Chip(
           label: Text("Training: $_trainingMethodFilter"),
-          onDeleted: () {
-            setState(() {
-              _trainingMethodFilter = "all";
-            });
-          },
+          onDeleted: () => setState(() => _trainingMethodFilter = "all"),
         ),
       );
     }
@@ -213,7 +227,6 @@ class _ListingsPageState extends State<ListingsPage> {
     return Wrap(spacing: 8.0, children: chips);
   }
 
-  /// Clears all filters.
   void clearFilters() {
     setState(() {
       _trainingMethodFilter = "all";
@@ -227,25 +240,18 @@ class _ListingsPageState extends State<ListingsPage> {
     });
   }
 
-  /// Opens the bottom sheet for filtering.
-  /// This version follows the Marketplace page exactly.
+  /// Filter bottom-sheet (unchanged)
   void _openFilterSheet() {
-    // Local variables for the dialog.
     String localMethod = _trainingMethodFilter;
     int localDistance = selectedDistance;
-
-    // Use the same suburbController as in the Marketplace page.
     final TextEditingController localSuburbController = suburbController;
-
-    // Local variables to hold the chosen suburb data and formatted text.
     Map<String, dynamic>? dialogSelectedSuburbData = selectedSuburbData;
     String dialogSelectedSuburbText = selectedSuburbText;
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      useRootNavigator:
-          true, // Ensures the suggestions overlay renders properly.
+      useRootNavigator: true,
       builder: (BuildContext ctx) {
         return Padding(
           padding: MediaQuery.of(ctx).viewInsets,
@@ -258,66 +264,51 @@ class _ListingsPageState extends State<ListingsPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text(
-                        'Filters',
-                        style:
-                            TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                      ),
+                      const Text('Filters',
+                          style: TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 16),
 
-                      // Training Method Section
-                      const Text(
-                        'Training Method:',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      Column(
-                        children: _trainingMethods.map((method) {
-                          return RadioListTile<String>(
-                            title: Text(method),
-                            value: method,
-                            groupValue: localMethod,
-                            onChanged: (value) {
-                              setStateDialog(() {
-                                localMethod = value!;
-                              });
-                            },
-                          );
-                        }).toList(),
-                      ),
+                      // Training method
+                      const Text('Training Method:',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                      ..._trainingMethods.map((method) {
+                        return RadioListTile<String>(
+                          title: Text(method),
+                          value: method,
+                          groupValue: localMethod,
+                          onChanged: (value) =>
+                              setStateDialog(() => localMethod = value!),
+                        );
+                      }),
                       const SizedBox(height: 16),
 
-                      // Suburb Section (copied exactly from Marketplace)
-                      const Text(
-                        'Suburb:',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
+                      // Suburb
+                      const Text('Suburb:',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
                       const SizedBox(height: 8),
                       Material(
                         child: TypeAheadField<Map<String, dynamic>>(
                           controller: localSuburbController,
                           suggestionsCallback: (pattern) async {
                             if (pattern.isEmpty) return [];
-                            Iterable<Map<String, dynamic>> matches =
-                                _suburbsData.where((item) {
-                              String suburb =
-                                  item['Suburb']?.toString().toLowerCase() ?? '';
-                              String postcode =
-                                  item['Postcode']?.toString() ?? '';
-                              return suburb.contains(pattern.toLowerCase()) ||
-                                  postcode.contains(pattern);
-                            });
-                            List<Map<String, dynamic>> suggestions =
-                                matches.toList();
-                            suggestions.sort((a, b) => a['Suburb']
-                                .toString()
-                                .compareTo(b['Suburb'].toString()));
-                            return suggestions.take(10).toList();
+                            final lower = pattern.toLowerCase();
+                            return _suburbsData
+                                .where((item) {
+                                  final suburb = item['Suburb']
+                                          ?.toString()
+                                          .toLowerCase() ??
+                                      '';
+                                  final postcode =
+                                      item['Postcode']?.toString() ?? '';
+                                  return suburb.contains(lower) ||
+                                      postcode.contains(pattern);
+                                })
+                                .take(10)
+                                .toList();
                           },
-                          itemBuilder: (context, suggestion) {
-                            String display = _formatSuburb(suggestion);
-                            return ListTile(title: Text(display));
-                          },
+                          itemBuilder: (_, suggestion) =>
+                              ListTile(title: Text(_formatSuburb(suggestion))),
                           onSelected: (suggestion) {
                             setStateDialog(() {
                               dialogSelectedSuburbData = suggestion;
@@ -327,7 +318,7 @@ class _ListingsPageState extends State<ListingsPage> {
                                   dialogSelectedSuburbText;
                             });
                           },
-                          builder: (context, suggestionsController, focusNode) {
+                          builder: (_, suggestionsController, focusNode) {
                             if (localSuburbController.text.isNotEmpty &&
                                 suggestionsController.text.isEmpty) {
                               suggestionsController.text =
@@ -342,36 +333,28 @@ class _ListingsPageState extends State<ListingsPage> {
                               ),
                             );
                           },
-                          emptyBuilder: (context) => const Padding(
-                            padding: EdgeInsets.all(8.0),
-                            child: Text("No suburb found."),
-                          ),
+                          emptyBuilder: (_) => const Padding(
+                              padding: EdgeInsets.all(8.0),
+                              child: Text("No suburb found.")),
                         ),
                       ),
                       const SizedBox(height: 16),
 
-                      // Distance Section
-                      const Text(
-                        'Distance (km):',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
+                      // Distance
+                      const Text('Distance (km):',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
                       DropdownButton<int>(
                         value: localDistance,
-                        onChanged: (value) {
-                          setStateDialog(() {
-                            localDistance = value!;
-                          });
-                        },
-                        items: [5, 10, 20, 50, 100].map((distance) {
-                          return DropdownMenuItem<int>(
-                            value: distance,
-                            child: Text('$distance km'),
-                          );
-                        }).toList(),
+                        onChanged: (val) =>
+                            setStateDialog(() => localDistance = val!),
+                        items: [5, 10, 20, 50, 100]
+                            .map((d) => DropdownMenuItem(
+                                value: d, child: Text('$d km')))
+                            .toList(),
                       ),
                       const SizedBox(height: 24),
 
-                      // Action Buttons
+                      // Buttons
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -389,19 +372,15 @@ class _ListingsPageState extends State<ListingsPage> {
                             onPressed: () {
                               setState(() {
                                 _trainingMethodFilter = localMethod;
-                                _suburbFilter = localSuburbController
-                                        .text.isEmpty
-                                    ? "all"
-                                    : dialogSelectedSuburbText;
+                                _suburbFilter =
+                                    localSuburbController.text.isEmpty
+                                        ? "all"
+                                        : dialogSelectedSuburbText;
                                 selectedDistance = localDistance;
                                 maxDistance = localDistance.toDouble();
                                 selectedSuburbText = dialogSelectedSuburbText;
                                 selectedSuburbData = dialogSelectedSuburbData;
                               });
-                              debugPrint(
-                                  "Applied suburb filter: $_suburbFilter");
-                              debugPrint(
-                                  "Applied distance filter: $maxDistance km");
                               Navigator.pop(context);
                             },
                             child: const Text("Apply Filters"),
@@ -419,9 +398,8 @@ class _ListingsPageState extends State<ListingsPage> {
     );
   }
 
-  /// Returns the appropriate bottom navigation widget based on the user's role.
   Widget _buildBottomNavigation() {
-    bool isTrainer = (userRole == 'trainer' ||
+    final isTrainer = (userRole == 'trainer' ||
         userRole == 'personal trainer' ||
         userRole == 'personaltrainer');
     return isTrainer
@@ -429,24 +407,28 @@ class _ListingsPageState extends State<ListingsPage> {
         : const BottomNavigationCustomers(currentIndex: 2);
   }
 
+/* -------------------------------------------------------------------------- */
+/*                                  BUILD                                    */
+/* -------------------------------------------------------------------------- */
+
   @override
   Widget build(BuildContext context) {
+    if (!_roleChecked) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     final query = _buildQuery();
+
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => const MarketplacePage()),
-            );
-          },
+          onPressed: _handleBack, // role-aware
         ),
-        title: const Text(
-          "Find a Personal Trainer",
-          style: TextStyle(color: Colors.white),
-        ),
+        title: const Text("Find a Personal Trainer",
+            style: TextStyle(color: Colors.white)),
         backgroundColor: const Color.fromARGB(255, 255, 167, 38),
         actions: [
           IconButton(
@@ -465,20 +447,16 @@ class _ListingsPageState extends State<ListingsPage> {
               stream: query.snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
-                  debugPrint("StreamBuilder error: ${snapshot.error}");
                   return Center(child: Text("Error: ${snapshot.error}"));
                 }
                 if (!snapshot.hasData) {
-                  debugPrint("No data yet.");
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                final rawListings = snapshot.data!.docs.map((doc) {
-                  return {
-                    ...doc.data() as Map<String, dynamic>,
-                    "uid": doc.id,
-                  };
-                }).toList();
+                final rawListings = snapshot.data!.docs
+                    .map((doc) =>
+                        {...doc.data() as Map<String, dynamic>, "uid": doc.id})
+                    .toList();
 
                 final listings = (selectedSuburbData != null)
                     ? _applyLocalFilters(rawListings)
@@ -490,9 +468,8 @@ class _ListingsPageState extends State<ListingsPage> {
 
                 return ListView.separated(
                   itemCount: listings.length,
-                  separatorBuilder: (ctx, index) =>
-                      const SizedBox(height: 8),
-                  itemBuilder: (ctx, index) {
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (_, index) {
                     final data = listings[index];
                     final title = data["title"] ?? "No title";
                     final description = data["description"] ?? "";
@@ -503,15 +480,14 @@ class _ListingsPageState extends State<ListingsPage> {
                         : "Unknown time";
                     final List<dynamic> specialties = data["specialties"] ?? [];
                     final specialtyChips = specialties.map((s) {
-                      final specialty = s.toString();
-                      final color = categoryColors[specialty] ?? Colors.grey;
+                      final spec = s.toString();
+                      final color = categoryColors[spec] ?? Colors.grey;
                       return Chip(
-                        label: Text(specialty),
+                        label: Text(spec),
                         backgroundColor: color,
                         labelStyle: const TextStyle(color: Colors.white),
                       );
                     }).toList();
-
                     final String creatorName = data["firstName"] ?? "Unknown";
                     final String profileImageUrl =
                         data["profileImageUrl"] ?? "";
@@ -521,8 +497,7 @@ class _ListingsPageState extends State<ListingsPage> {
                           horizontal: 8, vertical: 4),
                       elevation: 3,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
+                          borderRadius: BorderRadius.circular(10)),
                       child: ListTile(
                         contentPadding: const EdgeInsets.all(8),
                         leading: CircleAvatar(
@@ -541,8 +516,7 @@ class _ListingsPageState extends State<ListingsPage> {
                             const SizedBox(height: 2),
                             Text("By: $creatorName",
                                 style: const TextStyle(
-                                    fontSize: 12,
-                                    fontStyle: FontStyle.italic)),
+                                    fontSize: 12, fontStyle: FontStyle.italic)),
                           ],
                         ),
                         subtitle: Column(
@@ -555,24 +529,23 @@ class _ListingsPageState extends State<ListingsPage> {
                             if (specialtyChips.isNotEmpty) ...[
                               const SizedBox(height: 8),
                               Wrap(
-                                  spacing: 6.0,
-                                  runSpacing: 4.0,
-                                  children: specialtyChips),
+                                spacing: 6.0,
+                                runSpacing: 4.0,
+                                children: specialtyChips,
+                              ),
                             ],
                           ],
                         ),
                         trailing: Text(formattedTime),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => ListingDetailPage(
-                                listingData: data,
-                                listingId: data["uid"],
-                              ),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ListingDetailPage(
+                              listingData: data,
+                              listingId: data["uid"],
                             ),
-                          );
-                        },
+                          ),
+                        ),
                       ),
                     );
                   },
@@ -594,12 +567,10 @@ class _ListingsPageState extends State<ListingsPage> {
           return FloatingActionButton(
             backgroundColor: const Color.fromARGB(255, 255, 167, 38),
             tooltip: "Create a Listing",
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const CreateListingPage()),
-              );
-            },
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CreateListingPage()),
+            ),
             child: const Icon(Icons.add),
           );
         },
@@ -610,53 +581,59 @@ class _ListingsPageState extends State<ListingsPage> {
       ),
     );
   }
+
+/* -------------------------------------------------------------------------- */
+/*                                 UTILITIES                                  */
+/* -------------------------------------------------------------------------- */
+
+  String _formatSuburb(Map<String, dynamic> item) =>
+      "${item['Suburb']}, ${item['State']} (${item['Postcode']})";
 }
+
+/* -------------------------------------------------------------------------- */
+/*                       SEARCH DELEGATE  (unchanged)                         */
+/* -------------------------------------------------------------------------- */
 
 class TrainerSearchDelegate extends SearchDelegate {
   final List<Map<String, dynamic>> trainers;
-  final String userRole; // Passed from MarketplacePage
+  final String userRole;
 
   TrainerSearchDelegate(this.trainers, this.userRole);
 
   @override
-  List<Widget> buildActions(BuildContext context) {
-    return [
-      IconButton(icon: const Icon(Icons.clear), onPressed: () => query = '')
-    ];
-  }
+  List<Widget> buildActions(BuildContext context) =>
+      [IconButton(icon: const Icon(Icons.clear), onPressed: () => query = '')];
 
   @override
-  Widget buildLeading(BuildContext context) {
-    return IconButton(
-        icon: const Icon(Icons.arrow_back),
-        onPressed: () => close(context, null));
-  }
+  Widget buildLeading(BuildContext context) => IconButton(
+      icon: const Icon(Icons.arrow_back),
+      onPressed: () => close(context, null));
 
   @override
   Widget buildResults(BuildContext context) {
     final results = trainers.where((trainer) {
       return (trainer['name']
-                  ?.toString()
-                  .toLowerCase()
-                  .contains(query.toLowerCase()) ??
-              false);
+              ?.toString()
+              .toLowerCase()
+              .contains(query.toLowerCase()) ??
+          false);
     }).toList();
 
     return ListView.builder(
       itemCount: results.length,
-      itemBuilder: (context, index) {
+      itemBuilder: (_, index) {
         final trainer = results[index];
         return ListTile(
           title: Text(trainer['name'] ?? trainer['displayName'] ?? ''),
           subtitle: Text(trainer['location'] ?? ''),
           onTap: () {
-            bool isTrainerRole = (userRole == 'trainer' ||
+            final isTrainerRole = (userRole == 'trainer' ||
                 userRole == 'personal trainer' ||
                 userRole == 'personaltrainer');
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => TrainerHomePage(
+                builder: (_) => TrainerHomePage(
                   trainerData: trainer,
                   viewAsCustomer: !isTrainerRole,
                 ),
@@ -672,15 +649,15 @@ class TrainerSearchDelegate extends SearchDelegate {
   Widget buildSuggestions(BuildContext context) {
     final suggestions = trainers.where((trainer) {
       return (trainer['name']
-                  ?.toString()
-                  .toLowerCase()
-                  .startsWith(query.toLowerCase()) ??
-              false);
+              ?.toString()
+              .toLowerCase()
+              .startsWith(query.toLowerCase()) ??
+          false);
     }).toList();
 
     return ListView.builder(
       itemCount: suggestions.length,
-      itemBuilder: (context, index) {
+      itemBuilder: (_, index) {
         final trainer = suggestions[index];
         return ListTile(
           title: Text(trainer['name'] ?? trainer['displayName'] ?? ''),

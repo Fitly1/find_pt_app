@@ -196,7 +196,8 @@ class TrainerHomePageState extends State<TrainerHomePage> {
         Navigator.push(
           context,
           MaterialPageRoute(
-              builder: (_) => ChatPage(conversationId: conversationId!)),
+              builder: (_) => ChatPage(
+                  conversationId: conversationId!, otherUserId: trainerUid)),
         );
       });
     } catch (e) {

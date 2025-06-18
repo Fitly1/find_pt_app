@@ -1,9 +1,11 @@
 import 'dart:convert';
-import 'package:flutter/material.dart';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_typeahead/flutter_typeahead.dart';
+
 import 'secure_storage_service.dart';
 
 class CreateListingPage extends StatefulWidget {
@@ -23,14 +25,15 @@ class CreateListingPage extends StatefulWidget {
 }
 
 class _CreateListingPageState extends State<CreateListingPage> {
+  /* ─────────────────────────  controllers / keys ───────────────────────── */
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
-  // Basic listing fields
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
 
+  /* ─────────────────────────────  data fields ──────────────────────────── */
   String? _selectedLocation;
-  Map<String, dynamic>? _selectedSuburb; // lat/lng
+  Map<String, dynamic>? _selectedSuburb; // lat / lng
 
   final List<String> _trainingMethods = ["Both", "Online", "Face-to-Face"];
   String _selectedTrainingMethod = "Both";
@@ -58,6 +61,7 @@ class _CreateListingPageState extends State<CreateListingPage> {
 
   final SecureStorageService secureStorage = SecureStorageService();
 
+  /* ───────────────────────────── lifecycle ─────────────────────────────── */
   @override
   void initState() {
     super.initState();
@@ -68,9 +72,8 @@ class _CreateListingPageState extends State<CreateListingPage> {
       _titleController.text = data["title"] ?? "";
       _descriptionController.text = data["description"] ?? "";
       _selectedLocation = data["location"] ?? "";
-      if (data["trainingMethod"] != null) {
-        _selectedTrainingMethod = data["trainingMethod"];
-      }
+      _selectedTrainingMethod =
+          data["trainingMethod"] ?? _selectedTrainingMethod;
       if (data["specialties"] is List) {
         _selectedSpecialties
             .addAll((data["specialties"] as List).map((e) => e.toString()));
@@ -78,57 +81,20 @@ class _CreateListingPageState extends State<CreateListingPage> {
     }
   }
 
-  // ────────────────────────── NEW: confirm-delete dialog ─────────────────────────
-  void _confirmDelete(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Listing'),
-        content:
-            const Text('Are you sure you want to delete this listing?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context); // close dialog
-
-              if (widget.listingId != null) {
-                await FirebaseFirestore.instance
-                    .collection('listings')
-                    .doc(widget.listingId)
-                    .update({'deleted': true});
-              }
-
-              if (!mounted) return;
-              Navigator.pop(context); // exit CreateListingPage
-
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Listing deleted')),
-              );
-            },
-            child: const Text(
-              'Delete',
-              style: TextStyle(color: Colors.red),
-            ),
-          ),
-        ],
-      ),
-    );
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
   }
-  // ───────────────────────────────────────────────────────────────────────────────
 
-  /// Loads suburb data from assets/Suburbs.json.
+  /* ─────────────────────────── suburb loading ──────────────────────────── */
   Future<void> _loadSuburbs() async {
     try {
-      final String jsonString =
-          await rootBundle.loadString('assets/Suburbs.json');
+      final jsonString = await rootBundle.loadString('assets/Suburbs.json');
       final List<dynamic> jsonData = json.decode(jsonString) as List<dynamic>;
       setState(() {
-        _suburbsData =
-            jsonData.map((item) => item as Map<String, dynamic>).toList();
+        _suburbsData = jsonData.map((e) => e as Map<String, dynamic>).toList();
       });
       debugPrint("✅ Loaded ${_suburbsData.length} suburbs from JSON.");
     } catch (e) {
@@ -136,33 +102,33 @@ class _CreateListingPageState extends State<CreateListingPage> {
     }
   }
 
-  /// Submits the listing to Firestore.
+  /* ─────────────────────────────  submit  ──────────────────────────────── */
   Future<void> _submitListing() async {
+    // Grab navigator / messenger up-front to avoid using context after await.
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+
     if (!_formKey.currentState!.validate()) return;
 
     if (_selectedSpecialties.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please select at least one specialty.")),
-      );
+      messenger.showSnackBar(const SnackBar(
+          content: Text("Please select at least one specialty.")));
       return;
     }
-
     if (_selectedLocation == null || _selectedLocation!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please select a location.")),
-      );
+      messenger.showSnackBar(
+          const SnackBar(content: Text("Please select a location.")));
       return;
     }
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Error: No user is logged in.")),
-      );
+      messenger.showSnackBar(
+          const SnackBar(content: Text("Error: No user is logged in.")));
       return;
     }
 
-    final listingData = {
+    final listingData = <String, dynamic>{
       "title": _titleController.text.trim(),
       "description": _descriptionController.text.trim(),
       "location": _selectedLocation,
@@ -170,22 +136,18 @@ class _CreateListingPageState extends State<CreateListingPage> {
       "specialties": _selectedSpecialties,
       "timestamp": FieldValue.serverTimestamp(),
       "userId": user.uid,
+      "deleted": false,
     };
-
-    listingData["deleted"] = false;
 
     if (!widget.isEditing) {
       listingData["createdAt"] = FieldValue.serverTimestamp();
     }
 
     if (_selectedSuburb != null) {
-      double lat =
-          double.tryParse(_selectedSuburb!["Latitude"]?.toString() ?? "0") ??
-              0.0;
-      double lng =
-          double.tryParse(_selectedSuburb!["Longitude"]?.toString() ?? "0") ??
-              0.0;
-      listingData["geoLocation"] = {"lat": lat, "lng": lng};
+      listingData["geoLocation"] = {
+        "lat": double.tryParse(_selectedSuburb!["Latitude"].toString()) ?? 0.0,
+        "lng": double.tryParse(_selectedSuburb!["Longitude"].toString()) ?? 0.0,
+      };
     }
 
     try {
@@ -195,53 +157,84 @@ class _CreateListingPageState extends State<CreateListingPage> {
             .doc(widget.listingId)
             .update(listingData);
       } else {
-        await FirebaseFirestore.instance.collection("listings").add(listingData);
+        await FirebaseFirestore.instance
+            .collection("listings")
+            .add(listingData);
       }
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Listing saved successfully!")),
-      );
-      Navigator.pop(context);
+      messenger.showSnackBar(
+          const SnackBar(content: Text("Listing saved successfully!")));
+      navigator.pop();
 
+      // Store timestamp (no UI needed).
       await secureStorage.writeData(
-        'last_listing_submission',
-        DateTime.now().toIso8601String(),
-      );
-
-      String? submissionTimestamp =
-          await secureStorage.readData('last_listing_submission');
-      debugPrint("Last listing submission timestamp: $submissionTimestamp");
+          'last_listing_submission', DateTime.now().toIso8601String());
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error saving listing: $e")),
-      );
+      messenger
+          .showSnackBar(SnackBar(content: Text("Error saving listing: $e")));
     }
   }
 
-  /// Using the older TypeAheadField to pick location in a bottom sheet.
+  /* ────────────────────────── delete listing ───────────────────────────── */
+  void _confirmDelete(BuildContext parentContext) {
+    showDialog(
+      context: parentContext,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete Listing'),
+        content: const Text('Are you sure you want to delete this listing?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(parentContext);
+              final navigator = Navigator.of(parentContext);
+
+              Navigator.pop(dialogContext); // close dialog
+
+              if (widget.listingId != null) {
+                await FirebaseFirestore.instance
+                    .collection('listings')
+                    .doc(widget.listingId)
+                    .update({'deleted': true});
+              }
+
+              if (!mounted) return;
+              navigator.pop(); // leave page
+              messenger.showSnackBar(
+                  const SnackBar(content: Text('Listing deleted')));
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /* ───────────────────── location picker bottom-sheet ──────────────────── */
   void _showLocationBottomSheet() {
     showModalBottomSheet(
       context: context,
       useRootNavigator: true,
       isScrollControlled: true,
-      builder: (BuildContext context) {
+      builder: (ctx) {
         return DraggableScrollableSheet(
           initialChildSize: 0.7,
           maxChildSize: 0.95,
-          builder: (BuildContext context, ScrollController scrollController) {
+          builder: (ctx, scrollController) {
             return SingleChildScrollView(
               controller: scrollController,
-              padding: const EdgeInsets.all(16.0),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  const Text(
-                    "Search Location",
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
+                  const Text("Search Location",
+                      style:
+                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
                   TypeAheadField<Map<String, dynamic>>(
+                    // ←--- original working async callback kept intact
                     suggestionsCallback: (pattern) async {
                       if (pattern.isEmpty) return [];
                       final matches = _suburbsData.where((item) {
@@ -253,7 +246,7 @@ class _CreateListingPageState extends State<CreateListingPage> {
                       }).toList();
                       return matches.take(10).toList();
                     },
-                    itemBuilder: (context, suggestion) {
+                    itemBuilder: (ctx, suggestion) {
                       final display =
                           "${suggestion['Suburb']}, ${suggestion['State']} (${suggestion['Postcode']})";
                       return ListTile(title: Text(display));
@@ -264,11 +257,11 @@ class _CreateListingPageState extends State<CreateListingPage> {
                             "${suggestion['Suburb']}, ${suggestion['State']} (${suggestion['Postcode']})";
                         _selectedSuburb = suggestion;
                       });
-                      Navigator.pop(context);
+                      Navigator.pop(ctx);
                     },
-                    builder: (context, suggestionsController, focusNode) {
+                    builder: (ctx, textController, focusNode) {
                       return TextField(
-                        controller: suggestionsController,
+                        controller: textController,
                         focusNode: focusNode,
                         decoration: const InputDecoration(
                           hintText: "e.g., 2147 or Seven Hills",
@@ -278,8 +271,8 @@ class _CreateListingPageState extends State<CreateListingPage> {
                         ),
                       );
                     },
-                    emptyBuilder: (context) => const Padding(
-                      padding: EdgeInsets.all(8.0),
+                    emptyBuilder: (ctx) => const Padding(
+                      padding: EdgeInsets.all(8),
                       child: Text("No matching suburb/postcode found."),
                     ),
                   ),
@@ -292,13 +285,7 @@ class _CreateListingPageState extends State<CreateListingPage> {
     );
   }
 
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _descriptionController.dispose();
-    super.dispose();
-  }
-
+  /* ─────────────────────────────  UI  ──────────────────────────────────── */
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -313,41 +300,31 @@ class _CreateListingPageState extends State<CreateListingPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ------------- Basic Information -------------
-              const Text(
-                "Basic Information",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
+              /* ────────────── Basic information ────────────── */
+              const Text("Basic Information",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const Divider(),
               const SizedBox(height: 8),
-              const Text(
-                "What are your training goals?",
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
+              const Text("What are your training goals?",
+                  style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
               TextFormField(
                 controller: _titleController,
-                validator: (value) =>
-                    (value == null || value.trim().isEmpty)
-                        ? "This field is required"
-                        : null,
+                validator: (v) =>
+                    v == null || v.trim().isEmpty ? "Required" : null,
                 decoration: const InputDecoration(
                   hintText: "e.g., I need help with weight loss",
                   border: OutlineInputBorder(),
                 ),
               ),
               const SizedBox(height: 16),
-              const Text(
-                "Description:",
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
+              const Text("Description:",
+                  style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
               TextFormField(
                 controller: _descriptionController,
-                validator: (value) =>
-                    (value == null || value.trim().isEmpty)
-                        ? "Description is required"
-                        : null,
+                validator: (v) =>
+                    v == null || v.trim().isEmpty ? "Required" : null,
                 maxLines: 3,
                 decoration: const InputDecoration(
                   hintText: "Provide details about your training needs...",
@@ -356,11 +333,9 @@ class _CreateListingPageState extends State<CreateListingPage> {
               ),
               const SizedBox(height: 16),
 
-              // ------------- Location -------------
-              const Text(
-                "Location (Suburb/Postcode):",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
+              /* ────────────── Location ────────────── */
+              const Text("Location (Suburb/Postcode):",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const Divider(),
               const SizedBox(height: 8),
               SizedBox(
@@ -368,11 +343,9 @@ class _CreateListingPageState extends State<CreateListingPage> {
                 child: ElevatedButton.icon(
                   onPressed: _showLocationBottomSheet,
                   icon: const Icon(Icons.search),
-                  label: Text(
-                    _selectedLocation == null || _selectedLocation!.isEmpty
-                        ? "Select Location"
-                        : _selectedLocation!,
-                  ),
+                  label: Text(_selectedLocation?.isEmpty ?? true
+                      ? "Select Location"
+                      : _selectedLocation!),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color.fromARGB(255, 255, 167, 38),
                   ),
@@ -380,69 +353,46 @@ class _CreateListingPageState extends State<CreateListingPage> {
               ),
               const SizedBox(height: 16),
 
-              // ------------- Preferences -------------
-              const Text(
-                "Preferences",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
+              /* ────────────── Preferences ────────────── */
+              const Text("Preferences",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const Divider(),
               const SizedBox(height: 8),
-              const Text(
-                "Preferred Training Method:",
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
+              const Text("Preferred Training Method:",
+                  style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
               DropdownButtonFormField<String>(
                 value: _selectedTrainingMethod,
-                items: _trainingMethods.map((method) {
-                  return DropdownMenuItem(
-                    value: method,
-                    child: Text(method),
-                  );
-                }).toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedTrainingMethod = value!;
-                  });
-                },
-                validator: (value) =>
-                    (value == null || value.trim().isEmpty)
-                        ? "Preferred training method is required"
-                        : null,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                ),
+                onChanged: (v) => setState(() => _selectedTrainingMethod = v!),
+                items: _trainingMethods
+                    .map((m) => DropdownMenuItem(value: m, child: Text(m)))
+                    .toList(),
+                validator: (v) => v == null || v.isEmpty ? "Required" : null,
+                decoration: const InputDecoration(border: OutlineInputBorder()),
               ),
               const SizedBox(height: 16),
-
-              const Text(
-                "Specialties:",
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
+              const Text("Specialties:",
+                  style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
               Wrap(
-                spacing: 8.0,
-                runSpacing: 4.0,
-                children: _allSpecialties.map((specialty) {
-                  final isSelected = _selectedSpecialties.contains(specialty);
+                spacing: 8,
+                runSpacing: 4,
+                children: _allSpecialties.map((s) {
+                  final selected = _selectedSpecialties.contains(s);
                   return FilterChip(
-                    label: Text(specialty),
-                    selected: isSelected,
-                    onSelected: (selected) {
-                      setState(() {
-                        if (selected) {
-                          _selectedSpecialties.add(specialty);
-                        } else {
-                          _selectedSpecialties.remove(specialty);
-                        }
-                      });
-                    },
+                    label: Text(s),
+                    selected: selected,
+                    onSelected: (sel) => setState(() {
+                      sel
+                          ? _selectedSpecialties.add(s)
+                          : _selectedSpecialties.remove(s);
+                    }),
                   );
                 }).toList(),
               ),
               const SizedBox(height: 24),
 
-              // ------------- Submit Button -------------
+              /* ────────────── Submit / Delete ────────────── */
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -452,32 +402,24 @@ class _CreateListingPageState extends State<CreateListingPage> {
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
                   child: Text(
-                    widget.isEditing ? "Save Changes" : "Create Listing",
-                  ),
+                      widget.isEditing ? "Save Changes" : "Create Listing"),
                 ),
               ),
-
-              // ────────────────────── NEW: Delete Button ──────────────────────
-              if (widget.isEditing)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () => _confirmDelete(context),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red.shade600,
-                        padding:
-                            const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: const Text(
-                        'Delete Listing',
-                        style: TextStyle(color: Colors.white),
-                      ),
+              if (widget.isEditing) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => _confirmDelete(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red.shade600,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
                     ),
+                    child: const Text('Delete Listing',
+                        style: TextStyle(color: Colors.white)),
                   ),
                 ),
-              // ────────────────────────────────────────────────────────────────
+              ],
             ],
           ),
         ),

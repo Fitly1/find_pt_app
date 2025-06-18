@@ -507,3 +507,35 @@ exports.reconcileIosSubscriptions = onSchedule("every 24 hours", async () => {
   console.log("🍏 iOS reconciliation pass – (placeholder)");
   // You could iterate trainer_profiles and call verifyReceipt again here
 });
+
+/* 11) Firestore Trigger – Validate trainer_profiles on write */
+const { onDocumentWritten } = require("firebase-functions/v2/firestore");
+
+exports.validateTrainerProfile = onDocumentWritten(
+  "trainer_profiles/{trainerId}",
+  async (event) => {
+    const data = event.data?.after?.data();
+    if (!data) return;
+
+    const MAX_DESC = 1000;
+    const MAX_IMAGES = 6;
+
+    if (data.description && data.description.length > MAX_DESC) {
+      console.warn("❌ Description too long");
+      throw new HttpsError(
+        "invalid-argument",
+        `Description exceeds ${MAX_DESC} characters.`
+      );
+    }
+
+    if (Array.isArray(data.workImageUrls) && data.workImageUrls.length > MAX_IMAGES) {
+      console.warn("❌ Too many work images");
+      throw new HttpsError(
+        "invalid-argument",
+        `Only ${MAX_IMAGES} work images allowed.`
+      );
+    }
+
+    return;
+  }
+);

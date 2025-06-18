@@ -4,12 +4,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:multi_select_flutter/multi_select_flutter.dart';
 
-import 'marketplace_page.dart';
-import 'trainer_home_page.dart';
+import 'marketplace_page.dart'; // still used for customers only
+import 'trainer_home_page.dart'; // trainers land here
 
-const kPrimaryOrange = Color(0xFFFFA726); // <— same orange you used before
+const kPrimaryOrange = Color(0xFFFFA726);
 const kActionBlack = Colors.black;
 
+/* --------------- specialties palette ---------------- */
 const Map<String, Color> specialtiesMap = {
   'Strength Training': Colors.blue,
   'Recovery': Colors.green,
@@ -30,27 +31,31 @@ const Map<String, Color> specialtiesMap = {
 
 class TrainerProfileSetupPage extends StatefulWidget {
   const TrainerProfileSetupPage({super.key});
+
   @override
   State<TrainerProfileSetupPage> createState() =>
       _TrainerProfileSetupPageState();
 }
 
 class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
+  /* ---------------- controllers ---------------- */
   final _formKey = GlobalKey<FormState>();
-  final TextEditingController _descriptionController = TextEditingController();
-  final TextEditingController _locationController = TextEditingController();
-  final TextEditingController _rateController = TextEditingController();
+  final _descriptionController = TextEditingController();
+  final _locationController = TextEditingController();
+  final _rateController = TextEditingController();
 
+  /* ---------------- data ------------------------ */
   final List<String> _allSpecialties = specialtiesMap.keys.toList();
   List<String> _selectedSpecialties = [];
   final List<String> _selectedMethods = [];
 
+  /* ---------------- ui state -------------------- */
   bool _isSaving = false;
-  final int _selectedIndex = 2; // bottom-nav “Profile”
+  final int _selectedIndex = 2; // profile tab in bottom-nav
 
-  /* ------------------------------------------------------------ */
-  /* lifecycle                                                   */
-  /* ------------------------------------------------------------ */
+  /* =========================================================
+     lifecycle
+  ========================================================= */
   @override
   void initState() {
     super.initState();
@@ -65,23 +70,47 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
     super.dispose();
   }
 
-  /* ------------------------------------------------------------ */
-  /* helpers                                                     */
-  /* ------------------------------------------------------------ */
+  /* =========================================================
+     helpers
+  ========================================================= */
   Future<void> _checkUserRole() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final doc = await FirebaseFirestore.instance
+    // 1️⃣  Determine the account role
+    final userDoc = await FirebaseFirestore.instance
         .collection('users')
         .doc(user.uid)
         .get();
     if (!mounted) return;
 
-    if (doc.exists && doc['role'] != 'trainer') {
+    if (userDoc.exists && userDoc['role'] != 'trainer') {
+      // Customer → Marketplace
       Navigator.pushReplacement(
-          context, MaterialPageRoute(builder: (_) => const MarketplacePage()));
+        context,
+        MaterialPageRoute(builder: (_) => const MarketplacePage()),
+      );
+      return;
     }
+
+    // 2️⃣  Trainer with an already-completed profile → TrainerHomePage
+    final profileDoc = await FirebaseFirestore.instance
+        .collection('trainer_profiles')
+        .doc(user.uid)
+        .get();
+    if (!mounted) return;
+
+    if (profileDoc.exists && (profileDoc.data()?['completed'] == true)) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const TrainerHomePage(
+            showProfileCompleteMessage: false,
+          ),
+        ),
+      );
+    }
+    // Otherwise stay on this page to finish the profile.
   }
 
   Future<void> _saveProfile() async {
@@ -93,7 +122,7 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
-      // Pull display name from users collection
+      /* --- derive display name from users/{uid} ------------ */
       final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -108,6 +137,7 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
             : (data['displayName'] ?? "No Name");
       }
 
+      /* --- write trainer profile --------------------------- */
       await FirebaseFirestore.instance
           .collection('trainer_profiles')
           .doc(user.uid)
@@ -132,8 +162,15 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
         ),
       );
 
+      // Finished → TrainerHomePage
       Navigator.pushReplacement(
-          context, MaterialPageRoute(builder: (_) => const TrainerHomePage()));
+        context,
+        MaterialPageRoute(
+          builder: (_) => const TrainerHomePage(
+            showProfileCompleteMessage: true,
+          ),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _isSaving = false);
@@ -147,27 +184,34 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
     }
   }
 
+  /* bottom-nav tap --------------------------------------- */
   void _onNavItemTapped(int index) {
     switch (index) {
-      case 0:
-        Navigator.pushReplacement(context,
-            MaterialPageRoute(builder: (_) => const MarketplacePage()));
+      case 0: // Home
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const TrainerHomePage(
+              showProfileCompleteMessage: false,
+            ),
+          ),
+        );
         break;
-      case 1:
+      case 1: // Messages (placeholder)
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Messages feature coming soon!")),
         );
         break;
       case 2:
       default:
-        // Already on profile page
+        // Already on profile-setup
         break;
     }
   }
 
-  /* ------------------------------------------------------------ */
-  /* UI                                                          */
-  /* ------------------------------------------------------------ */
+  /* =========================================================
+     UI
+  ========================================================= */
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -188,11 +232,12 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
         ],
         elevation: 0,
       ),
+
+      /* ---------------- form body -------------------- */
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
         child: Card(
           elevation: 3,
-          color: Colors.white,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: Padding(
@@ -208,7 +253,7 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
                   ),
                   const SizedBox(height: 20),
 
-                  // Bio
+                  /* --- Bio ---------------------------------- */
                   TextFormField(
                     controller: _descriptionController,
                     decoration: const InputDecoration(
@@ -222,7 +267,7 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Specialties
+                  /* --- Specialties --------------------------- */
                   MultiSelectDialogField(
                     items: _allSpecialties
                         .map((e) => MultiSelectItem<String>(e, e))
@@ -235,14 +280,15 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
                       borderRadius: BorderRadius.circular(4),
                     ),
                     onConfirm: (vals) => setState(
-                        () => _selectedSpecialties = List<String>.from(vals)),
+                      () => _selectedSpecialties = List<String>.from(vals),
+                    ),
                     validator: (vals) => (vals == null || vals.isEmpty)
                         ? "Please select at least one specialty"
                         : null,
                   ),
                   const SizedBox(height: 16),
 
-                  // Location
+                  /* --- Location ------------------------------ */
                   TextFormField(
                     controller: _locationController,
                     decoration: const InputDecoration(
@@ -254,7 +300,7 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Rate
+                  /* --- Rate ---------------------------------- */
                   TextFormField(
                     controller: _rateController,
                     decoration: const InputDecoration(
@@ -267,7 +313,7 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Save button
+                  /* --- Save Button --------------------------- */
                   _isSaving
                       ? const Center(child: CircularProgressIndicator())
                       : SizedBox(
@@ -279,8 +325,10 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
                               padding: const EdgeInsets.symmetric(vertical: 14),
                               textStyle: const TextStyle(fontSize: 18),
                             ),
-                            child: const Text("Save Profile",
-                                style: TextStyle(color: Colors.white)),
+                            child: const Text(
+                              "Save Profile",
+                              style: TextStyle(color: Colors.white),
+                            ),
                           ),
                         ),
                 ],
@@ -290,15 +338,14 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
         ),
       ),
 
-      // bottom nav
+      /* ---------------- bottom-nav ------------------- */
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         selectedItemColor: kPrimaryOrange,
         unselectedItemColor: Colors.grey,
         onTap: _onNavItemTapped,
         items: const [
-          BottomNavigationBarItem(
-              icon: Icon(Icons.store), label: 'Marketplace'),
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
           BottomNavigationBarItem(icon: Icon(Icons.message), label: 'Messages'),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
         ],
@@ -306,9 +353,9 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
     );
   }
 
-  /* ------------------------------------------------------------ */
-  /*  Report dialog                                              */
-  /* ------------------------------------------------------------ */
+  /* =========================================================
+     Report dialog
+  ========================================================= */
   Future<void> _showReportDialog() async {
     final reasonController = TextEditingController();
 
@@ -336,12 +383,12 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
               Navigator.of(context).pop();
 
               final user = FirebaseAuth.instance.currentUser;
-              final trainerId = user?.uid;
+              final reporter = user?.uid ?? 'unknown';
 
               try {
                 await FirebaseFirestore.instance.collection('reports').add({
-                  'reportedBy': user?.uid ?? 'unknown',
-                  'reportedItemId': trainerId,
+                  'reportedBy': reporter,
+                  'reportedItemId': reporter, // could be trainer UID
                   'reportedType': 'trainer',
                   'reason': reason,
                   'timestamp': FieldValue.serverTimestamp(),
@@ -350,16 +397,18 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                        content: Text("Trainer reported."),
-                        backgroundColor: kPrimaryOrange),
+                      content: Text("Trainer reported."),
+                      backgroundColor: kPrimaryOrange,
+                    ),
                   );
                 }
               } catch (e) {
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                        content: Text("Error reporting: $e"),
-                        backgroundColor: Colors.red),
+                      content: Text("Error reporting: $e"),
+                      backgroundColor: Colors.red,
+                    ),
                   );
                 }
               }

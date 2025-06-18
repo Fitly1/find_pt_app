@@ -26,6 +26,6 @@
       "source": "functions",
       "runtime": "nodejs20",
       "v2": true
-      }
+    }
   ]
 }

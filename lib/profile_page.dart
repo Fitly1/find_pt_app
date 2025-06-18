@@ -25,6 +25,7 @@ import 'privacy_policy_page.dart';
 import 'legal_documents_page.dart';
 import 'manage_subscription.dart';
 import 'login_page.dart';
+import 'trainer_dashboard_page.dart'; // <- added
 
 //─────────────────────────────────────────────────────────────────────────────
 // Globals
@@ -476,10 +477,26 @@ class _ProfilePageState extends State<ProfilePage> {
       appBar: AppBar(
         title: const Text('Profile', style: TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFFFFA726),
+        //──────────────────────────
+        // ADAPTIVE BACK BUTTON
+        //──────────────────────────
         leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () => Navigator.pushReplacement(context,
-                MaterialPageRoute(builder: (_) => const MarketplacePage()))),
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () {
+            final bool isTrainer = (userRole == 'trainer' ||
+                userRole == 'personal trainer' ||
+                userRole == 'personaltrainer');
+
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (_) => isTrainer
+                    ? const TrainerDashboardPage() // trainers
+                    : const MarketplacePage(), // customers
+              ),
+            );
+          },
+        ),
         actions: [
           if (userRole == 'trainer' && user != null)
             _buildReviewBellIcon(user.uid)

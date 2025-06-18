@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart'; // For date formatting
 import 'package:firebase_auth/firebase_auth.dart';
-import 'chat_page.dart' as chat;
-import 'profile_page.dart'; // Import your ProfilePage (update the path if needed)
+import 'chat_page.dart' as chat; // Make sure the path is correct
+import 'profile_page.dart'; // Update path if needed
 
 /// This color corresponds to (255, 255, 167, 38) in ARGB/Hex (#FFA726).
 const kAppBarColor = Color(0xFFFFA726);
@@ -42,15 +42,16 @@ class ListingDetailPage extends StatefulWidget {
 }
 
 class _ListingDetailPageState extends State<ListingDetailPage> {
-  bool? _isTrainer; // null = still loading, true/false once role is fetched
-  bool?
-      _isTrainerActive; // null = not yet checked, true/false once fetched from trainer_profiles
+  bool? _isTrainer; // null = still loading, true/false once role fetched
+  bool? _isTrainerActive; // null = not checked, true/false once fetched
 
   @override
   void initState() {
     super.initState();
     _checkUserRole();
   }
+
+  /* ───────────────────────────────────────── User role helpers ─────────── */
 
   /// Checks if the current logged-in user has a trainer role.
   Future<void> _checkUserRole() async {
@@ -64,20 +65,22 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
           .collection('users')
           .doc(user.uid)
           .get();
+
       if (!doc.exists) {
         setState(() => _isTrainer = false);
         return;
       }
+
       final data = doc.data();
       final role = data?['role']?.toString().toLowerCase() ?? 'customer';
       final isTrainerNow = (role == 'trainer');
+
       setState(() => _isTrainer = isTrainerNow);
 
-      // If user is indeed a trainer, check if they're active
+      // If the user is a trainer, also check if they're active.
       if (isTrainerNow) {
         _checkTrainerActiveStatus();
       } else {
-        // If not a trainer, no need to check isActive
         setState(() => _isTrainerActive = false);
       }
     } catch (e) {
@@ -86,7 +89,7 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
     }
   }
 
-  /// Checks if the current trainer is active (isActive == true in trainer_profiles).
+  /// Checks if the current trainer is active (`isActive == true`).
   Future<void> _checkTrainerActiveStatus() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -98,10 +101,12 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
           .collection('trainer_profiles')
           .doc(user.uid)
           .get();
+
       if (!doc.exists) {
         setState(() => _isTrainerActive = false);
         return;
       }
+
       final data = doc.data();
       final bool active = data?['isActive'] ?? false;
       setState(() => _isTrainerActive = active);
@@ -111,10 +116,11 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
     }
   }
 
-  /// Creates or retrieves a conversation between the trainer and the customer,
-  /// then navigates to the ChatPage.
+  /* ───────────────────────────────────────── Messaging logic ───────────── */
+
+  /// Creates or retrieves a conversation, then opens ChatPage.
   Future<void> _contactCustomer(String customerId) async {
-    // If trainer is not active, show a dialog with two buttons:
+    // If trainer is inactive, show paywall dialog.
     if (_isTrainerActive == false) {
       showDialog(
         context: context,
@@ -125,13 +131,12 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context), // Just close the dialog
+              onPressed: () => Navigator.pop(context),
               child: const Text("Cancel"),
             ),
             ElevatedButton(
               onPressed: () {
-                Navigator.pop(context); // Close the dialog
-                // Navigate to the ProfilePage, which has the "Pay to Activate" button
+                Navigator.pop(context); // close dialog
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const ProfilePage()),
@@ -145,18 +150,20 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
       return;
     }
 
-    // If trainer is active, proceed with contacting the customer.
+    // Trainer is active; proceed.
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) return;
     final trainerUid = currentUser.uid;
-    final conversationsCollection =
+
+    final conversations =
         FirebaseFirestore.instance.collection("conversations");
 
     try {
-      // Query for an existing conversation between trainer and customer.
-      QuerySnapshot query = await conversationsCollection
+      // Look for an existing conversation.
+      QuerySnapshot query = await conversations
           .where("participants", arrayContains: trainerUid)
           .get();
+
       String? conversationId;
       for (var doc in query.docs) {
         final data = doc.data() as Map<String, dynamic>;
@@ -167,9 +174,10 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
           break;
         }
       }
+
+      // Create conversation if none found.
       if (conversationId == null) {
-        // Create a new conversation if it doesn't exist.
-        DocumentReference newConv = await conversationsCollection.add({
+        DocumentReference newConv = await conversations.add({
           "participants": [trainerUid, customerId],
           "lastMessage": "",
           "timestamp": FieldValue.serverTimestamp(),
@@ -177,11 +185,17 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
         });
         conversationId = newConv.id;
       }
+
       if (!mounted) return;
+
+      // ─── Navigation call with the REQUIRED otherUserId argument ─────────
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => chat.ChatPage(conversationId: conversationId!),
+          builder: (context) => chat.ChatPage(
+            conversationId: conversationId!,
+            otherUserId: customerId, // ← pass the correct customer UID here
+          ),
         ),
       );
     } catch (e) {
@@ -189,30 +203,28 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
     }
   }
 
+  /* ─────────────────────────────────────────── UI ──────────────────────── */
+
   @override
   Widget build(BuildContext context) {
     final listingData = widget.listingData;
 
-    // Fields from Firestore
+    // Firestore fields
     final String title = listingData["title"] ?? "No title";
     final String description = listingData["description"] ?? "";
     final String location = listingData["location"] ?? "";
-
-    // 'specialties' is a list for color-coded chips
     final List<dynamic> specialtiesList =
         (listingData["specialties"] as List<dynamic>?) ?? [];
-
     final String trainingMethod =
         listingData["trainingMethod"] ?? "Not specified";
 
-    // Check for 'createdAt' first; if not present, fall back to 'timestamp'
     final Timestamp? createdAtTs = listingData["createdAt"] as Timestamp?;
     final Timestamp? ts = createdAtTs ?? listingData["timestamp"] as Timestamp?;
     final String formattedTime = (ts != null)
         ? DateFormat('dd MMM yyyy').format(ts.toDate())
         : "Unknown date";
 
-    final String userId = listingData["userId"] ?? "";
+    final String customerUid = listingData["userId"] ?? "";
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -229,7 +241,7 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
           ? const Center(child: CircularProgressIndicator())
           : Stack(
               children: [
-                // Curved background at the top (slightly taller)
+                // Curved orange background
                 Container(
                   height: 200,
                   decoration: const BoxDecoration(
@@ -241,13 +253,10 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
                   ),
                 ),
                 SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 16,
-                  ),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                   child: Column(
                     children: [
-                      // Extra space so the card sits below the curved header
                       const SizedBox(height: 50),
                       Card(
                         margin: const EdgeInsets.only(bottom: 24),
@@ -264,7 +273,7 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
                               Text(
                                 title,
                                 style: const TextStyle(
-                                  fontSize: 26, // bigger title
+                                  fontSize: 26,
                                   fontWeight: FontWeight.bold,
                                   color: Colors.black87,
                                 ),
@@ -287,15 +296,12 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
                               ),
                               const SizedBox(height: 16),
 
-                              // Specialties (as color-coded chips)
+                              // Specialties
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Icon(
-                                    Icons.list_alt,
-                                    size: 26,
-                                    color: kAppBarColor,
-                                  ),
+                                  const Icon(Icons.list_alt,
+                                      size: 26, color: kAppBarColor),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Column(
@@ -305,7 +311,7 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
                                         const Text(
                                           "Specialties:",
                                           style: TextStyle(
-                                            fontSize: 20, // bigger label
+                                            fontSize: 20,
                                             fontWeight: FontWeight.bold,
                                           ),
                                         ),
@@ -326,19 +332,16 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
                               ),
                               const SizedBox(height: 16),
 
-                              // Posted Date
+                              // Posted date
                               Row(
                                 children: [
-                                  const Icon(
-                                    Icons.calendar_today_outlined,
-                                    size: 22,
-                                    color: Colors.grey,
-                                  ),
+                                  const Icon(Icons.calendar_today_outlined,
+                                      size: 22, color: Colors.grey),
                                   const SizedBox(width: 8),
                                   Text(
                                     "Posted on: $formattedTime",
                                     style: const TextStyle(
-                                      fontSize: 18, // bigger
+                                      fontSize: 18,
                                       color: Colors.grey,
                                     ),
                                   ),
@@ -346,9 +349,8 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
                               ),
                               const SizedBox(height: 32),
 
-                              // Show Contact Customer button only if user is a trainer (otherwise no button).
+                              // Contact button (trainers only)
                               if (_isTrainer == true) ...[
-                                // If still loading the active status, show spinner.
                                 if (_isTrainerActive == null)
                                   const Center(
                                     child: Padding(
@@ -357,36 +359,32 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
                                     ),
                                   )
                                 else
-                                  // Always show the button, but onPressed checks if trainer is active or not.
                                   SizedBox(
                                     width: double.infinity,
                                     child: ElevatedButton.icon(
-                                      icon: const Icon(
-                                        Icons.message,
-                                        size: 28, // bigger icon
-                                        color: Colors.white, // white icon
-                                      ),
+                                      icon: const Icon(Icons.message,
+                                          size: 28, color: Colors.white),
                                       label: const Text(
                                         "Contact Customer",
                                         style: TextStyle(
-                                          fontSize: 22, // bigger text
+                                          fontSize: 22,
                                           fontWeight: FontWeight.bold,
-                                          color: Colors.white, // white text
+                                          color: Colors.white,
                                         ),
                                       ),
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: kAppBarColor,
                                         padding: const EdgeInsets.symmetric(
                                           horizontal: 16,
-                                          vertical:
-                                              18, // bigger vertical padding
+                                          vertical: 18,
                                         ),
                                         shape: RoundedRectangleBorder(
                                           borderRadius:
-                                              BorderRadius.circular(12.0),
+                                              BorderRadius.circular(12),
                                         ),
                                       ),
-                                      onPressed: () => _contactCustomer(userId),
+                                      onPressed: () =>
+                                          _contactCustomer(customerUid),
                                     ),
                                   ),
                               ],
@@ -402,7 +400,8 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
     );
   }
 
-  /// A helper widget to display an icon, label, and value in a row.
+  /* ───────────────────────────────────── helper widgets ────────────────── */
+
   Widget _buildDetailRow({
     required IconData icon,
     required String label,
@@ -411,25 +410,16 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(
-          icon,
-          size: 26, // bigger icon
-          color: kAppBarColor,
-        ),
+        Icon(icon, size: 26, color: kAppBarColor),
         const SizedBox(width: 8),
         Expanded(
           child: RichText(
             text: TextSpan(
-              style: const TextStyle(
-                fontSize: 20, // bigger text
-                color: Colors.black87,
-              ),
+              style: const TextStyle(fontSize: 20, color: Colors.black87),
               children: [
                 TextSpan(
                   text: "$label: ",
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 TextSpan(text: value),
               ],
@@ -440,12 +430,12 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
     );
   }
 
-  /// Build a Wrap of Chips to show each specialty in its assigned color.
+  /// Builds color-coded chips for specialties.
   Widget _buildSpecialtyChips(List<dynamic> specialties) {
     if (specialties.isEmpty) {
       return const Text(
         "Not specified",
-        style: TextStyle(fontSize: 18), // bigger
+        style: TextStyle(fontSize: 18),
       );
     }
 
@@ -453,13 +443,11 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
       spacing: 8.0,
       runSpacing: 8.0,
       children: specialties.map((specialty) {
-        final specialtyName = specialty.toString();
-        final color = specialtyColorMap[specialtyName] ?? Colors.grey;
+        final name = specialty.toString();
+        final color = specialtyColorMap[name] ?? Colors.grey;
         return Chip(
-          label: Text(
-            specialtyName,
-            style: const TextStyle(color: Colors.white, fontSize: 18),
-          ),
+          label: Text(name,
+              style: const TextStyle(color: Colors.white, fontSize: 18)),
           backgroundColor: color,
         );
       }).toList(),

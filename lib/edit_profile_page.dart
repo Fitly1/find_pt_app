@@ -1,6 +1,5 @@
 // ignore_for_file: use_build_context_synchronously
-
-import 'dart:convert';
+import 'dart:convert'; // <-- already present, left here
 import 'dart:io';
 import 'dart:typed_data'; // For using Uint8List
 import 'package:flutter/material.dart';
@@ -129,16 +128,25 @@ class _EditProfilePageState extends State<EditProfilePage> {
     }
   }
 
+  // ────────────────────────────────────────────────────────────
+  // 1. Firestore query optimisation   +  2. size-debug helper
+  // ────────────────────────────────────────────────────────────
   Future<void> _loadProfileData() async {
     final User? user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     _emailController.text = user.email ?? "";
-    DocumentSnapshot doc = await FirebaseFirestore.instance
+
+    final doc = await FirebaseFirestore.instance
         .collection("trainer_profiles")
         .doc(user.uid)
         .get();
+
     if (doc.exists) {
       final data = doc.data() as Map<String, dynamic>;
+
+      // ---------- size in bytes ----------
+      debugPrint("⚠️ Profile data size: ${json.encode(data).length} bytes");
+
       if (!mounted) return;
       setState(() {
         _firstNameController.text = data["firstName"] ?? "";
@@ -180,6 +188,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
       });
     }
   }
+  // ────────────────────────────────────────────────────────────
 
   Future<String> _uploadProfileImage() async {
     if (_profileImage == null) return "";
@@ -717,9 +726,10 @@ class _EditProfilePageState extends State<EditProfilePage> {
               decoration: _commonTextFieldDecoration("Email Address"),
             ),
             const SizedBox(height: 16),
-            // Description
+            // Description  (==> MAX 1000 chars added)
             TextField(
               controller: _descriptionController,
+              maxLength: 1000, // ← NEW LIMIT
               style: const TextStyle(fontSize: 16, color: Colors.black),
               decoration: _commonTextFieldDecoration(
                   "Profile Description, Expertise and Certification"),

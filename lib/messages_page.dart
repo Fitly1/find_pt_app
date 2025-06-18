@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'chat_page.dart' as chat; // Use alias for ChatPage
-import 'bottom_navigation.dart'; // Trainer navigation
-import 'bottom_navigation_customers.dart'; // Customer navigation
+import 'chat_page.dart' as chat;
+import 'bottom_navigation.dart';
+import 'bottom_navigation_customers.dart';
 import 'trainer_home_page.dart';
-import 'marketplace_page.dart'; // For customer back navigation
-import 'package:intl/intl.dart'; // For formatted time
+import 'marketplace_page.dart';
+import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class MessagesPage extends StatefulWidget {
@@ -17,28 +17,25 @@ class MessagesPage extends StatefulWidget {
 }
 
 class MessagesPageState extends State<MessagesPage> {
-  String userRole = 'customer'; // Default role is customer
+  String userRole = 'customer';
 
   @override
   void initState() {
     super.initState();
-    loadUserRole();
+    _loadUserRole();
   }
 
-  Future<void> loadUserRole() async {
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
+  Future<void> _loadUserRole() async {
+    final prefs = await SharedPreferences.getInstance();
     setState(() {
-      userRole = prefs.getString("userRole")?.toLowerCase() ?? 'customer';
+      userRole = prefs.getString('userRole')?.toLowerCase() ?? 'customer';
     });
-    debugPrint("MessagesPage: Loaded user role: $userRole");
   }
 
-  /// Returns the appropriate bottom navigation widget based on the user's role.
-  Widget _buildBottomNavigation() {
-    bool isTrainer = (userRole == 'trainer' ||
+  Widget _bottomNav() {
+    final isTrainer = userRole == 'trainer' ||
         userRole == 'personal trainer' ||
-        userRole == 'personaltrainer');
-
+        userRole == 'personaltrainer';
     return isTrainer
         ? const BottomNavigation(currentIndex: 1)
         : const BottomNavigationCustomers(currentIndex: 1);
@@ -46,204 +43,236 @@ class MessagesPageState extends State<MessagesPage> {
 
   @override
   Widget build(BuildContext context) {
-    final User? currentUser = FirebaseAuth.instance.currentUser;
+    final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
-      debugPrint("No user found in MessagesPage.");
       return const Scaffold(
-        body: Center(child: Text("No user found")),
+        body: Center(child: Text('No user found')),
       );
     }
 
     final conversationsQuery = FirebaseFirestore.instance
-        .collection("conversations")
-        .where("participants", arrayContains: currentUser.uid)
-        .orderBy("timestamp", descending: true);
+        .collection('conversations')
+        .where('participants', arrayContains: currentUser.uid)
+        .orderBy('timestamp', descending: true);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          "Messages",
-          style: TextStyle(
-              fontSize: 22, fontWeight: FontWeight.w600, color: Colors.white),
+          'Messages',
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
         ),
-        backgroundColor: const Color(0xFFFFA726), // Brand orange
+        backgroundColor: const Color(0xFFFFA726),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, size: 28, color: Colors.white),
+          icon: const Icon(Icons.arrow_back, size: 28),
           onPressed: () {
-            bool isTrainer =
+            final isTrainer =
                 userRole == 'trainer' || userRole == 'personal trainer';
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
-                  builder: (context) => isTrainer
-                      ? const TrainerHomePage()
-                      : const MarketplacePage()),
+                builder: (_) => isTrainer
+                    ? const TrainerHomePage()
+                    : const MarketplacePage(),
+              ),
             );
           },
         ),
       ),
-      backgroundColor: Colors.white, // Overall white background
       body: StreamBuilder<QuerySnapshot>(
         stream: conversationsQuery.snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            debugPrint("Error retrieving conversations: ${snapshot.error}");
-            return Center(
-              child: Text("Error: ${snapshot.error}",
-                  style: const TextStyle(fontSize: 18)),
-            );
+            return Center(child: Text('Error: ${snapshot.error}'));
           }
           if (!snapshot.hasData) {
-            debugPrint("Waiting for conversation data...");
             return const Center(child: CircularProgressIndicator());
           }
 
-          final conversationDocs = snapshot.data!.docs;
-          if (conversationDocs.isEmpty) {
-            debugPrint("No conversations found for user ${currentUser.uid}");
-            return const Center(
-                child: Text("No conversations yet.",
-                    style: TextStyle(fontSize: 18)));
+          final docs = snapshot.data!.docs;
+          if (docs.isEmpty) {
+            return const Center(child: Text('No conversations yet.'));
           }
 
           return ListView.separated(
             padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: conversationDocs.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 6),
+            itemCount: docs.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 6),
             itemBuilder: (context, index) {
-              final conversation = conversationDocs[index];
+              final conversation = docs[index];
               final data = conversation.data() as Map<String, dynamic>;
 
-              final participants = data["participants"];
-              if (participants == null || participants is! List) {
-                debugPrint(
-                    "Conversation ${conversation.id} has invalid 'participants': $participants");
-                return const SizedBox.shrink();
-              }
+              final lastMessage = (data['lastMessage'] ?? '').toString().trim();
+              if (lastMessage.isEmpty) return const SizedBox.shrink();
 
-              // Identify the OTHER participant's UID.
-              final otherUid = participants.firstWhere(
-                (p) => p != currentUser.uid,
-                orElse: () => null,
-              );
+              final participants = data['participants'] as List<dynamic>? ?? [];
+              final otherUid = participants
+                  .firstWhere((p) => p != currentUser.uid, orElse: () => null);
+              if (otherUid == null) return const SizedBox.shrink();
 
-              if (otherUid == null) {
-                debugPrint(
-                    "Could not find another participant in conversation ${conversation.id}");
-                return const SizedBox.shrink();
-              }
+              final ts = data['timestamp'] as Timestamp? ?? Timestamp.now();
+              final formattedTime = DateFormat('h:mm a').format(ts.toDate());
+              final isUnread = (data['unreadBy'] as List<dynamic>? ?? [])
+                  .contains(currentUser.uid);
 
-              final lastMessage = data["lastMessage"] ?? "";
-              final dynamic tsValue = data["timestamp"];
-              final Timestamp ts =
-                  (tsValue is Timestamp) ? tsValue : Timestamp.now();
-              final DateTime time = ts.toDate();
-              final formattedTime = DateFormat('h:mm a').format(time);
-
-              // Unread indicator logic.
-              final unreadData = data["unreadBy"];
-              final List<dynamic> unreadList =
-                  (unreadData is List) ? unreadData : [];
-              final bool isUnread = unreadList.contains(currentUser.uid);
-
-              // Fetch the other participant's data from either "trainer_profiles" or "users"
               return FutureBuilder<Map<String, dynamic>?>(
-                future: _fetchOtherUserData(otherUid),
-                builder: (context, userSnapshot) {
-                  if (userSnapshot.connectionState == ConnectionState.waiting) {
-                    return const ListTile(title: Text("Loading..."));
-                  }
-                  if (userSnapshot.hasError) {
-                    debugPrint(
-                        "Error fetching other user doc: ${userSnapshot.error}");
-                    return const ListTile(title: Text("Unknown"));
+                future: _fetchOtherUser(otherUid),
+                builder: (context, userSnap) {
+                  /* ───────── Account deleted / loading state ───────── */
+                  if (!userSnap.hasData || userSnap.data == null) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: 100),
+                        child: Card(
+                          elevation: 3,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16)),
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 20, vertical: 12),
+                            title: const Text(
+                              'Account deleted',
+                              style: TextStyle(
+                                  fontSize: 20, fontWeight: FontWeight.w500),
+                            ),
+                            subtitle: const Padding(
+                              padding: EdgeInsets.only(top: 8.0),
+                              child: Text(
+                                'This user no longer exists.',
+                                style: TextStyle(
+                                    fontSize: 16, color: Colors.black54),
+                              ),
+                            ),
+                            trailing: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  formattedTime,
+                                  style: const TextStyle(
+                                      fontSize: 13, color: Colors.grey),
+                                ),
+                                const SizedBox(height: 4),
+                                GestureDetector(
+                                  onTap: () => _confirmDeleteConversation(
+                                      context, conversation.id),
+                                  child: const Icon(Icons.delete,
+                                      color: Colors.red, size: 20),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
                   }
 
-                  final otherUserData = userSnapshot.data;
-                  final String firstName = otherUserData?["firstName"] ?? "";
-                  final String lastName = otherUserData?["lastName"] ?? "";
-                  final String displayName = ("$firstName $lastName").trim();
-                  final nameToShow =
-                      displayName.isNotEmpty ? displayName : "Unknown";
+                  /* ───────── Normal tile when user exists ───────── */
+                  final u = userSnap.data!;
+                  final displayName =
+                      '${u['firstName'] ?? ''} ${u['lastName'] ?? ''}'
+                              .trim()
+                              .isNotEmpty
+                          ? '${u['firstName'] ?? ''} ${u['lastName'] ?? ''}'
+                          : 'Unknown';
 
                   return Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Card(
-                      elevation: 3,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 16),
-                        title: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                nameToShow,
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: isUnread
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                  color: Colors.black87,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 110),
+                      child: Card(
+                        elevation: 3,
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16)),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 12),
+
+                          // ───────── title + unread dot ─────────
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  displayName,
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: isUnread
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                  ),
                                 ),
                               ),
-                            ),
-                            if (isUnread)
-                              Container(
-                                width: 10,
-                                height: 10,
-                                margin: const EdgeInsets.only(left: 4),
-                                decoration: const BoxDecoration(
-                                  color: Colors.blueAccent,
-                                  shape: BoxShape.circle,
+                              if (isUnread)
+                                Container(
+                                  width: 10,
+                                  height: 10,
+                                  margin: const EdgeInsets.only(left: 4),
+                                  decoration: const BoxDecoration(
+                                      color: Colors.blueAccent,
+                                      shape: BoxShape.circle),
                                 ),
-                              ),
-                          ],
-                        ),
-                        subtitle: Padding(
-                          padding: const EdgeInsets.only(top: 8.0),
-                          child: Text(
-                            lastMessage,
-                            style: TextStyle(
-                              fontSize: 18,
-                              color: isUnread ? Colors.black87 : Colors.black54,
-                              fontWeight: isUnread
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            ],
                           ),
-                        ),
-                        trailing: Text(
-                          formattedTime,
-                          style:
-                              const TextStyle(fontSize: 16, color: Colors.grey),
-                        ),
-                        onTap: () {
-                          FirebaseFirestore.instance
-                              .collection("conversations")
-                              .doc(conversation.id)
-                              .update({
-                            "unreadBy":
-                                FieldValue.arrayRemove([currentUser.uid])
-                          }).then((_) {
-                            debugPrint(
-                                "Conversation ${conversation.id} marked as read for ${currentUser.uid}");
-                          }).catchError((error) {
-                            debugPrint(
-                                "Error marking conversation as read: $error");
-                          });
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => chat.ChatPage(
-                                  conversationId: conversation.id),
+
+                          // ───────── message preview ─────────
+                          subtitle: Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              lastMessage,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: isUnread
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                                color:
+                                    isUnread ? Colors.black87 : Colors.black54,
+                              ),
                             ),
-                          );
-                        },
+                          ),
+
+                          // ───────── trailing ─────────
+                          trailing: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                formattedTime,
+                                style: const TextStyle(
+                                    fontSize: 13, color: Colors.grey),
+                              ),
+                              const SizedBox(height: 4),
+                              GestureDetector(
+                                onTap: () => _confirmDeleteConversation(
+                                    context, conversation.id),
+                                child: const Icon(Icons.delete,
+                                    color: Colors.red, size: 20),
+                              ),
+                            ],
+                          ),
+
+                          // ───────── tap -> chat ─────────
+                          onTap: () {
+                            FirebaseFirestore.instance
+                                .collection('conversations')
+                                .doc(conversation.id)
+                                .update({
+                              'unreadBy':
+                                  FieldValue.arrayRemove([currentUser.uid])
+                            });
+
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => chat.ChatPage(
+                                  conversationId: conversation.id,
+                                  otherUserId: otherUid as String,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                       ),
                     ),
                   );
@@ -253,29 +282,69 @@ class MessagesPageState extends State<MessagesPage> {
           );
         },
       ),
-      bottomNavigationBar: Container(
-        color: Colors.black, // Black container for bottom nav
-        child: _buildBottomNavigation(),
-      ),
+      bottomNavigationBar: Container(color: Colors.black, child: _bottomNav()),
     );
   }
 
-  /// Attempts to fetch the other user's data from "trainer_profiles" first, then falls back to "users".
-  Future<Map<String, dynamic>?> _fetchOtherUserData(String otherUid) async {
-    final trainerDoc = await FirebaseFirestore.instance
-        .collection("trainer_profiles")
-        .doc(otherUid)
+  /* ─────────────────────────── Helpers ──────────────────────────── */
+
+  Future<Map<String, dynamic>?> _fetchOtherUser(String uid) async {
+    final trainer = await FirebaseFirestore.instance
+        .collection('trainer_profiles')
+        .doc(uid)
         .get();
-    if (trainerDoc.exists) {
-      return trainerDoc.data() as Map<String, dynamic>;
-    }
-    final userDoc = await FirebaseFirestore.instance
-        .collection("users")
-        .doc(otherUid)
-        .get();
-    if (userDoc.exists) {
-      return userDoc.data() as Map<String, dynamic>;
-    }
+    if (trainer.exists) return trainer.data() as Map<String, dynamic>;
+
+    final user =
+        await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    if (user.exists) return user.data() as Map<String, dynamic>;
+
     return null;
+  }
+
+  void _confirmDeleteConversation(BuildContext ctx, String conversationId) {
+    showDialog(
+      context: ctx,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete Conversation'),
+        content:
+            const Text('Are you sure you want to delete this conversation?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            onPressed: () async {
+              Navigator.pop(ctx);
+
+              // Delete all messages
+              final msgs = FirebaseFirestore.instance
+                  .collection('conversations')
+                  .doc(conversationId)
+                  .collection('messages');
+              final snap = await msgs.get();
+              for (var d in snap.docs) {
+                await d.reference.delete();
+              }
+
+              // Delete the conversation document
+              await FirebaseFirestore.instance
+                  .collection('conversations')
+                  .doc(conversationId)
+                  .delete();
+
+              // Safety check for the context after async work
+              if (!ctx.mounted) return;
+
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                const SnackBar(content: Text('Conversation deleted')),
+              );
+            },
+          ),
+        ],
+      ),
+    );
   }
 }

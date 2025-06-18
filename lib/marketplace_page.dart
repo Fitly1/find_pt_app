@@ -61,7 +61,11 @@ class MarketplacePage extends StatefulWidget {
 }
 
 class MarketplacePageState extends State<MarketplacePage> {
-  // Filtering variables:
+  // ---------------------------------------------------------------------------
+  //                               STATE & DATA
+  // ---------------------------------------------------------------------------
+
+  // Filtering variables
   List<Map<String, dynamic>> allSuburbs = [];
   Map<String, dynamic>? selectedSuburbData;
   String selectedSuburbText = '';
@@ -99,10 +103,9 @@ class MarketplacePageState extends State<MarketplacePage> {
     'Other': Colors.grey,
   };
 
-  // Additional filtering criteria.
+  // Additional filtering criteria
   List<String> selectedCategories = [];
   List<String> selectedTrainingMethods = [];
-  List<String> selectedPriceRanges = [];
 
   // State variable to store the current list of trainers.
   List<Map<String, dynamic>> _allTrainers = [];
@@ -112,6 +115,10 @@ class MarketplacePageState extends State<MarketplacePage> {
 
   // User role stored locally (default is customer)
   String userRole = 'customer';
+
+  // ---------------------------------------------------------------------------
+  //                               LIFE-CYCLE
+  // ---------------------------------------------------------------------------
 
   @override
   void initState() {
@@ -135,12 +142,15 @@ class MarketplacePageState extends State<MarketplacePage> {
       final String jsonData =
           await rootBundle.loadString('assets/Suburbs.json');
       allSuburbs = (json.decode(jsonData) as List).cast<Map<String, dynamic>>();
-      debugPrint('Loaded ${allSuburbs.length} suburbs.');
       setState(() {});
     } catch (e) {
       debugPrint("Error loading suburbs data: $e");
     }
   }
+
+  // ---------------------------------------------------------------------------
+  //                             HELPER FUNCTIONS
+  // ---------------------------------------------------------------------------
 
   /// Formats a suburb map into a display string.
   String _formatSuburb(Map<String, dynamic> item) {
@@ -170,7 +180,7 @@ class MarketplacePageState extends State<MarketplacePage> {
   List<Map<String, dynamic>> _filterTrainers(
       List<Map<String, dynamic>> trainersList) {
     return trainersList.where((trainer) {
-      // Specialties filter (case-insensitive).
+      // Specialties filter (case-insensitive)
       bool matchesCategory = selectedCategories.isEmpty ||
           selectedCategories.any((category) {
             String selected = category.toLowerCase();
@@ -180,11 +190,11 @@ class MarketplacePageState extends State<MarketplacePage> {
                 .contains(selected);
           });
 
-      // Rating filter.
+      // Rating filter
       double trainerRating = ((trainer['rating'] as num?)?.toDouble() ?? 0.0);
       bool matchesRating = trainerRating >= minRating;
 
-      // Price filter.
+      // Price filter
       bool matchesPrice = true;
       if (trainer['rate'] != null && trainer['rate'] is num) {
         double rate = (trainer['rate'] as num).toDouble();
@@ -193,8 +203,7 @@ class MarketplacePageState extends State<MarketplacePage> {
         matchesPrice = false;
       }
 
-      // Suburb filter and distance filter.
-      bool matchesSuburb = true;
+      // Suburb filter & distance filter
       bool matchesDistance = true;
       if (selectedSuburbData != null) {
         double userLat =
@@ -208,15 +217,12 @@ class MarketplacePageState extends State<MarketplacePage> {
           double distanceKm =
               calculateDistance(trainerLat, trainerLng, userLat, userLng);
           matchesDistance = distanceKm <= maxDistance;
-          debugPrint(
-            "Trainer: ${trainer['displayName'] ?? trainer['name']} distance: $distanceKm km => within $maxDistance? $matchesDistance",
-          );
         } else {
           matchesDistance = false;
         }
       }
 
-      // Training method filter.
+      // Training method filter
       bool matchesTrainingMethod = selectedTrainingMethods.isEmpty ||
           selectedTrainingMethods.contains(trainer['method']) ||
           (trainer['trainingMethods'] is List &&
@@ -226,23 +232,21 @@ class MarketplacePageState extends State<MarketplacePage> {
       return matchesCategory &&
           matchesRating &&
           matchesPrice &&
-          matchesSuburb &&
-          matchesTrainingMethod &&
-          matchesDistance;
+          matchesDistance &&
+          matchesTrainingMethod;
     }).toList();
   }
 
+  /// Clears all filters
   void clearFilters() {
     setState(() {
       selectedCategories.clear();
       selectedTrainingMethods.clear();
-      selectedPriceRanges.clear();
       selectedSuburbData = null;
       selectedSuburbText = '';
       selectedDistance = 50;
       minRating = 0.0;
       maxDistance = 1000.0;
-      // Reset the price range to $20 - $150.
       priceRange = const RangeValues(20, 150);
     });
   }
@@ -251,132 +255,106 @@ class MarketplacePageState extends State<MarketplacePage> {
   List<Widget> _buildActiveFilterChips() {
     List<Widget> chips = [];
     if (selectedSuburbText.isNotEmpty) {
-      chips.add(
-        Chip(
-          label: Text("Suburb: $selectedSuburbText"),
-          onDeleted: () {
-            setState(() {
-              selectedSuburbData = null;
-              selectedSuburbText = '';
-            });
-          },
-        ),
-      );
+      chips.add(Chip(
+        label: Text("Suburb: $selectedSuburbText"),
+        onDeleted: () {
+          setState(() {
+            selectedSuburbData = null;
+            selectedSuburbText = '';
+          });
+        },
+      ));
     }
     if (selectedTrainingMethods.isNotEmpty) {
-      chips.add(
-        Chip(
-          label: Text("Training: ${selectedTrainingMethods.join(', ')}"),
-          onDeleted: () {
-            setState(() {
-              selectedTrainingMethods.clear();
-            });
-          },
-        ),
-      );
+      chips.add(Chip(
+        label: Text("Training: ${selectedTrainingMethods.join(', ')}"),
+        onDeleted: () {
+          setState(() => selectedTrainingMethods.clear());
+        },
+      ));
     }
     if (selectedCategories.isNotEmpty) {
-      chips.add(
-        Chip(
-          label: Text("Specialties: ${selectedCategories.join(', ')}"),
-          onDeleted: () {
-            setState(() {
-              selectedCategories.clear();
-            });
-          },
-        ),
-      );
+      chips.add(Chip(
+        label: Text("Specialties: ${selectedCategories.join(', ')}"),
+        onDeleted: () {
+          setState(() => selectedCategories.clear());
+        },
+      ));
     }
     if (minRating > 0.0) {
-      chips.add(
-        Chip(
-          label: Text("Min Rating: ${minRating.toStringAsFixed(1)}+"),
-          onDeleted: () {
-            setState(() {
-              minRating = 0.0;
-            });
-          },
-        ),
-      );
+      chips.add(Chip(
+        label: Text("Min Rating: ${minRating.toStringAsFixed(1)}+"),
+        onDeleted: () {
+          setState(() => minRating = 0.0);
+        },
+      ));
     }
     if (selectedDistance != 50) {
-      chips.add(
-        Chip(
-          label: Text("Distance: $selectedDistance km"),
-          onDeleted: () {
-            setState(() {
-              selectedDistance = 50;
-              maxDistance = 50.0;
-            });
-          },
-        ),
-      );
+      chips.add(Chip(
+        label: Text("Distance: $selectedDistance km"),
+        onDeleted: () {
+          setState(() {
+            selectedDistance = 50;
+            maxDistance = 50.0;
+          });
+        },
+      ));
     }
     if (priceRange.start != 20 || priceRange.end != 150) {
-      chips.add(
-        Chip(
-          label: Text(
-              "Price: \$${priceRange.start.toInt()}-\$${priceRange.end.toInt()}"),
-          onDeleted: () {
-            setState(() {
-              priceRange = const RangeValues(20, 150);
-            });
-          },
-        ),
-      );
+      chips.add(Chip(
+        label: Text(
+            "Price: \$${priceRange.start.toInt()}-\$${priceRange.end.toInt()}"),
+        onDeleted: () {
+          setState(() => priceRange = const RangeValues(20, 150));
+        },
+      ));
     }
     return chips;
   }
 
-  // Show filter UI as a modal bottom sheet.
+  // ---------------------------------------------------------------------------
+  //                             FILTER DIALOG
+  // ---------------------------------------------------------------------------
+
   void showFilterDialog() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || user.isAnonymous || !user.emailVerified) {
       showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) {
-          return AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16.0),
-            ),
-            title: const Text(
-              "Sign Up",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            content: const Text(
-              "Please create an account or sign in to access features.",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 18),
-            ),
-            actionsAlignment: MainAxisAlignment.center,
-            actions: [
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                ),
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const WelcomePage()),
-                  );
-                },
-                child: const Text(
-                  "OK",
-                  style: TextStyle(fontSize: 18),
-                ),
-              ),
-            ],
-          );
-        },
+        builder: (_) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16.0),
+          ),
+          title: const Text(
+            "Sign Up",
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          ),
+          content: const Text(
+            "Please create an account or sign in to access features.",
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 18),
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const WelcomePage()),
+                );
+              },
+              child: const Text("OK"),
+            )
+          ],
+        ),
       );
       return;
     }
-    // Local copies of existing filter states.
+
+    // ---------- make local copies of current filter state ----------
     int dialogSelectedDistance = selectedDistance;
     double dialogSelectedRating = minRating;
     Map<String, dynamic>? dialogSelectedSuburbData = selectedSuburbData;
@@ -390,47 +368,43 @@ class MarketplacePageState extends State<MarketplacePage> {
       context: context,
       isScrollControlled: true,
       useRootNavigator: true,
-      builder: (BuildContext context) {
+      builder: (context) {
         return Padding(
           padding: MediaQuery.of(context).viewInsets,
           child: StatefulBuilder(
-            builder: (BuildContext context, StateSetter setStateDialog) {
+            builder: (context, setStateDialog) {
               return Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: SingleChildScrollView(
                   child: Column(
-                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text('Filters',
                           style: TextStyle(
                               fontSize: 20, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 16),
+
+                      // ---------------- LOCATION ----------------
                       const Text('Location:'),
                       Material(
                         child: TypeAheadField<Map<String, dynamic>>(
                           controller: suburbController,
                           suggestionsCallback: (pattern) async {
                             if (pattern.isEmpty) return [];
-                            Iterable<Map<String, dynamic>> matches =
-                                allSuburbs.where((item) {
+                            final matches = allSuburbs.where((item) {
                               String suburb =
                                   item['Suburb'].toString().toLowerCase();
                               String postcode = item['Postcode'].toString();
                               return suburb.contains(pattern.toLowerCase()) ||
                                   postcode.contains(pattern);
-                            });
-                            List<Map<String, dynamic>> suggestions =
-                                matches.toList();
-                            suggestions.sort((a, b) => a['Suburb']
+                            }).toList();
+                            matches.sort((a, b) => a['Suburb']
                                 .toString()
                                 .compareTo(b['Suburb'].toString()));
-                            return suggestions.take(10).toList();
+                            return matches.take(10).toList();
                           },
-                          itemBuilder: (context, suggestion) {
-                            String display = _formatSuburb(suggestion);
-                            return ListTile(title: Text(display));
-                          },
+                          itemBuilder: (context, suggestion) =>
+                              ListTile(title: Text(_formatSuburb(suggestion))),
                           onSelected: (suggestion) {
                             setStateDialog(() {
                               dialogSelectedSuburbData = suggestion;
@@ -439,14 +413,13 @@ class MarketplacePageState extends State<MarketplacePage> {
                               suburbController.text = dialogSelectedSuburbText;
                             });
                           },
-                          builder: (context, suggestionsController, focusNode) {
+                          builder: (context, textController, focusNode) {
                             if (suburbController.text.isNotEmpty &&
-                                suggestionsController.text.isEmpty) {
-                              suggestionsController.text =
-                                  suburbController.text;
+                                textController.text.isEmpty) {
+                              textController.text = suburbController.text;
                             }
                             return TextField(
-                              controller: suggestionsController,
+                              controller: textController,
                               focusNode: focusNode,
                               decoration: const InputDecoration(
                                 labelText: "Location (Suburb or Postcode)",
@@ -454,25 +427,27 @@ class MarketplacePageState extends State<MarketplacePage> {
                               ),
                             );
                           },
-                          emptyBuilder: (context) => const Padding(
+                          emptyBuilder: (_) => const Padding(
                             padding: EdgeInsets.all(8.0),
                             child: Text("No suburb found."),
                           ),
                         ),
                       ),
                       const SizedBox(height: 16),
+
+                      // ---------------- TRAINING METHOD ----------------
                       const Text('Training Method:'),
                       Wrap(
                         spacing: 8.0,
                         children: ['Online', 'Face-to-Face'].map((method) {
-                          bool isSelected =
+                          bool selected =
                               dialogSelectedTrainingMethods.contains(method);
                           return FilterChip(
                             label: Text(method),
-                            selected: isSelected,
-                            onSelected: (selected) {
+                            selected: selected,
+                            onSelected: (v) {
                               setStateDialog(() {
-                                if (selected) {
+                                if (v) {
                                   dialogSelectedTrainingMethods.add(method);
                                 } else {
                                   dialogSelectedTrainingMethods.remove(method);
@@ -483,18 +458,20 @@ class MarketplacePageState extends State<MarketplacePage> {
                         }).toList(),
                       ),
                       const SizedBox(height: 16),
+
+                      // ---------------- SPECIALTIES ----------------
                       const Text('Specialties:'),
                       Wrap(
                         spacing: 8.0,
                         children: categoryColors.keys.map((category) {
-                          bool isSelected =
+                          bool selected =
                               dialogSelectedCategories.contains(category);
                           return FilterChip(
                             label: Text(category),
-                            selected: isSelected,
-                            onSelected: (selected) {
+                            selected: selected,
+                            onSelected: (v) {
                               setStateDialog(() {
-                                if (selected) {
+                                if (v) {
                                   dialogSelectedCategories.add(category);
                                 } else {
                                   dialogSelectedCategories.remove(category);
@@ -505,97 +482,86 @@ class MarketplacePageState extends State<MarketplacePage> {
                         }).toList(),
                       ),
                       const SizedBox(height: 16),
+
+                      // ---------------- DISTANCE ----------------
                       const Text('Distance (km):'),
                       DropdownButton<int>(
                         value: dialogSelectedDistance,
-                        onChanged: (value) {
-                          setStateDialog(() {
-                            dialogSelectedDistance = value!;
-                          });
-                        },
-                        items: [5, 10, 20, 50, 100].map((distance) {
-                          return DropdownMenuItem<int>(
-                            value: distance,
-                            child: Text('$distance km'),
-                          );
+                        onChanged: (value) => setStateDialog(
+                            () => dialogSelectedDistance = value!),
+                        items: [5, 10, 20, 50, 100].map((d) {
+                          return DropdownMenuItem(
+                              value: d, child: Text('$d km'));
                         }).toList(),
                       ),
                       const SizedBox(height: 16),
+
+                      // ---------------- RATING ----------------
                       const Text('Minimum Rating:'),
                       DropdownButton<double>(
                         value: dialogSelectedRating,
-                        onChanged: (value) {
-                          setStateDialog(() {
-                            dialogSelectedRating = value!;
-                          });
-                        },
-                        items: [0.0, 3.0, 4.0, 4.5, 5.0].map((rating) {
-                          return DropdownMenuItem<double>(
-                            value: rating,
-                            child: Text(rating == 0.0 ? "All" : '$rating+'),
-                          );
+                        onChanged: (value) =>
+                            setStateDialog(() => dialogSelectedRating = value!),
+                        items: [0.0, 3.0, 4.0, 4.5, 5.0].map((r) {
+                          return DropdownMenuItem(
+                              value: r, child: Text(r == 0.0 ? "All" : '$r+'));
                         }).toList(),
                       ),
                       const SizedBox(height: 16),
+
+                      // ---------------- PRICE ----------------
                       const Text('Price Range (\$/hr):'),
-                      // Only use choice chips for price range.
                       Wrap(
                         spacing: 8.0,
                         children: priceRangeOptions.map((option) {
-                          final RangeValues thisRange = option['range'];
-                          final bool isSelected =
-                              (dialogPriceRange == thisRange);
+                          final RangeValues range = option['range'];
+                          bool selected = dialogPriceRange == range;
                           return ChoiceChip(
                             label: Text(option['label']),
-                            selected: isSelected,
-                            onSelected: (selected) {
-                              if (selected) {
-                                setStateDialog(() {
-                                  dialogPriceRange = thisRange;
-                                });
+                            selected: selected,
+                            onSelected: (v) {
+                              if (v) {
+                                setStateDialog(() => dialogPriceRange = range);
                               }
                             },
                           );
                         }).toList(),
                       ),
                       const SizedBox(height: 16),
+
+                      // ---------------- BUTTONS ----------------
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
                           TextButton(
-                            onPressed: () {
-                              clearFilters();
-                              Navigator.of(context).pop();
-                            },
-                            child: const Text('Clear Filters'),
-                          ),
+                              onPressed: () {
+                                clearFilters();
+                                Navigator.pop(context);
+                              },
+                              child: const Text('Clear Filters')),
                           const SizedBox(width: 8),
                           TextButton(
-                            onPressed: () {
-                              Navigator.of(context).pop();
-                            },
-                            child: const Text('Cancel'),
-                          ),
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('Cancel')),
                           const SizedBox(width: 8),
                           TextButton(
-                            onPressed: () {
-                              setState(() {
-                                selectedDistance = dialogSelectedDistance;
-                                minRating = dialogSelectedRating;
-                                selectedSuburbData = dialogSelectedSuburbData;
-                                selectedSuburbText = dialogSelectedSuburbText;
-                                selectedTrainingMethods =
-                                    List.from(dialogSelectedTrainingMethods);
-                                selectedCategories =
-                                    List.from(dialogSelectedCategories);
-                                maxDistance = dialogSelectedDistance.toDouble();
-                                // Apply the chosen price range from choice chips.
-                                priceRange = dialogPriceRange;
-                              });
-                              Navigator.of(context).pop();
-                            },
-                            child: const Text('Apply'),
-                          ),
+                              onPressed: () {
+                                setState(() {
+                                  selectedDistance = dialogSelectedDistance;
+                                  minRating = dialogSelectedRating;
+                                  selectedSuburbData = dialogSelectedSuburbData;
+                                  selectedSuburbText = dialogSelectedSuburbText;
+                                  selectedTrainingMethods =
+                                      List.from(dialogSelectedTrainingMethods);
+                                  selectedCategories =
+                                      List.from(dialogSelectedCategories);
+                                  maxDistance =
+                                      dialogSelectedDistance.toDouble();
+                                  priceRange = dialogPriceRange;
+                                });
+                                Navigator.pop(context);
+                              },
+                              child: const Text('Apply')),
                         ],
                       ),
                     ],
@@ -609,7 +575,10 @@ class MarketplacePageState extends State<MarketplacePage> {
     );
   }
 
-  // Show search UI with a guest check.
+  // ---------------------------------------------------------------------------
+  //                     SEARCH & BOTTOM NAV HELPERS
+  // ---------------------------------------------------------------------------
+
   void _showSearch(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || user.isAnonymous || !user.emailVerified) {
@@ -622,16 +591,13 @@ class MarketplacePageState extends State<MarketplacePage> {
               "Please sign in or sign up to manage your subscription."),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text("Cancel"),
-            ),
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Cancel")),
             TextButton(
               onPressed: () {
-                Navigator.of(context).pop();
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const WelcomePage()),
-                );
+                Navigator.pop(context);
+                Navigator.pushReplacement(context,
+                    MaterialPageRoute(builder: (_) => const WelcomePage()));
               },
               child: const Text("Sign In / Sign Up"),
             ),
@@ -640,14 +606,13 @@ class MarketplacePageState extends State<MarketplacePage> {
       );
       return;
     }
-    // Pass the updated _allTrainers list to the search delegate.
+
     showSearch(
       context: context,
       delegate: TrainerSearchDelegate(_allTrainers, userRole),
     );
   }
 
-  /// Returns the appropriate bottom navigation widget based on the user's role.
   Widget _buildBottomNavigation() {
     bool isTrainer = (userRole == 'trainer' ||
         userRole == 'personal trainer' ||
@@ -657,6 +622,10 @@ class MarketplacePageState extends State<MarketplacePage> {
         : const BottomNavigationCustomers(currentIndex: 0);
   }
 
+  // ---------------------------------------------------------------------------
+  //                               BUILD METHOD
+  // ---------------------------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
     if (Firebase.apps.isEmpty) {
@@ -664,127 +633,87 @@ class MarketplacePageState extends State<MarketplacePage> {
         body: Center(child: CircularProgressIndicator()),
       );
     }
+
+    // Removed unused variable 'currentUser'
+
+    // 🔒 Restrict Trainers from Accessing Marketplace
+    if (userRole == 'trainer' ||
+        userRole == 'personal trainer' ||
+        userRole == 'personaltrainer') {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: const [
+              Icon(Icons.lock_outline, size: 80, color: Colors.grey),
+              SizedBox(height: 20),
+              Text(
+                "Marketplace is only available to customers.",
+                style: TextStyle(fontSize: 18),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // ---------------- CUSTOMER VIEW ----------------
     return Scaffold(
-      // AppBar now uses the orange brand color with white text/icons.
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () async {
             final user = FirebaseAuth.instance.currentUser;
-            debugPrint("=== Back arrow tapped ===");
-            if (user == null) {
-              debugPrint("No user is signed in.");
-            } else {
-              debugPrint("UID: ${user.uid}");
-              debugPrint("isAnonymous: ${user.isAnonymous}");
-              debugPrint("emailVerified: ${user.emailVerified}");
-            }
             bool isGuest = (user == null || user.isAnonymous);
+
             if (isGuest) {
               Navigator.pushReplacement(
                 context,
-                MaterialPageRoute(builder: (context) => const WelcomePage()),
+                MaterialPageRoute(builder: (_) => const WelcomePage()),
               );
             } else {
-              bool isTrainer = (userRole == 'trainer' ||
+              bool isTrainerRole = (userRole == 'trainer' ||
                   userRole == 'personal trainer' ||
                   userRole == 'personaltrainer');
-              if (isTrainer) {
+              if (isTrainerRole) {
                 Navigator.pushReplacement(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => const TrainerHomePage(
-                      showProfileCompleteMessage: false,
-                    ),
+                    builder: (_) => const TrainerHomePage(
+                        showProfileCompleteMessage: false),
                   ),
                 );
               } else {
                 Navigator.pushReplacement(
                   context,
-                  MaterialPageRoute(builder: (context) => const ListingsPage()),
+                  MaterialPageRoute(builder: (_) => const ListingsPage()),
                 );
               }
             }
           },
         ),
-        title: const Text(
-          "Find a Personal Trainer",
-          style: TextStyle(color: Colors.white),
-        ),
-        backgroundColor: const Color(0xFFFFA726), // Orange app bar
+        title: const Text("Find a Personal Trainer",
+            style: TextStyle(color: Colors.white)),
+        backgroundColor: const Color(0xFFFFA726),
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           IconButton(
-            icon: const Icon(Icons.filter_list),
-            onPressed: () {
-              final user = FirebaseAuth.instance.currentUser;
-              if (user == null || user.isAnonymous || !user.emailVerified) {
-                showDialog(
-                  context: context,
-                  barrierDismissible: false,
-                  builder: (context) {
-                    return AlertDialog(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16.0),
-                      ),
-                      title: const Text(
-                        "Sign Up",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontSize: 24, fontWeight: FontWeight.bold),
-                      ),
-                      content: const Text(
-                        "Please create an account or sign in to access features.",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 18),
-                      ),
-                      actionsAlignment: MainAxisAlignment.center,
-                      actions: [
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 24, vertical: 12),
-                          ),
-                          onPressed: () {
-                            Navigator.of(context).pop();
-                            Navigator.pushReplacement(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (context) => const WelcomePage()),
-                            );
-                          },
-                          child: const Text(
-                            "OK",
-                            style: TextStyle(fontSize: 18),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                );
-                return;
-              }
-              showFilterDialog();
-            },
-          ),
+              icon: const Icon(Icons.filter_list), onPressed: showFilterDialog),
           IconButton(
             icon: const Icon(Icons.search),
             onPressed: () => _showSearch(context),
           ),
         ],
       ),
-      backgroundColor: Colors.white, // White overall background
+      backgroundColor: Colors.white,
       body: Padding(
         padding: const EdgeInsets.all(16.0),
-        // The content remains largely the same.
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (_buildActiveFilterChips().isNotEmpty)
-              Wrap(
-                spacing: 8.0,
-                children: _buildActiveFilterChips(),
-              ),
+              Wrap(spacing: 8.0, children: _buildActiveFilterChips()),
             const SizedBox(height: 16),
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
@@ -795,38 +724,31 @@ class MarketplacePageState extends State<MarketplacePage> {
                     .snapshots(),
                 builder: (context, snapshot) {
                   if (snapshot.hasError) {
-                    debugPrint("StreamBuilder error: ${snapshot.error}");
                     return Center(child: Text("Error: ${snapshot.error}"));
                   }
                   if (!snapshot.hasData) {
-                    debugPrint("No data yet.");
                     return const Center(child: CircularProgressIndicator());
                   }
+
                   final localTrainers = snapshot.data!.docs.map((doc) {
                     final data = doc.data() as Map<String, dynamic>;
-                    data["uid"] = doc.id; // Ensure the UID is added
+                    data['uid'] = doc.id;
                     return data;
                   }).toList();
 
-                  // Update _allTrainers so the search delegate has the latest data.
                   WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) {
-                      setState(() {
-                        _allTrainers = localTrainers;
-                      });
-                    }
+                    if (mounted) setState(() => _allTrainers = localTrainers);
                   });
 
                   final filtered = _filterTrainers(localTrainers);
 
                   if (filtered.isEmpty) {
                     return const Center(
-                      child: Text(
-                        "No trainers found. Try adjusting filters!",
-                        style: TextStyle(fontSize: 16, color: Colors.grey),
-                      ),
+                      child: Text("No trainers found. Try adjusting filters!",
+                          style: TextStyle(fontSize: 16, color: Colors.grey)),
                     );
                   }
+
                   return GridView.builder(
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
@@ -839,73 +761,57 @@ class MarketplacePageState extends State<MarketplacePage> {
                     itemBuilder: (context, index) {
                       final trainer = filtered[index];
                       return InkWell(
-                        onTap: () async {
+                        onTap: () {
                           final user = FirebaseAuth.instance.currentUser;
-                          debugPrint("=== Trainer card tapped ===");
-                          if (user == null) {
-                            debugPrint("No user is signed in.");
-                          } else {
-                            debugPrint("UID: ${user.uid}");
-                            debugPrint("isAnonymous: ${user.isAnonymous}");
-                            debugPrint("emailVerified: ${user.emailVerified}");
-                          }
                           if (user == null ||
                               user.isAnonymous ||
                               !user.emailVerified) {
                             showDialog(
                               context: context,
                               barrierDismissible: false,
-                              builder: (context) {
-                                return AlertDialog(
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16.0),
+                              builder: (_) => AlertDialog(
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16.0)),
+                                title: const Text(
+                                  "Sign Up",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.bold),
+                                ),
+                                content: const Text(
+                                  "Please create an account or sign in to access features.",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontSize: 18),
+                                ),
+                                actionsAlignment: MainAxisAlignment.center,
+                                actions: [
+                                  ElevatedButton(
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                      Navigator.pushReplacement(
+                                        context,
+                                        MaterialPageRoute(
+                                            builder: (_) =>
+                                                const WelcomePage()),
+                                      );
+                                    },
+                                    child: const Text("OK"),
                                   ),
-                                  title: const Text(
-                                    "Sign Up",
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                        fontSize: 24,
-                                        fontWeight: FontWeight.bold),
-                                  ),
-                                  content: const Text(
-                                    "Please create an account or sign in to access features.",
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(fontSize: 18),
-                                  ),
-                                  actionsAlignment: MainAxisAlignment.center,
-                                  actions: [
-                                    ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 24, vertical: 12),
-                                      ),
-                                      onPressed: () {
-                                        Navigator.of(context).pop();
-                                        Navigator.pushReplacement(
-                                          context,
-                                          MaterialPageRoute(
-                                              builder: (context) =>
-                                                  const WelcomePage()),
-                                        );
-                                      },
-                                      child: const Text(
-                                        "OK",
-                                        style: TextStyle(fontSize: 18),
-                                      ),
-                                    ),
-                                  ],
-                                );
-                              },
+                                ],
+                              ),
                             );
                             return;
                           }
+
                           bool isTrainerRole = (userRole == 'trainer' ||
                               userRole == 'personal trainer' ||
                               userRole == 'personaltrainer');
+
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => TrainerHomePage(
+                              builder: (_) => TrainerHomePage(
                                 trainerData: trainer,
                                 viewAsCustomer: !isTrainerRole,
                               ),
@@ -939,45 +845,56 @@ class MarketplacePageState extends State<MarketplacePage> {
   }
 }
 
+// ---------------------------------------------------------------------------
+//                         SEARCH DELEGATE CLASS
+// ---------------------------------------------------------------------------
+
 class TrainerSearchDelegate extends SearchDelegate {
   final List<Map<String, dynamic>> trainers;
-  final String userRole; // Passed from MarketplacePage
+  final String userRole;
   TrainerSearchDelegate(this.trainers, this.userRole);
 
   @override
-  List<Widget> buildActions(BuildContext context) {
-    return [
-      IconButton(
-          icon: const Icon(Icons.clear),
-          onPressed: () {
-            query = '';
-          })
-    ];
-  }
+  List<Widget> buildActions(BuildContext context) =>
+      [IconButton(icon: const Icon(Icons.clear), onPressed: () => query = '')];
 
   @override
-  Widget buildLeading(BuildContext context) {
-    return IconButton(
+  Widget buildLeading(BuildContext context) => IconButton(
         icon: const Icon(Icons.arrow_back),
-        onPressed: () {
-          close(context, null);
-        });
-  }
+        onPressed: () => close(context, null),
+      );
 
   @override
   Widget buildResults(BuildContext context) {
-    final results = trainers.where((trainer) {
-      return (trainer['name']
+    final results = trainers.where((t) {
+      return (t['name']
               ?.toString()
               .toLowerCase()
               .contains(query.toLowerCase()) ??
           false);
     }).toList();
 
+    return _buildList(context, results);
+  }
+
+  @override
+  Widget buildSuggestions(BuildContext context) {
+    final suggestions = trainers.where((t) {
+      return (t['name']
+              ?.toString()
+              .toLowerCase()
+              .startsWith(query.toLowerCase()) ??
+          false);
+    }).toList();
+
+    return _buildList(context, suggestions);
+  }
+
+  Widget _buildList(BuildContext context, List<Map<String, dynamic>> items) {
     return ListView.builder(
-      itemCount: results.length,
-      itemBuilder: (context, index) {
-        final trainer = results[index];
+      itemCount: items.length,
+      itemBuilder: (_, i) {
+        final trainer = items[i];
         return ListTile(
           title: Text(trainer['name'] ?? trainer['displayName'] ?? ''),
           subtitle: Text(trainer['location'] ?? ''),
@@ -988,37 +905,12 @@ class TrainerSearchDelegate extends SearchDelegate {
             Navigator.push(
               context,
               MaterialPageRoute(
-                builder: (context) => TrainerHomePage(
+                builder: (_) => TrainerHomePage(
                   trainerData: trainer,
                   viewAsCustomer: !isTrainerRole,
                 ),
               ),
             );
-          },
-        );
-      },
-    );
-  }
-
-  @override
-  Widget buildSuggestions(BuildContext context) {
-    final suggestions = trainers.where((trainer) {
-      return (trainer['name']
-              ?.toString()
-              .toLowerCase()
-              .startsWith(query.toLowerCase()) ??
-          false);
-    }).toList();
-
-    return ListView.builder(
-      itemCount: suggestions.length,
-      itemBuilder: (context, index) {
-        final trainer = suggestions[index];
-        return ListTile(
-          title: Text(trainer['name'] ?? trainer['displayName'] ?? ''),
-          onTap: () {
-            query = trainer['name'] ?? trainer['displayName'] ?? '';
-            showResults(context);
           },
         );
       },

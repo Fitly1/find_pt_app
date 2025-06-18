@@ -3,13 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
 import 'login_page.dart';
 import 'email_verification_page.dart';
 import 'profile_page.dart' as profile;
 import 'trainer_profile_setup_page.dart';
 import 'marketplace_page.dart';
 import 'secure_storage_service.dart';
+import 'trainer_home_page.dart';
 
 class RoleRedirect extends StatefulWidget {
   const RoleRedirect({super.key});
@@ -126,8 +126,8 @@ class RoleRedirectState extends State<RoleRedirect> {
               debugPrint("⚠️ Payment incomplete → ProfilePage");
               nextPage = const profile.ProfilePage();
             } else {
-              debugPrint("✅ All good → MarketplacePage (trainer nav)");
-              nextPage = const MarketplacePage();
+              debugPrint("✅ All good → TrainerHomePage");
+              nextPage = const TrainerHomePage(); //
             }
           } else {
             debugPrint("⚠️ No trainer profile doc → TrainerProfileSetupPage");
