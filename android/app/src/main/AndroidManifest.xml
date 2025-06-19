@@ -2,6 +2,9 @@
 
     <!-- Optional: add INTERNET permission if not already present -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+
 
     <application
         android:label="Fitly"
@@ -47,6 +50,13 @@
 
         </activity>
 
+<!-- 🔧 UCropActivity must be a separate activity entry -->
+        <activity
+            android:name="com.yalantis.ucrop.UCropActivity"
+            android:exported="false"
+            android:theme="@style/UCropActivityTheme" />
+
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
@@ -57,6 +67,9 @@
 
     <!-- Required to query activities that can process text -->
     <queries>
+        <intent>
+            <action android:name="android.intent.action.GET_CONTENT" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />

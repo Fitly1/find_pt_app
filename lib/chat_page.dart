@@ -10,8 +10,7 @@ class ChatPage extends StatefulWidget {
   /// Firestore document id you plan to use for this conversation
   final String conversationId;
 
-  /// uid of the other participant (needed when the conversation doc
-  /// doesn’t exist yet so we can still render header info)
+  /// uid of the other participant
   final String otherUserId;
 
   const ChatPage({
@@ -25,40 +24,36 @@ class ChatPage extends StatefulWidget {
 }
 
 class _ChatPageState extends State<ChatPage> {
-  // controllers
+  // ───────────────────────────────── controllers
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
-  // other participant
-  late final String _otherUserId; // filled in initState
+  // ───────────────────────────────── other participant
+  late final String _otherUserId;
   String _otherDisplayName = "Loading...";
   String _otherImageUrl = "";
   bool _isOtherTrainer = false;
   bool _hasListing = false;
 
-  // ────────────────────────────────────────────
-  // LIFECYCLE
-  // ────────────────────────────────────────────
+  // ────────────────────────────────────────── life-cycle
   @override
   void initState() {
     super.initState();
     _otherUserId = widget.otherUserId;
 
     _loadConversationData();
-    _markConversationAsRead(); // safe even if doc doesn’t exist yet
+    _markConversationAsRead();
   }
 
   @override
   void dispose() {
-    _maybeDeleteEmptyConversation(); // optional cleanup
+    _maybeDeleteEmptyConversation();
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
-  // ────────────────────────────────────────────
-  // FIRESTORE HELPERS
-  // ────────────────────────────────────────────
+  // ────────────────────────────────────────── firestore helpers
   Future<void> _markConversationAsRead() async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) return;
@@ -71,7 +66,7 @@ class _ChatPageState extends State<ChatPage> {
         'unreadBy': FieldValue.arrayRemove([currentUser.uid])
       });
     } catch (_) {
-      // conversation document isn’t there yet → nothing to do
+      // conversation doesn’t exist yet
     }
   }
 
@@ -91,7 +86,7 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _loadConversationData() async {
     try {
-      // 1. Try to read existing conversation (purely for listing flag)
+      // conversation for listing flag
       final convSnap = await FirebaseFirestore.instance
           .collection('conversations')
           .doc(widget.conversationId)
@@ -102,7 +97,7 @@ class _ChatPageState extends State<ChatPage> {
             (data['listingId'] as String).isNotEmpty;
       }
 
-      // 2. Load OTHER user’s profile (trainer_profiles first)
+      // other user profile
       var userDoc = await FirebaseFirestore.instance
           .collection('trainer_profiles')
           .doc(_otherUserId)
@@ -135,9 +130,7 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  // ────────────────────────────────────────────
-  // SEND MESSAGE   (lazy create / update)
-  // ────────────────────────────────────────────
+  // ────────────────────────────────────────── send message
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
@@ -151,7 +144,7 @@ class _ChatPageState extends State<ChatPage> {
         .doc(widget.conversationId);
     final msgsRef = convRef.collection('messages');
 
-    // 1. Add the chat message
+    // 1. add message
     await msgsRef.add({
       'senderId': currentUser.uid,
       'recipientId': _otherUserId,
@@ -159,7 +152,7 @@ class _ChatPageState extends State<ChatPage> {
       'timestamp': now,
     });
 
-    // 2. Create OR update conversation atomically
+    // 2. create / update conversation
     await FirebaseFirestore.instance.runTransaction((tx) async {
       final snap = await tx.get(convRef);
 
@@ -196,9 +189,7 @@ class _ChatPageState extends State<ChatPage> {
     });
   }
 
-  // ────────────────────────────────────────────
-  // REPORT USER DIALOG
-  // ────────────────────────────────────────────
+  // ────────────────────────────────────────── report dialog
   void _showReportDialog() {
     final reasonCtrl = TextEditingController();
     showDialog(
@@ -229,7 +220,7 @@ class _ChatPageState extends State<ChatPage> {
                 'timestamp': FieldValue.serverTimestamp(),
               });
 
-              // update report count / flagged
+              // update report count
               final countSnap = await FirebaseFirestore.instance
                   .collection('reports')
                   .where('reportedItemId', isEqualTo: _otherUserId)
@@ -257,9 +248,7 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  // ────────────────────────────────────────────
-  // UI
-  // ────────────────────────────────────────────
+  // ────────────────────────────────────────── UI
   @override
   Widget build(BuildContext context) {
     final msgsQuery = FirebaseFirestore.instance
@@ -270,7 +259,8 @@ class _ChatPageState extends State<ChatPage> {
 
     return Scaffold(
       resizeToAvoidBottomInset: true,
-      // ---------------- HEADER ----------------
+
+      // --------------- header ----------------
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(kToolbarHeight + 8),
         child: AppBar(
@@ -325,68 +315,62 @@ class _ChatPageState extends State<ChatPage> {
           ],
         ),
       ),
-      // ---------------- BODY ----------------
-      body: SafeArea(
-        child: Column(
-          children: [
-            // message list
-            Expanded(
-              child: StreamBuilder<QuerySnapshot>(
-                stream: msgsQuery.snapshots(),
-                builder: (context, snap) {
-                  if (snap.hasError) {
-                    return Center(child: Text('Error: ${snap.error}'));
-                  }
-                  if (!snap.hasData) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  final docs = snap.data!.docs;
-                  if (docs.isEmpty) {
-                    return const Center(child: Text('No messages yet.'));
-                  }
 
-                  WidgetsBinding.instance
-                      .addPostFrameCallback((_) => _scrollToBottom());
+      // --------------- body ------------------
+      body: Column(
+        children: [
+          // message list
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: msgsQuery.snapshots(),
+              builder: (context, snap) {
+                if (snap.hasError) {
+                  return Center(child: Text('Error: ${snap.error}'));
+                }
+                if (!snap.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final docs = snap.data!.docs;
+                if (docs.isEmpty) {
+                  return const Center(child: Text('No messages yet.'));
+                }
 
-                  return ListView.builder(
-                    controller: _scrollController,
-                    itemCount: docs.length,
-                    itemBuilder: (ctx, i) {
-                      final data = docs[i].data() as Map<String, dynamic>;
-                      final text = data['message'] ?? '';
-                      final senderId = data['senderId'] ?? '';
-                      final isMe =
-                          senderId == FirebaseAuth.instance.currentUser?.uid;
-                      final ts = data['timestamp'] as Timestamp?;
-                      final timeStr = ts == null
-                          ? ''
-                          : DateFormat('h:mm a').format(ts.toDate());
+                WidgetsBinding.instance
+                    .addPostFrameCallback((_) => _scrollToBottom());
 
-                      return _buildBubble(
-                          message: text, isMe: isMe, time: timeStr);
-                    },
-                  );
-                },
-              ),
+                return ListView.builder(
+                  controller: _scrollController,
+                  itemCount: docs.length,
+                  itemBuilder: (ctx, i) {
+                    final data = docs[i].data() as Map<String, dynamic>;
+                    final text = data['message'] ?? '';
+                    final senderId = data['senderId'] ?? '';
+                    final isMe =
+                        senderId == FirebaseAuth.instance.currentUser?.uid;
+                    final ts = data['timestamp'] as Timestamp?;
+                    final timeStr = ts == null
+                        ? ''
+                        : DateFormat('h:mm a').format(ts.toDate());
+
+                    return _buildBubble(
+                        message: text, isMe: isMe, time: timeStr);
+                  },
+                );
+              },
             ),
+          ),
 
-            // typing bar
-            Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom +
-                    MediaQuery.of(context).padding.bottom,
-              ),
-              child: _buildInputBar(),
-            ),
-          ],
-        ),
+          // input bar – only SafeArea, no extra padding!
+          SafeArea(
+            top: false, // just keep away from the bottom gesture bar
+            child: _buildInputBar(),
+          ),
+        ],
       ),
     );
   }
 
-  // ────────────────────────────────────────────
-  // WIDGET HELPERS
-  // ────────────────────────────────────────────
+  // ────────────────────────────────────────── widget helpers
   Widget _buildBubble(
       {required String message, required bool isMe, required String time}) {
     final radius = BorderRadius.only(
@@ -456,9 +440,7 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  // ────────────────────────────────────────────
-  // PROFILE NAV
-  // ────────────────────────────────────────────
+  // ────────────────────────────────────────── profile nav
   void _navigateToOtherProfile() {
     if (_otherUserId.isEmpty) return;
 
