@@ -1,97 +1,96 @@
 // File: invoice_generator_page.dart
 //
 // Generates, previews and prints a PDF invoice for an active trainer.
-//
-// ---------------------------------------------------------------------------
 
 import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 class InvoiceGeneratorPage extends StatefulWidget {
   final String trainerId;
-
-  const InvoiceGeneratorPage({
-    super.key,
-    required this.trainerId,
-  });
+  const InvoiceGeneratorPage({super.key, required this.trainerId});
 
   @override
   State<InvoiceGeneratorPage> createState() => _InvoiceGeneratorPageState();
 }
 
 class _InvoiceGeneratorPageState extends State<InvoiceGeneratorPage> {
-  /* ─────────────────────────  STATE  ───────────────────────── */
+/* ──────────────────────────  STATE  ────────────────────────── */
 
   bool _loading = true;
   bool _isActive = false;
   String? _error;
 
-  String? _logoUrl;
+  String?   _logoUrl;      // Firebase Storage URL
+  Uint8List? _logoBytes;   // cached bytes so we download once
 
   final _formKey = GlobalKey<FormState>();
 
-  // Business details controllers
+  // Business controllers
   final _bizNameCtrl = TextEditingController();
-  final _abnCtrl = TextEditingController();
-  final _addrCtrl = TextEditingController();
-  final _emailCtrl = TextEditingController();
-  final _bankCtrl = TextEditingController();
+  final _abnCtrl     = TextEditingController();
+  final _addrCtrl    = TextEditingController();
+  final _emailCtrl   = TextEditingController();
+  final _bankCtrl    = TextEditingController();
 
-  // Invoice details controllers
-  final _clientCtrl = TextEditingController();
+  // Invoice controllers
+  final _clientCtrl  = TextEditingController();
   final _serviceCtrl = TextEditingController();
-  final _hoursCtrl = TextEditingController();
-  final _rateCtrl = TextEditingController();
-  final _notesCtrl = TextEditingController();
+  final _hoursCtrl   = TextEditingController();
+  final _rateCtrl    = TextEditingController();
+  final _notesCtrl   = TextEditingController();
 
   DateTime _invoiceDate = DateTime.now();
 
-  /* ───────────────────────  LIFECYCLE  ─────────────────────── */
+/* ─────────────────────────  LIFECYCLE  ───────────────────────── */
 
   @override
   void initState() {
     super.initState();
-    _fetchData();
+    _fetchProfile();
   }
 
   @override
   void dispose() {
-    _bizNameCtrl.dispose();
-    _abnCtrl.dispose();
-    _addrCtrl.dispose();
-    _emailCtrl.dispose();
-    _bankCtrl.dispose();
-    _clientCtrl.dispose();
-    _serviceCtrl.dispose();
-    _hoursCtrl.dispose();
-    _rateCtrl.dispose();
-    _notesCtrl.dispose();
+    for (final c in [
+      _bizNameCtrl,
+      _abnCtrl,
+      _addrCtrl,
+      _emailCtrl,
+      _bankCtrl,
+      _clientCtrl,
+      _serviceCtrl,
+      _hoursCtrl,
+      _rateCtrl,
+      _notesCtrl,
+    ]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
-  /* ─────────────────────  FIRESTORE FETCH  ───────────────────── */
+/* ───────────────────────  FIRESTORE FETCH  ───────────────────── */
 
-  Future<void> _fetchData() async {
+  Future<void> _fetchProfile() async {
     try {
-      final trainerDoc = await FirebaseFirestore.instance
+      final snap = await FirebaseFirestore.instance
           .collection('trainer_profiles')
           .doc(widget.trainerId)
           .get();
 
-      if (!trainerDoc.exists) {
+      if (!snap.exists) {
         _error = 'Trainer profile not found.';
-        _loading = false;
-        setState(() {});
         return;
       }
 
-      final data = trainerDoc.data()!;
+      final data = snap.data()!;
       _isActive = (data['isActive'] ?? false) == true;
 
       if (_isActive) {
@@ -100,20 +99,20 @@ class _InvoiceGeneratorPageState extends State<InvoiceGeneratorPage> {
             : <String, dynamic>{};
 
         _bizNameCtrl.text = inv['businessName'] ?? '';
-        _abnCtrl.text = inv['abn'] ?? '';
-        _addrCtrl.text = inv['address'] ?? '';
-        _emailCtrl.text = inv['email'] ?? '';
-        _bankCtrl.text = inv['bankDetails'] ?? '';
-        _logoUrl = inv['logoUrl'] as String?;
+        _abnCtrl.text     = inv['abn'] ?? '';
+        _addrCtrl.text    = inv['address'] ?? '';
+        _emailCtrl.text   = inv['email'] ?? '';
+        _bankCtrl.text    = inv['bankDetails'] ?? '';
+        _logoUrl          = inv['logoUrl'] as String?;
       }
     } catch (e) {
-      _error = 'Failed to load data: ${e.toString()}';
+      _error = 'Failed to load data: $e';
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-
-    if (mounted) setState(() => _loading = false);
   }
 
-  /* ────────────────────────  HELPERS  ───────────────────────── */
+/* ──────────────────────────  HELPERS  ───────────────────────── */
 
   InputDecoration _dec(String label) => InputDecoration(
         labelText: label,
@@ -133,127 +132,145 @@ class _InvoiceGeneratorPageState extends State<InvoiceGeneratorPage> {
     if (picked != null) setState(() => _invoiceDate = picked);
   }
 
-  /* ─────────────────────  PDF GENERATION  ───────────────────── */
+/* ───────────────────────  PDF GENERATION  ───────────────────── */
+
+  Future<Uint8List?> _getLogoBytes() async {
+    if (_logoBytes != null || _logoUrl == null || _logoUrl!.isEmpty) return _logoBytes;
+    try {
+      _logoBytes = await FirebaseStorage.instance.refFromURL(_logoUrl!).getData();
+    } catch (e) {
+      debugPrint('Error downloading logo: $e');
+    }
+    return _logoBytes;
+  }
 
   Future<void> _generateInvoice() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final biz = _bizNameCtrl.text.trim();
-    final abn = _abnCtrl.text.trim();
-    final addr = _addrCtrl.text.trim();
-    final email = _emailCtrl.text.trim();
-    final bank = _bankCtrl.text.trim();
+    final biz     = _bizNameCtrl.text.trim();
+    final abn     = _abnCtrl.text.trim();
+    final addr    = _addrCtrl.text.trim();
+    final email   = _emailCtrl.text.trim();
+    final bank    = _bankCtrl.text.trim();
 
-    final client = _clientCtrl.text.trim();
-    final desc = _serviceCtrl.text.trim();
-    final hours = double.tryParse(_hoursCtrl.text.trim()) ?? 0;
-    final rate = double.tryParse(_rateCtrl.text.trim()) ?? 0;
-    final total = hours * rate;
-    final notes = _notesCtrl.text.trim();
+    final client  = _clientCtrl.text.trim();
+    final desc    = _serviceCtrl.text.trim();
+    final hours   = double.tryParse(_hoursCtrl.text.trim()) ?? 0;
+    final rate    = double.tryParse(_rateCtrl.text.trim()) ?? 0;
+    final total   = hours * rate;
+    final notes   = _notesCtrl.text.trim();
+    final dateStr = DateFormat('dd/MM/yyyy').format(_invoiceDate);
 
-    Uint8List? logoBytes;
-    if (_logoUrl != null && _logoUrl!.isNotEmpty) {
-      try {
-        logoBytes =
-            await FirebaseStorage.instance.refFromURL(_logoUrl!).getData();
-      } catch (_) {}
-    }
+    final Uint8List? logoBytes = await _getLogoBytes();
+
+    final ByteData robotoBD     =
+        await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
+    final ByteData robotoBoldBD =
+        await rootBundle.load('assets/fonts/Roboto-Bold.ttf');
 
     final pdf = pw.Document();
-    final dateFmt = DateFormat('dd/MM/yyyy');
 
+    // Build PDF once
     pdf.addPage(
       pw.Page(
-        pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(32),
-        build: (context) => pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            if (logoBytes != null)
-              pw.Center(child: pw.Image(pw.MemoryImage(logoBytes), height: 60)),
-            if (logoBytes != null) pw.SizedBox(height: 12),
-            pw.Text(biz,
-                style:
-                    pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
-            if (abn.isNotEmpty) pw.Text('ABN: $abn'),
-            if (addr.isNotEmpty) pw.Text(addr),
-            if (email.isNotEmpty) pw.Text('Email: $email'),
-            if (bank.isNotEmpty) pw.Text('Bank: $bank'),
-            pw.SizedBox(height: 24),
-            pw.Divider(),
-            pw.SizedBox(height: 12),
-            pw.Text('Invoice',
-                style:
-                    pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold)),
-            pw.SizedBox(height: 4),
-            pw.Text('Date: ${dateFmt.format(_invoiceDate)}'),
-            pw.Text('Bill To: $client'),
-            pw.SizedBox(height: 24),
-            _table(desc, hours, rate, total),
-            pw.SizedBox(height: 12),
-            pw.Align(
-              alignment: pw.Alignment.centerRight,
-              child: pw.Text('Total (incl. GST): \$${total.toStringAsFixed(2)}',
+        build: (_) {
+          final baseFont = pw.Font.ttf(robotoBD);
+          final boldFont = pw.Font.ttf(robotoBoldBD);
+
+          pw.Widget txt(String s, {bool bold = false, double size = 12}) =>
+              pw.Text(s,
                   style: pw.TextStyle(
-                      fontSize: 14, fontWeight: pw.FontWeight.bold)),
-            ),
-            if (notes.isNotEmpty) ...[
-              pw.SizedBox(height: 24),
-              pw.Text('Notes:',
-                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-              pw.Text(notes),
+                      font: bold ? boldFont : baseFont, fontSize: size));
+
+          pw.Widget header(String s) =>
+              pw.Padding(padding: const pw.EdgeInsets.all(6), child: txt(s, bold: true));
+          pw.Widget cell(String s) =>
+              pw.Padding(padding: const pw.EdgeInsets.all(6), child: txt(s));
+
+          final invoiceTable = pw.Table(
+            border: pw.TableBorder.all(),
+            columnWidths: const {
+              0: pw.FlexColumnWidth(3),
+              1: pw.FlexColumnWidth(1),
+              2: pw.FlexColumnWidth(1),
+              3: pw.FlexColumnWidth(1),
+            },
+            children: [
+              pw.TableRow(
+                decoration: const pw.BoxDecoration(color: PdfColors.grey300),
+                children: [
+                  header('Description'),
+                  header('Hours'),
+                  header('Rate'),
+                  header('Total'),
+                ],
+              ),
+              pw.TableRow(
+                children: [
+                  cell(desc),
+                  cell(hours.toStringAsFixed(2)),
+                  cell('\$${rate.toStringAsFixed(2)}'),
+                  cell('\$${total.toStringAsFixed(2)}'),
+                ],
+              ),
             ],
-          ],
-        ),
+          );
+
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              if (logoBytes != null)
+                pw.Center(child: pw.Image(pw.MemoryImage(logoBytes), height: 60)),
+              if (logoBytes != null) pw.SizedBox(height: 12),
+              txt(biz, bold: true, size: 18),
+              if (abn.isNotEmpty)  txt('ABN: $abn'),
+              if (addr.isNotEmpty) txt(addr),
+              if (email.isNotEmpty)txt('Email: $email'),
+              if (bank.isNotEmpty) txt('Bank: $bank'),
+              pw.SizedBox(height: 24),
+              pw.Divider(),
+              pw.SizedBox(height: 12),
+              txt('Invoice', bold: true, size: 22),
+              pw.SizedBox(height: 4),
+              txt('Date: $dateStr'),
+              txt('Bill To: $client'),
+              pw.SizedBox(height: 24),
+              invoiceTable,
+              pw.SizedBox(height: 12),
+              pw.Align(
+                alignment: pw.Alignment.centerRight,
+                child: txt('Total (incl. GST): \$${total.toStringAsFixed(2)}',
+                    bold: true, size: 14),
+              ),
+              if (notes.isNotEmpty) ...[
+                pw.SizedBox(height: 24),
+                txt('Notes:', bold: true),
+                txt(notes),
+              ],
+            ],
+          );
+        },
       ),
     );
 
-    await Printing.layoutPdf(
-      name: 'invoice.pdf',
-      onLayout: (format) async => pdf.save(),
+    // Navigate to preview screen
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: const Text('Invoice Preview')),
+          body: PdfPreview(
+            build: (format) => pdf.save(),
+            useActions: true, // share / print buttons
+          ),
+        ),
+      ),
     );
   }
 
-  pw.Widget _table(String desc, double hrs, double rate, double total) =>
-      pw.Table(
-        border: pw.TableBorder.all(),
-        columnWidths: const {
-          0: pw.FlexColumnWidth(3),
-          1: pw.FlexColumnWidth(1),
-          2: pw.FlexColumnWidth(1),
-          3: pw.FlexColumnWidth(1),
-        },
-        children: [
-          pw.TableRow(
-            decoration: const pw.BoxDecoration(color: PdfColors.grey300),
-            children: [
-              _tblHeader('Description'),
-              _tblHeader('Hours'),
-              _tblHeader('Rate'),
-              _tblHeader('Total'),
-            ],
-          ),
-          pw.TableRow(
-            children: [
-              _tblCell(desc),
-              _tblCell(hrs.toStringAsFixed(2)),
-              _tblCell('\$${rate.toStringAsFixed(2)}'),
-              _tblCell('\$${total.toStringAsFixed(2)}'),
-            ],
-          ),
-        ],
-      );
-
-  pw.Widget _tblHeader(String txt) => pw.Padding(
-        padding: const pw.EdgeInsets.all(6),
-        child:
-            pw.Text(txt, style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-      );
-
-  pw.Widget _tblCell(String txt) =>
-      pw.Padding(padding: const pw.EdgeInsets.all(6), child: pw.Text(txt));
-
-  /* ─────────────────────────  FORM WIDGET  ───────────────────────── */
+/* ───────────────────────── FORM WIDGET ───────────────────────── */
 
   Widget _buildForm() => Form(
         key: _formKey,
@@ -267,13 +284,13 @@ class _InvoiceGeneratorPageState extends State<InvoiceGeneratorPage> {
                 child: Image.network(
                   _logoUrl!,
                   fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => const Icon(Icons.broken_image,
-                      size: 48, color: Color.fromARGB(255, 255, 255, 255)),
+                  errorBuilder: (_, __, ___) =>
+                      const Icon(Icons.broken_image, size: 48),
                 ),
               ),
             const SizedBox(height: 16),
 
-            // Business details
+            // ── Business details ───────────────────────────────────────────
             TextFormField(
               controller: _bizNameCtrl,
               decoration: _dec('Business Name *'),
@@ -281,15 +298,9 @@ class _InvoiceGeneratorPageState extends State<InvoiceGeneratorPage> {
                   v == null || v.trim().isEmpty ? 'Required' : null,
             ),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _abnCtrl,
-              decoration: _dec('ABN'),
-            ),
+            TextFormField(controller: _abnCtrl,  decoration: _dec('ABN')),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _addrCtrl,
-              decoration: _dec('Address'),
-            ),
+            TextFormField(controller: _addrCtrl, decoration: _dec('Address')),
             const SizedBox(height: 12),
             TextFormField(
               controller: _emailCtrl,
@@ -304,7 +315,7 @@ class _InvoiceGeneratorPageState extends State<InvoiceGeneratorPage> {
             const Divider(),
             const SizedBox(height: 24),
 
-            // Invoice details
+            // ── Invoice details ────────────────────────────────────────────
             TextFormField(
               controller: _clientCtrl,
               decoration: _dec('Client Name *'),
@@ -330,8 +341,7 @@ class _InvoiceGeneratorPageState extends State<InvoiceGeneratorPage> {
                       DateFormat('dd/MM/yyyy').format(_invoiceDate),
                       style: const TextStyle(fontSize: 16),
                     ),
-                    const Icon(Icons.calendar_today,
-                        size: 18, color: Color.fromARGB(255, 255, 249, 249)),
+                    const Icon(Icons.calendar_today, size: 18),
                   ],
                 ),
               ),
@@ -361,7 +371,7 @@ class _InvoiceGeneratorPageState extends State<InvoiceGeneratorPage> {
         ),
       );
 
-  /* ─────────────────────────  BUILD  ───────────────────────── */
+/* ───────────────────────────  BUILD  ────────────────────────── */
 
   @override
   Widget build(BuildContext context) {
@@ -372,8 +382,6 @@ class _InvoiceGeneratorPageState extends State<InvoiceGeneratorPage> {
         title: const Text('Generate Invoice'),
         backgroundColor: primary,
       ),
-
-      // 1️⃣ Scrollable content
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -391,8 +399,6 @@ class _InvoiceGeneratorPageState extends State<InvoiceGeneratorPage> {
                         child: _buildForm(),
                       ),
                     ),
-
-      // 2️⃣ Pinned action button (always above system nav / home bar)
       bottomNavigationBar: _error == null && _isActive
           ? SafeArea(
               minimum: const EdgeInsets.all(16),
