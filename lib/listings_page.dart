@@ -240,7 +240,10 @@ class _ListingsPageState extends State<ListingsPage> {
     });
   }
 
-  /// Filter bottom-sheet (unchanged)
+  /* ---------------------------------------------------------------------- */
+  /*                         FILTER BOTTOM-SHEET UI                         */
+  /* ---------------------------------------------------------------------- */
+
   void _openFilterSheet() {
     String localMethod = _trainingMethodFilter;
     int localDistance = selectedDistance;
@@ -253,145 +256,148 @@ class _ListingsPageState extends State<ListingsPage> {
       isScrollControlled: true,
       useRootNavigator: true,
       builder: (BuildContext ctx) {
-        return Padding(
-          padding: MediaQuery.of(ctx).viewInsets,
-          child: StatefulBuilder(
-            builder: (BuildContext context, StateSetter setStateDialog) {
-              return Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('Filters',
-                          style: TextStyle(
-                              fontSize: 20, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 16),
+        return SafeArea(
+          // 👈 NEW
+          child: Padding(
+            padding: MediaQuery.of(ctx).viewInsets,
+            child: StatefulBuilder(
+              builder: (BuildContext context, StateSetter setStateDialog) {
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 32), // 👈 NEW
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('Filters',
+                            style: TextStyle(
+                                fontSize: 20, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 16),
 
-                      // Training method
-                      const Text('Training Method:',
-                          style: TextStyle(fontWeight: FontWeight.bold)),
-                      ..._trainingMethods.map((method) {
-                        return RadioListTile<String>(
-                          title: Text(method),
-                          value: method,
-                          groupValue: localMethod,
-                          onChanged: (value) =>
-                              setStateDialog(() => localMethod = value!),
-                        );
-                      }),
-                      const SizedBox(height: 16),
+                        // Training method
+                        const Text('Training Method:',
+                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        ..._trainingMethods.map((method) {
+                          return RadioListTile<String>(
+                            title: Text(method),
+                            value: method,
+                            groupValue: localMethod,
+                            onChanged: (value) =>
+                                setStateDialog(() => localMethod = value!),
+                          );
+                        }),
+                        const SizedBox(height: 16),
 
-                      // Suburb
-                      const Text('Suburb:',
-                          style: TextStyle(fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 8),
-                      Material(
-                        child: TypeAheadField<Map<String, dynamic>>(
-                          controller: localSuburbController,
-                          suggestionsCallback: (pattern) async {
-                            if (pattern.isEmpty) return [];
-                            final lower = pattern.toLowerCase();
-                            return _suburbsData
-                                .where((item) {
-                                  final suburb = item['Suburb']
-                                          ?.toString()
-                                          .toLowerCase() ??
-                                      '';
-                                  final postcode =
-                                      item['Postcode']?.toString() ?? '';
-                                  return suburb.contains(lower) ||
-                                      postcode.contains(pattern);
-                                })
-                                .take(10)
-                                .toList();
-                          },
-                          itemBuilder: (_, suggestion) =>
-                              ListTile(title: Text(_formatSuburb(suggestion))),
-                          onSelected: (suggestion) {
-                            setStateDialog(() {
-                              dialogSelectedSuburbData = suggestion;
-                              dialogSelectedSuburbText =
-                                  _formatSuburb(suggestion);
-                              localSuburbController.text =
-                                  dialogSelectedSuburbText;
-                            });
-                          },
-                          builder: (_, suggestionsController, focusNode) {
-                            if (localSuburbController.text.isNotEmpty &&
-                                suggestionsController.text.isEmpty) {
-                              suggestionsController.text =
-                                  localSuburbController.text;
-                            }
-                            return TextField(
-                              controller: suggestionsController,
-                              focusNode: focusNode,
-                              decoration: const InputDecoration(
-                                labelText: "Location (Suburb or Postcode)",
-                                border: OutlineInputBorder(),
-                              ),
-                            );
-                          },
-                          emptyBuilder: (_) => const Padding(
-                              padding: EdgeInsets.all(8.0),
-                              child: Text("No suburb found.")),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Distance
-                      const Text('Distance (km):',
-                          style: TextStyle(fontWeight: FontWeight.bold)),
-                      DropdownButton<int>(
-                        value: localDistance,
-                        onChanged: (val) =>
-                            setStateDialog(() => localDistance = val!),
-                        items: [5, 10, 20, 50, 100]
-                            .map((d) => DropdownMenuItem(
-                                value: d, child: Text('$d km')))
-                            .toList(),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Buttons
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          TextButton(
-                            onPressed: () {
+                        // Suburb
+                        const Text('Suburb:',
+                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        Material(
+                          child: TypeAheadField<Map<String, dynamic>>(
+                            controller: localSuburbController,
+                            suggestionsCallback: (pattern) async {
+                              if (pattern.isEmpty) return [];
+                              final lower = pattern.toLowerCase();
+                              return _suburbsData
+                                  .where((item) {
+                                    final suburb = item['Suburb']
+                                            ?.toString()
+                                            .toLowerCase() ??
+                                        '';
+                                    final postcode =
+                                        item['Postcode']?.toString() ?? '';
+                                    return suburb.contains(lower) ||
+                                        postcode.contains(pattern);
+                                  })
+                                  .take(10)
+                                  .toList();
+                            },
+                            itemBuilder: (_, suggestion) => ListTile(
+                                title: Text(_formatSuburb(suggestion))),
+                            onSelected: (suggestion) {
                               setStateDialog(() {
-                                localSuburbController.clear();
-                                dialogSelectedSuburbData = null;
-                                dialogSelectedSuburbText = '';
+                                dialogSelectedSuburbData = suggestion;
+                                dialogSelectedSuburbText =
+                                    _formatSuburb(suggestion);
+                                localSuburbController.text =
+                                    dialogSelectedSuburbText;
                               });
                             },
-                            child: const Text("Clear Suburb"),
-                          ),
-                          ElevatedButton(
-                            onPressed: () {
-                              setState(() {
-                                _trainingMethodFilter = localMethod;
-                                _suburbFilter =
-                                    localSuburbController.text.isEmpty
-                                        ? "all"
-                                        : dialogSelectedSuburbText;
-                                selectedDistance = localDistance;
-                                maxDistance = localDistance.toDouble();
-                                selectedSuburbText = dialogSelectedSuburbText;
-                                selectedSuburbData = dialogSelectedSuburbData;
-                              });
-                              Navigator.pop(context);
+                            builder: (_, suggestionsController, focusNode) {
+                              if (localSuburbController.text.isNotEmpty &&
+                                  suggestionsController.text.isEmpty) {
+                                suggestionsController.text =
+                                    localSuburbController.text;
+                              }
+                              return TextField(
+                                controller: suggestionsController,
+                                focusNode: focusNode,
+                                decoration: const InputDecoration(
+                                  labelText: "Location (Suburb or Postcode)",
+                                  border: OutlineInputBorder(),
+                                ),
+                              );
                             },
-                            child: const Text("Apply Filters"),
+                            emptyBuilder: (_) => const Padding(
+                                padding: EdgeInsets.all(8.0),
+                                child: Text("No suburb found.")),
                           ),
-                        ],
-                      ),
-                    ],
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Distance
+                        const Text('Distance (km):',
+                            style: TextStyle(fontWeight: FontWeight.bold)),
+                        DropdownButton<int>(
+                          value: localDistance,
+                          onChanged: (val) =>
+                              setStateDialog(() => localDistance = val!),
+                          items: [5, 10, 20, 50, 100]
+                              .map((d) => DropdownMenuItem(
+                                  value: d, child: Text('$d km')))
+                              .toList(),
+                        ),
+                        const SizedBox(height: 24),
+
+                        // Buttons
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            TextButton(
+                              onPressed: () {
+                                setStateDialog(() {
+                                  localSuburbController.clear();
+                                  dialogSelectedSuburbData = null;
+                                  dialogSelectedSuburbText = '';
+                                });
+                              },
+                              child: const Text("Clear Suburb"),
+                            ),
+                            ElevatedButton(
+                              onPressed: () {
+                                setState(() {
+                                  _trainingMethodFilter = localMethod;
+                                  _suburbFilter =
+                                      localSuburbController.text.isEmpty
+                                          ? "all"
+                                          : dialogSelectedSuburbText;
+                                  selectedDistance = localDistance;
+                                  maxDistance = localDistance.toDouble();
+                                  selectedSuburbText = dialogSelectedSuburbText;
+                                  selectedSuburbData = dialogSelectedSuburbData;
+                                });
+                                Navigator.pop(context);
+                              },
+                              child: const Text("Apply Filters"),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         );
       },
@@ -427,8 +433,8 @@ class _ListingsPageState extends State<ListingsPage> {
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: _handleBack, // role-aware
         ),
-        title: const Text("Find a Personal Trainer",
-            style: TextStyle(color: Colors.white)),
+        title:
+            const Text("Listings Page", style: TextStyle(color: Colors.white)),
         backgroundColor: const Color.fromARGB(255, 255, 167, 38),
         actions: [
           IconButton(

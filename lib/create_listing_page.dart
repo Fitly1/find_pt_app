@@ -293,134 +293,143 @@ class _CreateListingPageState extends State<CreateListingPage> {
         title: Text(widget.isEditing ? "Edit Listing" : "Create Listing"),
         backgroundColor: const Color.fromARGB(255, 255, 167, 38),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              /* ────────────── Basic information ────────────── */
-              const Text("Basic Information",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const Divider(),
-              const SizedBox(height: 8),
-              const Text("What are your training goals?",
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              TextFormField(
-                controller: _titleController,
-                validator: (v) =>
-                    v == null || v.trim().isEmpty ? "Required" : null,
-                decoration: const InputDecoration(
-                  hintText: "e.g., I need help with weight loss",
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text("Description:",
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              TextFormField(
-                controller: _descriptionController,
-                validator: (v) =>
-                    v == null || v.trim().isEmpty ? "Required" : null,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  hintText: "Provide details about your training needs...",
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              /* ────────────── Location ────────────── */
-              const Text("Location (Suburb/Postcode):",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const Divider(),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _showLocationBottomSheet,
-                  icon: const Icon(Icons.search),
-                  label: Text(_selectedLocation?.isEmpty ?? true
-                      ? "Select Location"
-                      : _selectedLocation!),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color.fromARGB(255, 255, 167, 38),
+      body: SafeArea(
+        // 👈 added
+        child: SingleChildScrollView(
+          padding:
+              const EdgeInsets.fromLTRB(16, 16, 16, 32), // 👈 bottom padding
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                /* ────────────── Basic information ────────────── */
+                const Text("Basic Information",
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const Divider(),
+                const SizedBox(height: 8),
+                const Text("What are your training goals?",
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                TextFormField(
+                  controller: _titleController,
+                  validator: (v) =>
+                      v == null || v.trim().isEmpty ? "Required" : null,
+                  decoration: const InputDecoration(
+                    hintText: "e.g., I need help with weight loss",
+                    border: OutlineInputBorder(),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-
-              /* ────────────── Preferences ────────────── */
-              const Text("Preferences",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const Divider(),
-              const SizedBox(height: 8),
-              const Text("Preferred Training Method:",
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              DropdownButtonFormField<String>(
-                value: _selectedTrainingMethod,
-                onChanged: (v) => setState(() => _selectedTrainingMethod = v!),
-                items: _trainingMethods
-                    .map((m) => DropdownMenuItem(value: m, child: Text(m)))
-                    .toList(),
-                validator: (v) => v == null || v.isEmpty ? "Required" : null,
-                decoration: const InputDecoration(border: OutlineInputBorder()),
-              ),
-              const SizedBox(height: 16),
-              const Text("Specialties:",
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 4),
-              Wrap(
-                spacing: 8,
-                runSpacing: 4,
-                children: _allSpecialties.map((s) {
-                  final selected = _selectedSpecialties.contains(s);
-                  return FilterChip(
-                    label: Text(s),
-                    selected: selected,
-                    onSelected: (sel) => setState(() {
-                      sel
-                          ? _selectedSpecialties.add(s)
-                          : _selectedSpecialties.remove(s);
-                    }),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 24),
-
-              /* ────────────── Submit / Delete ────────────── */
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _submitListing,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color.fromARGB(255, 255, 167, 38),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
+                const SizedBox(height: 16),
+                const Text("Description:",
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                TextFormField(
+                  controller: _descriptionController,
+                  validator: (v) =>
+                      v == null || v.trim().isEmpty ? "Required" : null,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    hintText: "Provide details about your training needs...",
+                    border: OutlineInputBorder(),
                   ),
-                  child: Text(
-                      widget.isEditing ? "Save Changes" : "Create Listing"),
                 ),
-              ),
-              if (widget.isEditing) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
+
+                /* ────────────── Location ────────────── */
+                const Text("Location (Suburb/Postcode):",
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const Divider(),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _showLocationBottomSheet,
+                    icon: const Icon(Icons.search),
+                    label: Text(_selectedLocation?.isEmpty ?? true
+                        ? "Select Location"
+                        : _selectedLocation!),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color.fromARGB(255, 255, 167, 38),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                /* ────────────── Preferences ────────────── */
+                const Text("Preferences",
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const Divider(),
+                const SizedBox(height: 8),
+                const Text("Preferred Training Method:",
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                DropdownButtonFormField<String>(
+                  value: _selectedTrainingMethod,
+                  onChanged: (v) =>
+                      setState(() => _selectedTrainingMethod = v!),
+                  items: _trainingMethods
+                      .map((m) => DropdownMenuItem(value: m, child: Text(m)))
+                      .toList(),
+                  validator: (v) => v == null || v.isEmpty ? "Required" : null,
+                  decoration:
+                      const InputDecoration(border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 16),
+                const Text("Specialties:",
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: _allSpecialties.map((s) {
+                    final selected = _selectedSpecialties.contains(s);
+                    return FilterChip(
+                      label: Text(s),
+                      selected: selected,
+                      onSelected: (sel) => setState(() {
+                        sel
+                            ? _selectedSpecialties.add(s)
+                            : _selectedSpecialties.remove(s);
+                      }),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 24),
+
+                /* ────────────── Submit / Delete ────────────── */
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: () => _confirmDelete(context),
+                    onPressed: _submitListing,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red.shade600,
+                      backgroundColor: const Color.fromARGB(255, 255, 167, 38),
                       padding: const EdgeInsets.symmetric(vertical: 16),
                     ),
-                    child: const Text('Delete Listing',
-                        style: TextStyle(color: Colors.white)),
+                    child: Text(
+                        widget.isEditing ? "Save Changes" : "Create Listing"),
                   ),
                 ),
+                if (widget.isEditing) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => _confirmDelete(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red.shade600,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      child: const Text('Delete Listing',
+                          style: TextStyle(color: Colors.white)),
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),

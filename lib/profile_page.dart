@@ -675,14 +675,22 @@ class _ProfilePageState extends State<ProfilePage> {
             child: const Text('Log Out',
                 style: TextStyle(color: Colors.white, fontSize: 18)),
             onPressed: () async {
-              final ctx = context;
               await FirebaseAuth.instance.signOut();
+
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.setString(
+                  'userRole', 'guest'); // ✅ Set guest role explicitly
+
               await secureStorage.deleteData('userToken');
               await secureStorage.deleteData('last_profile_view');
+
               if (!mounted) return;
-              SchedulerBinding.instance.addPostFrameCallback((_) =>
-                  Navigator.pushReplacement(ctx,
-                      MaterialPageRoute(builder: (_) => const WelcomePage())));
+              SchedulerBinding.instance.addPostFrameCallback((_) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const WelcomePage()),
+                );
+              });
             },
           ),
         ],

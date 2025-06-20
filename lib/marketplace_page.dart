@@ -375,7 +375,13 @@ class MarketplacePageState extends State<MarketplacePage> {
             builder: (context, setStateDialog) {
               return Padding(
                 padding: const EdgeInsets.all(16.0),
+                // ============================================================
+                // UPDATED SECTION – adaptive bottom padding for safe-area space
+                // ============================================================
                 child: SingleChildScrollView(
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.of(context).viewPadding.bottom + 24,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [

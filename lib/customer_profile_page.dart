@@ -101,13 +101,21 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
   // Auth helpers
   // ──────────────────────────
   Future<void> _logout() async {
-    // cache navigator early
+    // 1️⃣ Capture navigator early
     final navigator = Navigator.of(context);
 
+    // 2️⃣ Sign out of Firebase
     await FirebaseAuth.instance.signOut();
+
+    // 3️⃣ Reset local role to 'guest'
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('userRole', 'guest');
+
+    // 4️⃣ Clean up secure storage
     await secureStorage.deleteData('userToken');
     await secureStorage.deleteData('last_customer_profile_view');
 
+    // 5️⃣ Redirect to WelcomePage
     navigator.pushReplacement(
       MaterialPageRoute(builder: (_) => const WelcomePage()),
     );

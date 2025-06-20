@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class WelcomePage extends StatefulWidget {
   const WelcomePage({super.key});
 
-  // Example brand color pulled from your logo (adjust if needed)
   static const Color brandBlue = Color(0xFF2CAEE3);
 
   @override
@@ -14,7 +14,6 @@ class _WelcomePageState extends State<WelcomePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Orange background
       backgroundColor: const Color(0xFFFFA726),
       body: SafeArea(
         child: Center(
@@ -23,35 +22,30 @@ class _WelcomePageState extends State<WelcomePage> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // 1. Larger Transparent Logo
                 Image.asset(
-                  "assets/Fitly2.png", // Make sure this is the transparent logo
-                  height: 200, // Increased for better visibility
+                  "assets/Fitly2.png",
+                  height: 200,
                 ),
                 const SizedBox(height: 30),
-                // 2. App Title in brand blue
                 const Text(
                   "Welcome to Fitly",
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: Color.fromARGB(
-                        255, 255, 255, 255), // Match your logo color
+                    color: Colors.white,
                   ),
                 ),
                 const SizedBox(height: 10),
-                // 3. Subtitle in white
                 const Text(
                   "Join our community of trainers & clients.\nSign up to get started!",
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 16,
-                    color: Colors.white, // Good contrast against orange
+                    color: Colors.white,
                   ),
                 ),
                 const SizedBox(height: 40),
-                // 4. Sign Up Button (black background, white text)
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -80,7 +74,6 @@ class _WelcomePageState extends State<WelcomePage> {
                   ),
                 ),
                 const SizedBox(height: 15),
-                // 5. Login Button (outlined in black)
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton(
@@ -108,10 +101,13 @@ class _WelcomePageState extends State<WelcomePage> {
                   ),
                 ),
                 const SizedBox(height: 20),
-                // 6. Continue as Guest (white text for consistency)
                 TextButton(
-                  onPressed: () {
-                    Navigator.pushNamed(context, '/marketplace');
+                  onPressed: () async {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setString('userRole', 'guest');
+                    if (!mounted) return;
+                    // ignore: use_build_context_synchronously
+                    Navigator.pushReplacementNamed(context, '/marketplace');
                   },
                   child: const Text(
                     "Continue as Guest",
