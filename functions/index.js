@@ -23,6 +23,12 @@ if (!WEBHOOK_SECRET)    console.error("❌ Missing Stripe Webhook Secret!");
 
 const stripe = require("stripe")(STRIPE_SECRET_KEY);
 
+/* ─── Promo-code map (NEW) ─────────────────────────────────── */
+const PROMO_CODE_MAP = {
+  FITLY3FREE: "fitly3free",   // user types  FITLY3FREE  →  coupon id fitly3free
+  // add more codes here e.g. SUMMER25: "coupon_abcd1234"
+};
+
 /* ─── Apple-IAP config (NEW) ────────────────────────────────*/
 /* ─── Apple-IAP config ───────────────────────────────────── */
 const APPLE_SHARED_SECRET = process.env.APPLE_SHARED_SECRET || "";
@@ -163,14 +169,14 @@ exports.createPaymentRequest = onDocumentCreated(
 );
 
 /* ──────────────────────────────────────────────────────────────
-   3) CALLABLE: createSubscriptionCheckoutSession (original)
+   3) CALLABLE: createSubscriptionCheckoutSession (UPDATED)
 ───────────────────────────────────────────────────────────────*/
 exports.createSubscriptionCheckoutSession = onCall(async (req) => {
   const { data, auth } = req;
   if (!auth) throw new Error("User must be authenticated");
 
   const trainerId = auth.uid;
-  const priceId   = "price_1QxLgJIwC3BBH5MDFZO28ndV"; // LIVE price
+  const priceId = "price_1QxLgJIwC3BBH5MDFZO28ndV"; // LIVE price
 
   const trainerUser = await admin.auth().getUser(trainerId);
   const email = trainerUser.email;
@@ -199,6 +205,18 @@ exports.createSubscriptionCheckoutSession = onCall(async (req) => {
   await stripe.customers.update(customerId, { email });
   await stripe.customers.update(customerId, { balance: 0 });
 
+  /* ── promo-code handling (NEW BLOCK) ─────────────────────── */
+  const promoCodeInput   = data?.promoCode?.trim()?.toUpperCase() || null;
+  const matchedCouponId  = promoCodeInput ? PROMO_CODE_MAP[promoCodeInput] : null;
+
+  if (promoCodeInput && !matchedCouponId) {
+    // Unrecognised code → clean error for client
+    throw new HttpsError("invalid-argument", "Invalid promotional code.");
+  }
+
+  const discounts = matchedCouponId ? [{ coupon: matchedCouponId }] : [];
+  /* ─────────────────────────────────────────────────────────── */
+
   const idempotencyKey = `subsess_${trainerId}_${Date.now()}`;
   const successUrl = encodeURI(
     "https://fitly1.github.io/billing-redirect/redirect.html?type=success"
@@ -213,6 +231,7 @@ exports.createSubscriptionCheckoutSession = onCall(async (req) => {
       payment_method_types: ["card"],
       customer: customerId,
       line_items: [{ price: priceId, quantity: 1 }],
+      discounts,
       success_url: successUrl,
       cancel_url: cancelUrl,
       metadata: { trainerId },
@@ -220,9 +239,11 @@ exports.createSubscriptionCheckoutSession = onCall(async (req) => {
     },
     { idempotencyKey }
   );
-  console.log(`Subscription session created for trainer ${trainerId}`);
+
+  console.log(`Subscription session created for trainer ${trainerId}${promoCodeInput ? ` (promo: ${promoCodeInput})` : ""}`);
   return { sessionUrl: session.url };
 });
+
 
 /* ──────────────────────────────────────────────────────────────
    4) CALLABLE: createBillingPortalSession (original)
@@ -403,12 +424,10 @@ exports.createTrainerCustomer = onDocumentCreated("users/{uid}", async (event) =
 });
 
 /* ──────────────────────────────────────────────────────────────
-   🍏  A P P L E   I N ‑ A P P   P U R C H A S E S   (NEW)
+   🍏  A P P L E   I N ‑A P P   P U R C H A S E S   (NEW)
 ───────────────────────────────────────────────────────────────*/
 
-/* 8) Callable: verifyIosReceipt
-   The iOS app sends the base-64 receipt after purchase; we
-   validate with Apple and mark trainer_profiles accordingly.  */
+/* 8) Callable: verifyIosReceipt */
 exports.verifyIosReceipt = onCall(async (req) => {
   const { data, auth } = req;
   if (!auth) throw new HttpsError("unauthenticated", "Login first");

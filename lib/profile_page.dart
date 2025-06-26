@@ -25,95 +25,13 @@ import 'privacy_policy_page.dart';
 import 'legal_documents_page.dart';
 import 'manage_subscription.dart';
 import 'login_page.dart';
-import 'trainer_dashboard_page.dart'; // <- added
+import 'trainer_dashboard_page.dart';
 
-//─────────────────────────────────────────────────────────────────────────────
-// Globals
 //─────────────────────────────────────────────────────────────────────────────
 final Logger logger = Logger();
 const Set<String> _kProductIds = <String>{'fitly.membership.1'}; // Apple SKU
-
 //─────────────────────────────────────────────────────────────────────────────
-// Optional standalone buttons (unchanged)
-//─────────────────────────────────────────────────────────────────────────────
-class ActivateSubscriptionButton extends StatefulWidget {
-  const ActivateSubscriptionButton({super.key});
-  @override
-  State<ActivateSubscriptionButton> createState() =>
-      _ActivateSubscriptionButtonState();
-}
 
-class _ActivateSubscriptionButtonState
-    extends State<ActivateSubscriptionButton> {
-  Future<void> _startSubscription() async {
-    try {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text("Loading...")));
-      final callable = FirebaseFunctions.instance
-          .httpsCallable('createSubscriptionCheckoutSession');
-      final result = await callable.call();
-      if (!mounted) return;
-      final sessionUrl = result.data['sessionUrl'];
-      if (sessionUrl == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Failed to get checkout URL.")));
-        return;
-      }
-      if (await canLaunchUrl(Uri.parse(sessionUrl))) {
-        await launchUrl(Uri.parse(sessionUrl),
-            mode: LaunchMode.externalApplication);
-      } else {
-        throw 'Could not launch $sessionUrl';
-      }
-    } catch (e) {
-      logger.e('Error starting subscription: $e');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text("Error Loading: $e")));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => ElevatedButton(
-      onPressed: _startSubscription, child: const Text('Pay to Activate'));
-}
-
-/// Manage-subscription button (unchanged, used by Android)
-class ManageSubscriptionButton extends StatefulWidget {
-  final String customerId;
-  const ManageSubscriptionButton({super.key, required this.customerId});
-  @override
-  State<ManageSubscriptionButton> createState() =>
-      _ManageSubscriptionButtonState();
-}
-
-class _ManageSubscriptionButtonState extends State<ManageSubscriptionButton> {
-  Future<void> _openBillingPortal() async {
-    try {
-      final callable = FirebaseFunctions.instance
-          .httpsCallable('createBillingPortalSession');
-      final result = await callable.call({'customerId': widget.customerId});
-      if (!mounted) return;
-      final portalUrl = result.data['url'];
-      if (await canLaunchUrl(Uri.parse(portalUrl))) {
-        await launchUrl(Uri.parse(portalUrl),
-            mode: LaunchMode.externalApplication);
-      } else {
-        throw 'Could not launch $portalUrl';
-      }
-    } catch (e) {
-      logger.e('Error opening billing portal: $e');
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => ElevatedButton(
-      onPressed: _openBillingPortal, child: const Text('Manage Subscription'));
-}
-
-//─────────────────────────────────────────────────────────────────────────────
-// PROFILE PAGE
-//─────────────────────────────────────────────────────────────────────────────
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
   @override
@@ -121,16 +39,19 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  // State
+  //───────────────── State ─────────────────
   String userRole = 'trainer';
   final SecureStorageService secureStorage = SecureStorageService();
+
+  // Promo-code controller
+  final TextEditingController _promoCodeController = TextEditingController();
 
   // IAP
   StreamSubscription<List<PurchaseDetails>>? _purchaseSub;
   ProductDetails? _membershipProduct;
-  InAppPurchaseStoreKitPlatformAddition? _skAddition; // iOS helper
+  InAppPurchaseStoreKitPlatformAddition? _skAddition;
 
-  //──────────────── init ────────────────
+  //───────────────── init ──────────────────
   @override
   void initState() {
     super.initState();
@@ -142,9 +63,51 @@ class _ProfilePageState extends State<ProfilePage> {
         .catchError((e) => logger.e("SecureStorage error: $e"));
   }
 
-  //──────────────── IAP bootstrap ───────
+  //───────────────── Promo dialog ──────────
+  void _showPromoDialog() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Enter Promo Code'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _promoCodeController,
+              decoration: const InputDecoration(
+                hintText: 'Promo code',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Credit card used only for verification Cancel anytime',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _activateSubscription(); // uses controller text
+            },
+            child: const Text('Apply'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  //───────────────── IAP bootstrap ─────────
   Future<void> _initIAP() async {
-    if (!Platform.isIOS) return; // platform guard
+    if (!Platform.isIOS) return;
     if (!await InAppPurchase.instance.isAvailable()) {
       logger.w('IAP not available');
       return;
@@ -167,7 +130,7 @@ class _ProfilePageState extends State<ProfilePage> {
         .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
   }
 
-  //──────────────── handle transactions ─
+  //──────────────── handle transactions ────
   Future<void> _onPurchaseUpdate(List<PurchaseDetails> purchases) async {
     for (final p in purchases) {
       switch (p.status) {
@@ -181,11 +144,10 @@ class _ProfilePageState extends State<ProfilePage> {
           break;
         case PurchaseStatus.purchased:
         case PurchaseStatus.restored:
-          /* ── iOS → upload StoreKit receipt ─ */
+          // upload iOS receipt
           if (Platform.isIOS && _skAddition != null) {
             String? receipt;
             try {
-              // Support both new & old methods
               final dynamic addition = _skAddition;
               try {
                 receipt = await addition.appStoreReceipt as String?;
@@ -195,15 +157,12 @@ class _ProfilePageState extends State<ProfilePage> {
             } catch (e) {
               logger.w('Could not get receipt: $e');
             }
-
             if (receipt != null && receipt.isNotEmpty) {
               final callable =
                   FirebaseFunctions.instance.httpsCallable('verifyIosReceipt');
               await callable.call({'receiptData': receipt});
             }
           }
-          /* ────────────────────────────────────── */
-
           if (p.pendingCompletePurchase) {
             await InAppPurchase.instance.completePurchase(p);
           }
@@ -214,7 +173,7 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  //──────────────── iOS helper sheets ────
+  //──────────────── iOS helpers ────────────
   Future<void> _openIOSManage() async {
     if (!Platform.isIOS) return;
     try {
@@ -250,7 +209,7 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  //──────────────── load role ────────────
+  //──────────────── load role ──────────────
   Future<void> _loadUserRole() async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
@@ -259,7 +218,7 @@ class _ProfilePageState extends State<ProfilePage> {
     });
   }
 
-  //──────────────── start subscription ───
+  //──────────────── start subscription ────
   Future<void> _activateSubscription() async {
     // iOS → Apple IAP
     if (Platform.isIOS) {
@@ -272,8 +231,7 @@ class _ProfilePageState extends State<ProfilePage> {
       }
       final param = PurchaseParam(
         productDetails: _membershipProduct!,
-        applicationUserName:
-            FirebaseAuth.instance.currentUser!.uid, // UID to Apple
+        applicationUserName: FirebaseAuth.instance.currentUser!.uid,
       );
       InAppPurchase.instance.buyNonConsumable(purchaseParam: param);
       return;
@@ -285,7 +243,8 @@ class _ProfilePageState extends State<ProfilePage> {
           .showSnackBar(const SnackBar(content: Text("Loading…")));
       final callable = FirebaseFunctions.instance
           .httpsCallable('createSubscriptionCheckoutSession');
-      final result = await callable.call();
+      final result =
+          await callable.call({'promoCode': _promoCodeController.text.trim()});
       if (!mounted) return;
       final sessionUrl = result.data['sessionUrl'];
       if (sessionUrl == null) {
@@ -303,7 +262,7 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  //──────────────────── ACCOUNT-DELETION HELPERS ────────────────────
+  //──────────────── account deletion helpers ────────────────────
   void _promptReauthAndDelete(String email) {
     final TextEditingController pwController = TextEditingController();
     showDialog(
@@ -367,14 +326,15 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  //──────────────── dispose ──────────────
+  //──────────────── dispose ───────────────
   @override
   void dispose() {
     _purchaseSub?.cancel();
+    _promoCodeController.dispose();
     super.dispose();
   }
 
-  //──────────────── helpers (unchanged) ─
+  //──────────────── helpers ───────────────
   Widget _buildBottomNavigation() {
     bool isTrainer = (userRole == 'trainer' ||
         userRole == 'personal trainer' ||
@@ -398,7 +358,8 @@ class _ProfilePageState extends State<ProfilePage> {
           clipBehavior: Clip.none,
           children: [
             IconButton(
-              icon: const Icon(Icons.notifications_none, color: Colors.white),
+              icon: const Icon(Icons.notifications_none,
+                  color: Color.fromRGBO(255, 255, 255, 1)),
               onPressed: _handleReviewBellTap,
             ),
             if (hasNew)
@@ -469,7 +430,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  //──────────────── UI ───────────────────
+  //──────────────── UI ────────────────────
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -477,22 +438,18 @@ class _ProfilePageState extends State<ProfilePage> {
       appBar: AppBar(
         title: const Text('Profile', style: TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFFFFA726),
-        //──────────────────────────
-        // ADAPTIVE BACK BUTTON
-        //──────────────────────────
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          icon: const Icon(Icons.arrow_back, color: Color(0xFFFFFFFF)),
           onPressed: () {
             final bool isTrainer = (userRole == 'trainer' ||
                 userRole == 'personal trainer' ||
                 userRole == 'personaltrainer');
-
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
                 builder: (_) => isTrainer
-                    ? const TrainerDashboardPage() // trainers
-                    : const MarketplacePage(), // customers
+                    ? const TrainerDashboardPage()
+                    : const MarketplacePage(),
               ),
             );
           },
@@ -507,7 +464,7 @@ class _ProfilePageState extends State<ProfilePage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          //──────────────── PROFILE CARD ───────────────
+          //──────────────── PROFILE CARD ────────────────────────
           Card(
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -545,7 +502,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                           IconButton(
                               icon: const Icon(Icons.camera_alt,
-                                  color: Colors.white),
+                                  color: Color.fromRGBO(255, 255, 255, 1)),
                               onPressed: () => Navigator.push(
                                   context,
                                   MaterialPageRoute(
@@ -569,7 +526,7 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
           const SizedBox(height: 16),
-          //──────────────── SUBSCRIPTION TILE ──────────
+          //──────────────── SUBSCRIPTION TILE ────────────────────
           StreamBuilder<DocumentSnapshot>(
             stream: FirebaseFirestore.instance
                 .collection("trainer_profiles")
@@ -581,7 +538,7 @@ class _ProfilePageState extends State<ProfilePage> {
               final active = d['isActive'] ?? false;
               final stripeId = d['stripeId'] ?? '';
 
-              //──────── MANAGE SUBSCRIPTION ────────
+              //──────── ACTIVE ─────────
               if (active) {
                 return Card(
                   shape: RoundedRectangleBorder(
@@ -592,25 +549,21 @@ class _ProfilePageState extends State<ProfilePage> {
                     trailing: const Icon(Icons.arrow_forward_ios),
                     onTap: () async {
                       if (Platform.isIOS) {
-                        // iOS device → open Apple manage sheet
                         await _openIOSManage();
                       } else {
-                        // ───── ANDROID ────────────────────────────────────
                         if (stripeId.isNotEmpty) {
-                          // Customer exists in Stripe → show portal
                           Navigator.push(
                               context,
                               MaterialPageRoute(
                                   builder: (_) => ManageSubscriptionPage(
                                       trainerUid: user!.uid)));
                         } else if (d['iosOriginalTxId'] != null) {
-                          // Bought on iOS originally → send to Apple
                           const url =
                               'https://apps.apple.com/account/subscriptions';
                           await launchUrl(Uri.parse(url),
                               mode: LaunchMode.externalApplication);
                         } else {
-                          _showSignUpPrompt(); // rare edge-case
+                          _showSignUpPrompt();
                         }
                       }
                     },
@@ -621,25 +574,44 @@ class _ProfilePageState extends State<ProfilePage> {
                 );
               }
 
-              //──────── PAY TO ACTIVATE ─────────────
+              //──────── INACTIVE ───────
               return Card(
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16)),
-                color: Colors.orange.shade200,
-                child: ListTile(
-                  leading: const Icon(Icons.payment),
-                  title: Text('Pay to Activate',
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.orange.shade900)),
-                  trailing: const Icon(Icons.arrow_forward_ios),
-                  onTap: _activateSubscription,
+                color: const Color(0xFFF6EFFC),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.payment),
+                      title: Text('Activate Membership',
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.orange.shade900)),
+                      trailing: const Icon(Icons.arrow_forward_ios),
+                      onTap: _activateSubscription,
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(
+                          left: 72.0, right: 16.0, bottom: 12.0),
+                      child: GestureDetector(
+                        onTap: _showPromoDialog,
+                        child: const Text(
+                          'Have a promo code?',
+                          style: TextStyle(
+                            color: Color.fromARGB(255, 33, 150, 243),
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               );
             },
           ),
           const SizedBox(height: 16),
-          //──────────────── TILE LIST ────────────────
+          //──────────────── OTHER TILES ──────────────────────────
           _simpleTile(
               icon: Icons.edit,
               label: 'Edit Profile',
@@ -667,7 +639,7 @@ class _ProfilePageState extends State<ProfilePage> {
               page: const LegalDocumentsPage()),
           _deleteTile(),
           const SizedBox(height: 16),
-          //──────────────── LOG-OUT BUTTON ───────────
+          //──────────────── LOG-OUT BUTTON ──────────────────────
           ElevatedButton(
             style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
@@ -676,14 +648,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 style: TextStyle(color: Colors.white, fontSize: 18)),
             onPressed: () async {
               await FirebaseAuth.instance.signOut();
-
               final prefs = await SharedPreferences.getInstance();
-              await prefs.setString(
-                  'userRole', 'guest'); // ✅ Set guest role explicitly
-
+              await prefs.setString('userRole', 'guest');
               await secureStorage.deleteData('userToken');
               await secureStorage.deleteData('last_profile_view');
-
               if (!mounted) return;
               SchedulerBinding.instance.addPostFrameCallback((_) {
                 Navigator.pushReplacement(
@@ -698,7 +666,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  //──────────────── helper tile builders ─────────────
+  //──────────────── helper tile builders ────────────────────────
   Widget _simpleTile(
           {required IconData icon,
           required String label,
