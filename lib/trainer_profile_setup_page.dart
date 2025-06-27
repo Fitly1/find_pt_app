@@ -1,11 +1,14 @@
 // ignore_for_file: avoid_print
+import 'dart:convert'; // ← new
+import 'package:flutter/services.dart'; // ← new  (rootBundle)
+import 'package:flutter_typeahead/flutter_typeahead.dart'; // ← new
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:multi_select_flutter/multi_select_flutter.dart';
 
-import 'marketplace_page.dart'; // still used for customers only
-import 'trainer_home_page.dart'; // trainers land here
+import 'marketplace_page.dart';
+import 'trainer_home_page.dart';
 
 const kPrimaryOrange = Color(0xFFFFA726);
 const kActionBlack = Colors.black;
@@ -38,28 +41,38 @@ class TrainerProfileSetupPage extends StatefulWidget {
 }
 
 class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
-  /* ---------------- controllers ---------------- */
+/* ------------------------------------------------------------------ */
+/*                            CONTROLLERS                             */
+/* ------------------------------------------------------------------ */
   final _formKey = GlobalKey<FormState>();
   final _descriptionController = TextEditingController();
   final _locationController = TextEditingController();
   final _rateController = TextEditingController();
 
-  /* ---------------- data ------------------------ */
+/* ------------------------------------------------------------------ */
+/*                              SUBURBS                               */
+/* ------------------------------------------------------------------ */
+  List<Map<String, dynamic>> _allSuburbs = []; // loaded from json
+  Map<String, dynamic>? _chosenSuburb;
+
+/* ------------------------------------------------------------------ */
+/*                             DATA/STATE                             */
+/* ------------------------------------------------------------------ */
   final List<String> _allSpecialties = specialtiesMap.keys.toList();
   List<String> _selectedSpecialties = [];
   final List<String> _selectedMethods = [];
 
-  /* ---------------- ui state -------------------- */
   bool _isSaving = false;
-  final int _selectedIndex = 2; // profile tab in bottom-nav
+  final int _selectedIdx = 2; // bottom-nav
 
-  /* =========================================================
-     lifecycle
-  ========================================================= */
+/* ------------------------------------------------------------------ */
+/*                            LIFECYCLE                               */
+/* ------------------------------------------------------------------ */
   @override
   void initState() {
     super.initState();
     _checkUserRole();
+    _loadSuburbs();
   }
 
   @override
@@ -70,14 +83,27 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
     super.dispose();
   }
 
-  /* =========================================================
-     helpers
-  ========================================================= */
+/* ------------------------------------------------------------------ */
+/*                          LOAD SUBURBS                              */
+/* ------------------------------------------------------------------ */
+  Future<void> _loadSuburbs() async {
+    try {
+      final jsonStr = await rootBundle.loadString('assets/Suburbs.json');
+      _allSuburbs = (json.decode(jsonStr) as List).cast<Map<String, dynamic>>();
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('Failed to load suburbs: $e');
+    }
+  }
+
+/* ------------------------------------------------------------------ */
+/*                       ROLE / REDIRECTION                           */
+/* ------------------------------------------------------------------ */
   Future<void> _checkUserRole() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    // 1️⃣  Determine the account role
+    // 1) users/{uid}
     final userDoc = await FirebaseFirestore.instance
         .collection('users')
         .doc(user.uid)
@@ -85,7 +111,6 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
     if (!mounted) return;
 
     if (userDoc.exists && userDoc['role'] != 'trainer') {
-      // Customer → Marketplace
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const MarketplacePage()),
@@ -93,7 +118,7 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
       return;
     }
 
-    // 2️⃣  Trainer with an already-completed profile → TrainerHomePage
+    // 2) trainer_profiles/{uid}
     final profileDoc = await FirebaseFirestore.instance
         .collection('trainer_profiles')
         .doc(user.uid)
@@ -110,9 +135,11 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
         ),
       );
     }
-    // Otherwise stay on this page to finish the profile.
   }
 
+/* ------------------------------------------------------------------ */
+/*                        SAVE PROFILE                                */
+/* ------------------------------------------------------------------ */
   Future<void> _saveProfile() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -122,29 +149,38 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
 
-      /* --- derive display name from users/{uid} ------------ */
+      /* --- display name ----------------------------- */
       final doc = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .get();
       String displayName = "No Name";
       if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>;
-        final first = data['firstName'] ?? "";
-        final last = data['lastName'] ?? "";
+        final d = doc.data() as Map<String, dynamic>;
+        final first = d['firstName'] ?? "";
+        final last = d['lastName'] ?? "";
         displayName = "$first $last".trim().isNotEmpty
             ? "$first $last".trim()
-            : (data['displayName'] ?? "No Name");
+            : (d['displayName'] ?? "No Name");
       }
 
-      /* --- write trainer profile --------------------------- */
+      /* --- location strings ------------------------- */
+      final locString =
+          '${_chosenSuburb!['Suburb']}, ${_chosenSuburb!['State']}'
+          ' (${_chosenSuburb!['Postcode']})';
+
+      /* --- Firestore write -------------------------- */
       await FirebaseFirestore.instance
           .collection('trainer_profiles')
           .doc(user.uid)
           .set({
         'name': displayName,
         'description': _descriptionController.text.trim(),
-        'location': _locationController.text.trim(),
+        'location': locString,
+        'geoLocation': {
+          'lat': double.parse(_chosenSuburb!['Latitude'].toString()),
+          'lng': double.parse(_chosenSuburb!['Longitude'].toString()),
+        },
         'rate': double.tryParse(_rateController.text.trim()) ?? 0.0,
         'specialties': _selectedSpecialties,
         'trainingMethods': _selectedMethods,
@@ -155,26 +191,41 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
       if (!mounted) return;
       setState(() => _isSaving = false);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("✅ Profile saved successfully!"),
-          backgroundColor: kPrimaryOrange,
+      /* --- 60 % banner ------------------------------ */
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Great start!',
+              style: TextStyle(fontWeight: FontWeight.bold)),
+          content: const Text(
+            'You’re 60 % there.\n\n'
+            'Add photos and a longer bio later to reach 100 % and attract more clients.',
+          ),
+          actions: [
+            TextButton(
+              child: const Text('OK'),
+              onPressed: () => Navigator.of(ctx).pop(),
+            ),
+          ],
         ),
       );
 
-      // Finished → TrainerHomePage
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const TrainerHomePage(
-            showProfileCompleteMessage: true,
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const TrainerHomePage(
+              showProfileCompleteMessage: true,
+            ),
           ),
-        ),
-      );
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _isSaving = false);
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text("❌ Failed to save profile: $e"),
@@ -184,10 +235,12 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
     }
   }
 
-  /* bottom-nav tap --------------------------------------- */
-  void _onNavItemTapped(int index) {
-    switch (index) {
-      case 0: // Home
+/* ------------------------------------------------------------------ */
+/*                        BOTTOM NAVIGATION                           */
+/* ------------------------------------------------------------------ */
+  void _onNavItemTapped(int idx) {
+    switch (idx) {
+      case 0:
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
@@ -197,30 +250,26 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
           ),
         );
         break;
-      case 1: // Messages (placeholder)
+      case 1:
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Messages feature coming soon!")),
         );
         break;
-      case 2:
       default:
-        // Already on profile-setup
         break;
     }
   }
 
-  /* =========================================================
-     UI
-  ========================================================= */
+/* ================================================================== */
+/*                                UI                                  */
+/* ================================================================== */
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text(
-          "Trainer Profile Setup",
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
+        title: const Text("Trainer Profile Setup",
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         backgroundColor: kPrimaryOrange,
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
@@ -230,10 +279,9 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
             onPressed: _showReportDialog,
           ),
         ],
-        elevation: 0,
       ),
 
-      /* ---------------- form body -------------------- */
+      /* ---------------- Form ------------------------- */
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
         child: Card(
@@ -247,10 +295,9 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    "Complete Your Trainer Profile",
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                  ),
+                  const Text("Complete Your Trainer Profile",
+                      style:
+                          TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 20),
 
                   /* --- Bio ---------------------------------- */
@@ -280,23 +327,73 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
                       borderRadius: BorderRadius.circular(4),
                     ),
                     onConfirm: (vals) => setState(
-                      () => _selectedSpecialties = List<String>.from(vals),
-                    ),
+                        () => _selectedSpecialties = List<String>.from(vals)),
                     validator: (vals) => (vals == null || vals.isEmpty)
                         ? "Please select at least one specialty"
                         : null,
                   ),
                   const SizedBox(height: 16),
 
-                  /* --- Location ------------------------------ */
-                  TextFormField(
-                    controller: _locationController,
-                    decoration: const InputDecoration(
-                      labelText: "Location",
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (v) =>
-                        v == null || v.isEmpty ? "Required" : null,
+                  /* --- Location (TypeAhead 5.x) -------------- */
+                  FormField<Map<String, dynamic>>(
+                    validator: (_) => _chosenSuburb == null
+                        ? 'Please pick a suburb from the list'
+                        : null,
+                    builder: (state) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Material(
+                            child: TypeAheadField<Map<String, dynamic>>(
+                              controller: _locationController,
+                              suggestionsCallback: (pattern) {
+                                if (pattern.isEmpty) return [];
+                                final lower = pattern.toLowerCase();
+                                return _allSuburbs
+                                    .where((s) {
+                                      final sub =
+                                          s['Suburb'].toString().toLowerCase();
+                                      final pc = s['Postcode'].toString();
+                                      return sub.contains(lower) ||
+                                          pc.contains(pattern);
+                                    })
+                                    .take(10)
+                                    .toList();
+                              },
+                              itemBuilder: (_, sug) => ListTile(
+                                  title: Text(
+                                      '${sug['Suburb']} (${sug['Postcode']})')),
+                              onSelected: (sug) {
+                                _chosenSuburb = sug;
+                                _locationController.text =
+                                    '${sug['Suburb']}, ${sug['State']} (${sug['Postcode']})';
+                                state.didChange(sug); // mark as filled
+                              },
+                              emptyBuilder: (_) => const Padding(
+                                padding: EdgeInsets.all(8.0),
+                                child: Text('No suburb found'),
+                              ),
+                              builder: (_, textCtrl, focusNode) {
+                                return TextField(
+                                  controller: textCtrl,
+                                  focusNode: focusNode,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Suburb or Postcode',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          if (state.hasError)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8.0),
+                              child: Text(state.errorText!,
+                                  style: const TextStyle(color: Colors.red)),
+                            ),
+                        ],
+                      );
+                    },
                   ),
                   const SizedBox(height: 16),
 
@@ -325,10 +422,8 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
                               padding: const EdgeInsets.symmetric(vertical: 14),
                               textStyle: const TextStyle(fontSize: 18),
                             ),
-                            child: const Text(
-                              "Save Profile",
-                              style: TextStyle(color: Colors.white),
-                            ),
+                            child: const Text("Save Profile",
+                                style: TextStyle(color: Colors.white)),
                           ),
                         ),
                 ],
@@ -338,9 +433,9 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
         ),
       ),
 
-      /* ---------------- bottom-nav ------------------- */
+      /* --------------- Bottom-nav -------------------- */
       bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
+        currentIndex: _selectedIdx,
         selectedItemColor: kPrimaryOrange,
         unselectedItemColor: Colors.grey,
         onTap: _onNavItemTapped,
@@ -353,9 +448,9 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
     );
   }
 
-  /* =========================================================
-     Report dialog
-  ========================================================= */
+/* ------------------------------------------------------------------ */
+/*                          REPORT DIALOG                             */
+/* ------------------------------------------------------------------ */
   Future<void> _showReportDialog() async {
     final reasonController = TextEditingController();
 
