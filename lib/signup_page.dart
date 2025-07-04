@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'services/auth_service.dart'; // ← path fixed
+import 'services/auth_service.dart';
 import 'email_verification_page.dart';
 import 'legal_agreement_page.dart';
 import 'role_redirect.dart';
@@ -99,11 +99,9 @@ class SignupPageState extends State<SignupPage> {
                     color: Colors.white, size: 38),
               ),
               const SizedBox(height: 22),
-              const Text(
-                'Account already exists',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-              ),
+              const Text('Account already exists',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
               const SizedBox(height: 14),
               Text(
                 'The e-mail address\n$email\nis already registered as a '
@@ -285,7 +283,7 @@ class SignupPageState extends State<SignupPage> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         backgroundColor: _brandColor,
         content: const Text(
-            '✅ Signup complete! Check your inbox for the verification email.'),
+            '✅ Signup complete! Check your inbox for the verification e-mail.'),
       ));
 
       Navigator.pushReplacement(
@@ -333,6 +331,23 @@ class SignupPageState extends State<SignupPage> {
   // ───────────────── UI ───────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    final dividerGrey = Colors.grey.shade400;
+
+    Widget orDivider() => Row(
+          children: [
+            Expanded(child: Divider(color: dividerGrey, thickness: 1)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text('OR',
+                  style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: dividerGrey,
+                      fontSize: 12)),
+            ),
+            Expanded(child: Divider(color: dividerGrey, thickness: 1)),
+          ],
+        );
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Sign Up',
@@ -345,194 +360,196 @@ class SignupPageState extends State<SignupPage> {
       body: GestureDetector(
         onTap: () => FocusScope.of(context).unfocus(),
         child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
-            child: Card(
-              elevation: 3,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
-              child: Padding(
-                padding: const EdgeInsets.all(22),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    children: [
-                      const Text(
-                        'Create your account',
+          padding: const EdgeInsets.fromLTRB(16, 32, 16, 16),
+          child: Card(
+            elevation: 3,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Padding(
+              padding: const EdgeInsets.all(22),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // ─── Title ─────────────────────────────────────
+                    const Text('Create your account',
+                        textAlign: TextAlign.center,
                         style: TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.bold,
-                            color: Colors.black),
-                      ),
-                      const SizedBox(height: 20),
+                            color: Colors.black)),
+                    const SizedBox(height: 24),
 
-                      // ───────────── form fields ──────────────────────
-                      TextFormField(
-                        controller: _firstNameController,
-                        decoration: const InputDecoration(
-                          labelText: 'First Name',
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: (v) =>
-                            v == null || v.trim().isEmpty ? 'Required' : null,
+                    // ─── Social sign-in buttons (now at the top) ───
+                    SocialSignInButtons(
+                      loading: _isLoading,
+                      onGooglePressed: () =>
+                          _handleSocialSignIn(AuthService.googleOneTap),
+                      onApplePressed: () =>
+                          _handleSocialSignIn(AuthService.appleOneTap),
+                    ),
+                    const SizedBox(height: 18),
+                    orDivider(),
+                    const SizedBox(height: 20),
+
+                    // ─── Email signup form ────────────────────────
+                    TextFormField(
+                      controller: _firstNameController,
+                      decoration: const InputDecoration(
+                        labelText: 'First name',
+                        border: OutlineInputBorder(),
                       ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _lastNameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Last Name',
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: (v) =>
-                            v == null || v.trim().isEmpty ? 'Required' : null,
+                      validator: (v) =>
+                          v == null || v.trim().isEmpty ? 'Required' : null,
+                    ),
+                    const SizedBox(height: 16),
+
+                    TextFormField(
+                      controller: _lastNameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Last name',
+                        border: OutlineInputBorder(),
                       ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'We ask for your birthdate to verify you are 18+, '
-                        'as required by our community guidelines.',
-                        style: TextStyle(fontSize: 13, color: Colors.grey),
+                      validator: (v) =>
+                          v == null || v.trim().isEmpty ? 'Required' : null,
+                    ),
+                    const SizedBox(height: 16),
+
+                    TextFormField(
+                      controller: _dobController,
+                      readOnly: true,
+                      onTap: _pickDate,
+                      decoration: const InputDecoration(
+                        labelText: 'Date of birth',
+                        helperText: 'You must be 18+',
+                        border: OutlineInputBorder(),
                       ),
-                      const SizedBox(height: 6),
-                      TextFormField(
-                        controller: _dobController,
-                        readOnly: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Date of Birth (18+ age verification)',
-                          hintText: 'e.g. 2000-01-01',
-                          helperText: 'We use this to confirm you are over 18',
-                          border: OutlineInputBorder(),
-                        ),
-                        onTap: _pickDate,
-                        validator: (v) =>
-                            v == null || v.trim().isEmpty ? 'Required' : null,
+                      validator: (v) =>
+                          v == null || v.trim().isEmpty ? 'Required' : null,
+                    ),
+                    const SizedBox(height: 16),
+
+                    TextFormField(
+                      controller: _emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(
+                        labelText: 'E-mail',
+                        border: OutlineInputBorder(),
                       ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.emailAddress,
-                        decoration: const InputDecoration(
-                          labelText: 'Email',
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: (v) {
-                          if (v == null || v.trim().isEmpty) return 'Required';
-                          final r = RegExp(
-                              r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
-                          return r.hasMatch(v) ? null : 'Invalid email';
-                        },
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) return 'Required';
+                        final r = RegExp(
+                            r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
+                        return r.hasMatch(v) ? null : 'Invalid e-mail';
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Optional phone field (still kept, shorter page if you delete)
+                    TextFormField(
+                      controller: _phoneController,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Phone (optional)',
+                        border: OutlineInputBorder(),
                       ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _phoneController,
-                        keyboardType: TextInputType.phone,
-                        decoration: const InputDecoration(
-                          labelText: 'Phone Number (Optional)',
-                          border: OutlineInputBorder(),
-                        ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    TextFormField(
+                      controller: _passwordController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Password',
+                        border: OutlineInputBorder(),
                       ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _passwordController,
-                        obscureText: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Password',
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: (v) {
-                          if (v == null || v.trim().isEmpty) return 'Required';
-                          if (v.trim().length < 6) return 'Min 6 characters';
-                          return null;
-                        },
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) return 'Required';
+                        if (v.trim().length < 6) return 'Min 6 characters';
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    TextFormField(
+                      controller: _confirmPasswordController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Confirm password',
+                        border: OutlineInputBorder(),
                       ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _confirmPasswordController,
-                        obscureText: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Confirm Password',
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: (v) {
-                          if (v == null || v.trim().isEmpty) return 'Required';
-                          if (v.trim() != _passwordController.text.trim()) {
-                            return 'Passwords don’t match';
-                          }
-                          return null;
-                        },
+                      validator: (v) {
+                        if (v == null || v.trim().isEmpty) return 'Required';
+                        if (v.trim() != _passwordController.text.trim()) {
+                          return 'Passwords don’t match';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    DropdownButtonFormField<String>(
+                      value: _selectedRole,
+                      decoration: const InputDecoration(
+                        labelText: 'Sign up as',
+                        border: OutlineInputBorder(),
                       ),
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        value: _selectedRole,
-                        decoration: const InputDecoration(
-                          labelText: 'Sign up as',
-                          border: OutlineInputBorder(),
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                              value: 'customer', child: Text('Customer')),
-                          DropdownMenuItem(
-                              value: 'trainer',
-                              child: Text('Personal Trainer')),
-                        ],
-                        onChanged: (v) => setState(() => _selectedRole = v!),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Checkbox(
-                              value: _agreedToTnC, onChanged: _toggleAgreed),
-                          Expanded(
-                            child: GestureDetector(
-                              onTap: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (_) => const LegalAgreementPage()),
-                              ),
-                              child: const Text(
-                                'I agree to the Terms & Conditions',
-                                style: TextStyle(
-                                    decoration: TextDecoration.underline,
-                                    color: Colors.blue),
-                              ),
+                      items: const [
+                        DropdownMenuItem(
+                            value: 'customer', child: Text('Customer')),
+                        DropdownMenuItem(
+                            value: 'trainer', child: Text('Personal trainer')),
+                      ],
+                      onChanged: (v) => setState(() => _selectedRole = v!),
+                    ),
+                    const SizedBox(height: 16),
+
+                    Row(
+                      children: [
+                        Checkbox(value: _agreedToTnC, onChanged: _toggleAgreed),
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => const LegalAgreementPage()),
+                            ),
+                            child: const Text(
+                              'I agree to the Terms & Conditions',
+                              style: TextStyle(
+                                  decoration: TextDecoration.underline,
+                                  color: Colors.blue),
                             ),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 24),
-
-                      // ───────────── social buttons ───────────────────
-                      SocialSignInButtons(
-                        loading: _isLoading,
-                        onGooglePressed: () =>
-                            _handleSocialSignIn(AuthService.googleOneTap),
-                        onApplePressed: () =>
-                            _handleSocialSignIn(AuthService.appleOneTap),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // ───────────── email sign-up btn ───────────────
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _isLoading ? null : _submitForm,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.black,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            textStyle: const TextStyle(fontSize: 18),
-                          ),
-                          child: _isLoading
-                              ? const CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor:
-                                      AlwaysStoppedAnimation(Colors.white),
-                                )
-                              : const Text('Sign Up',
-                                  style: TextStyle(color: Colors.white)),
                         ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+
+                    // ─── Submit button ─────────────────────────────
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _isLoading ? null : _submitForm,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          textStyle: const TextStyle(fontSize: 18),
+                        ),
+                        child: _isLoading
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor:
+                                        AlwaysStoppedAnimation(Colors.white)))
+                            : const Text('Sign up',
+                                style: TextStyle(color: Colors.white)),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
