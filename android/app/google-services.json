@@ -13,7 +13,20 @@
           "package_name": "com.example.find_pt_app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "794098237480-t9pg1k755hj5hpmhp1mlt3qr9vahoi7i.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.find_pt_app",
+            "certificate_hash": "4c0f8729b51401376246315707960fd89e6c1cef"
+          }
+        },
+        {
+          "client_id": "794098237480-fbfahj4onnkc2lef3vltes35afne58j6.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyC3zll-HAAqxTQKK2Hqpu_dmiNfN-ZIZWs"
@@ -21,7 +34,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "794098237480-fbfahj4onnkc2lef3vltes35afne58j6.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "794098237480-l5jlakvjv7955416bsp8p9udenbhpj3b.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.fitly.findptapp"
+              }
+            }
+          ]
         }
       }
     },
@@ -32,7 +57,20 @@
           "package_name": "com.fitly.findptapp"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "794098237480-ie7gjvsgqrm94dom6478dguqrejc1grm.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.fitly.findptapp",
+            "certificate_hash": "4c0f8729b51401376246315707960fd89e6c1cef"
+          }
+        },
+        {
+          "client_id": "794098237480-fbfahj4onnkc2lef3vltes35afne58j6.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyC3zll-HAAqxTQKK2Hqpu_dmiNfN-ZIZWs"
@@ -40,7 +78,19 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "794098237480-fbfahj4onnkc2lef3vltes35afne58j6.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "794098237480-l5jlakvjv7955416bsp8p9udenbhpj3b.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.fitly.findptapp"
+              }
+            }
+          ]
         }
       }
     }

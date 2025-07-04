@@ -1,14 +1,18 @@
-// lib/login_page.dart
-import 'dart:async' show unawaited; // ← for unawaited()
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:logger/logger.dart';
+import 'dart:async' show unawaited;
+import 'dart:io' show Platform;
 
-import 'role_redirect.dart';
-import 'forgot_password_page.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:logger/logger.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'email_verification_page.dart';
+import 'forgot_password_page.dart';
+import 'role_redirect.dart';
 import 'secure_storage_service.dart';
+import 'services/auth_service.dart'; // ← NEW
+import 'ui/social_signin_buttons.dart';
 
 /* ───────────────────── Logger ───────────────────── */
 final Logger logger = Logger(
@@ -22,9 +26,31 @@ final Logger logger = Logger(
   ),
 );
 
+/* ──────── Helper that turns Firebase errors into nice text ─────── */
+String prettyAuthError(dynamic error) {
+  if (error is FirebaseAuthException) {
+    switch (error.code) {
+      case 'invalid-credential':
+      case 'wrong-password':
+        return 'Incorrect e-mail or password.';
+      case 'user-not-found':
+        return 'No account exists for that e-mail address.';
+      case 'user-disabled':
+        return 'This account has been disabled.';
+      case 'too-many-requests':
+        return 'Too many attempts. Try again later.';
+      case 'network-request-failed':
+        return 'Network error. Check your connection.';
+      default:
+        return 'Authentication failed. Please try again.';
+    }
+  }
+  return 'Something went wrong. Please try again.';
+}
+
 /* ───────────────────── Widget ───────────────────── */
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key}); // hint addressed with super.key
+  const LoginPage({super.key});
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -37,11 +63,132 @@ class _LoginPageState extends State<LoginPage> {
   final _passwordController = TextEditingController();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final SecureStorageService secureStorage = SecureStorageService();
+  final Color _brandColor = const Color(0xFFFFA726);
 
   /* Simple loading flag */
   bool _isLoading = false;
 
-/* ─────────────── Login logic ─────────────── */
+  /* ───────────── styled info / error dialog ───────────── */
+  Future<void> _showInfoDialog({
+    required String title,
+    required String message,
+    bool error = false,
+    String buttonText = 'OK',
+  }) async {
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 32,
+                backgroundColor: error ? Colors.red : _brandColor,
+                child: Icon(
+                  error
+                      ? Icons.error_outline_rounded
+                      : Icons.info_outline_rounded,
+                  color: Colors.white,
+                  size: 38,
+                ),
+              ),
+              const SizedBox(height: 22),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style:
+                    const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 15, height: 1.45),
+              ),
+              const SizedBox(height: 30),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: Text(buttonText, style: const TextStyle(fontSize: 16)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /* ──────────────── Social sign-in handler ─────────────── */
+  Future<void> _handleSocialSignIn(
+      Future<UserCredential?> Function() providerMethod) async {
+    if (_isLoading) return;
+    setState(() => _isLoading = true);
+
+    try {
+      final cred = await providerMethod();
+      if (cred == null) throw Exception('Sign-in aborted by user');
+
+      // look up user profile
+      final docRef =
+          FirebaseFirestore.instance.collection('users').doc(cred.user!.uid);
+      final docSnap = await docRef.get();
+
+      if (!docSnap.exists) {
+        await _showInfoDialog(
+          title: 'No account found',
+          message:
+              'This e-mail address is not registered yet. Please create an account before logging in.',
+          error: true,
+          buttonText: 'Go back',
+        );
+        await _auth.signOut();
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // cache role
+      final role = (docSnap.data()!['role'] ?? '').toString().toLowerCase();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('userRole', role);
+
+      // fresh ID token
+      final idToken = await cred.user!.getIdToken();
+      unawaited(secureStorage.writeData('auth_token', idToken!));
+
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const RoleRedirect()),
+        (_) => false,
+      );
+    } catch (e, s) {
+      logger.e('Social sign-in failed', error: e, stackTrace: s);
+      await _showInfoDialog(
+        title: 'Login failed',
+        message: prettyAuthError(e),
+        error: true,
+        buttonText: 'Close',
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  /* ───────────────────────── Email Login ───────────────────────── */
   Future<void> _login() async {
     if (!_formKey.currentState!.validate()) {
       logger.w('Form validation failed');
@@ -51,74 +198,63 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _isLoading = true);
 
     try {
-      /* 0️⃣  Tear down any anonymous session */
+      // tear down anonymous session
       if (_auth.currentUser?.isAnonymous == true) {
         await _auth.signOut();
-        logger.i('Anonymous user signed-out');
       }
 
-      /* 1️⃣  Network call – sign-in */
-      logger.i('Logging-in: ${_emailController.text.trim()}');
       final cred = await _auth.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
-
       final user = cred.user;
-      if (user == null) throw Exception('Null user returned from Firebase');
+      if (user == null) throw Exception('Null user');
 
-      /* 2️⃣  Verify e-mail status; reload only if needed */
+      // e-mail verification
       if (!user.emailVerified) {
         await user.reload();
         if (!user.emailVerified) {
-          logger.w('E-mail not verified – redirecting');
           if (!mounted) return;
-          setState(() => _isLoading = false);
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const EmailVerificationPage()),
           );
-          return; // ← keeps return-type void
+          return;
         }
       }
 
-      /* 3️⃣  Obtain fresh ID token */
-      final String? idToken = await user.getIdToken();
-      logger.i('ID token obtained');
-
-      /* 4️⃣  Local storage – run in background so UI is not blocked */
+      // fresh token
+      final idToken = await user.getIdToken();
       if (idToken != null) {
-        unawaited(secureStorage.writeData(
-            'auth_token', idToken)); // idToken is non-null inside
+        unawaited(secureStorage.writeData('auth_token', idToken));
       }
+
+      // clear cached role (will be re-set inside RoleRedirect)
       unawaited(_clearCachedRole());
 
-      /* 5️⃣  Navigate to app proper */
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const RoleRedirect()),
-        (route) => false,
+        (_) => false,
       );
     } catch (e, s) {
       logger.e('Login failed', error: e, stackTrace: s);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Login failed: $e')),
-        );
-      }
+      await _showInfoDialog(
+        title: 'Login failed',
+        message: prettyAuthError(e),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  /* Helper: clear cached role */
   Future<void> _clearCachedRole() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('userRole');
-    logger.i('Cached role cleared');
   }
 
-/* ─────────────── UI ─────────────── */
+  /* ───────────────────────── UI ───────────────────────── */
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -156,12 +292,13 @@ class _LoginPageState extends State<LoginPage> {
                   children: [
                     Image.asset('assets/Fitly2.png', height: 120),
                     const SizedBox(height: 24),
+
+                    /* ───────────── Email / password form ───────────── */
                     Form(
                       key: _formKey,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          /* E-mail */
                           TextFormField(
                             controller: _emailController,
                             decoration: const InputDecoration(
@@ -171,11 +308,10 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                             keyboardType: TextInputType.emailAddress,
                             validator: (v) => (v == null || v.isEmpty)
-                                ? 'Please enter your email'
+                                ? 'Enter your email'
                                 : null,
                           ),
                           const SizedBox(height: 16),
-                          /* Password */
                           TextFormField(
                             controller: _passwordController,
                             decoration: const InputDecoration(
@@ -185,11 +321,10 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                             obscureText: true,
                             validator: (v) => (v == null || v.isEmpty)
-                                ? 'Please enter your password'
+                                ? 'Enter your password'
                                 : null,
                           ),
                           const SizedBox(height: 24),
-                          /* Login button or loader */
                           SizedBox(
                             width: double.infinity,
                             child: _isLoading
@@ -211,7 +346,6 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                           ),
                           const SizedBox(height: 16),
-                          /* Forgot password */
                           TextButton(
                             onPressed: () => Navigator.push(
                               context,
@@ -228,6 +362,25 @@ class _LoginPageState extends State<LoginPage> {
                         ],
                       ),
                     ),
+                    const SizedBox(height: 32),
+
+                    /* ───────────── Social buttons ───────────── */
+                    SocialSignInButtons(
+                      loading: _isLoading,
+                      onGooglePressed: () =>
+                          _handleSocialSignIn(AuthService.googleOneTap),
+                      onApplePressed: () =>
+                          _handleSocialSignIn(AuthService.appleOneTap),
+                    ),
+
+                    // Optional notice for non-Apple platforms (button already hides itself)
+                    if (!Platform.isIOS && !Platform.isMacOS) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Apple Sign-In available on iOS',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
                   ],
                 ),
               ),

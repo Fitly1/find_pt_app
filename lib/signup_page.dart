@@ -1,164 +1,323 @@
 // lib/signup_page.dart
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'legal_agreement_page.dart';
+import 'services/auth_service.dart'; // ← path fixed
 import 'email_verification_page.dart';
+import 'legal_agreement_page.dart';
+import 'role_redirect.dart';
 import 'secure_storage_service.dart';
+import 'ui/social_signin_buttons.dart';
+
+/* ───────── friendly helper to mask Firebase error codes ───────── */
+String prettyAuthError(dynamic error) {
+  if (error is FirebaseAuthException) {
+    switch (error.code) {
+      case 'email-already-in-use':
+        return 'That e-mail address is already in use.';
+      case 'invalid-email':
+        return 'Please enter a valid e-mail address.';
+      case 'weak-password':
+        return 'Your password is too weak.';
+      case 'wrong-password':
+      case 'invalid-credential':
+        return 'Incorrect e-mail or password.';
+      case 'user-disabled':
+        return 'This account has been disabled.';
+      case 'user-not-found':
+        return 'No account exists for that e-mail address.';
+      case 'too-many-requests':
+        return 'Too many attempts. Try again later.';
+      case 'network-request-failed':
+        return 'Network error. Check your connection.';
+      default:
+        return 'Authentication failed. Please try again.';
+    }
+  }
+  return 'Something went wrong. Please try again.';
+}
 
 class SignupPage extends StatefulWidget {
   const SignupPage({super.key});
-
   @override
   SignupPageState createState() => SignupPageState();
 }
 
 class SignupPageState extends State<SignupPage> {
-  final _formKey = GlobalKey<FormState>();
+  // ───────────────────────── Configuration ─────────────────────────
+  final Color _brandColor = const Color(0xFFFFA726);
 
-  // ─── controllers ────────────────────────────────────────────────
-  final TextEditingController _firstNameController = TextEditingController();
-  final TextEditingController _lastNameController = TextEditingController();
-  final TextEditingController _dobController = TextEditingController();
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _confirmPasswordController =
-      TextEditingController();
+  // ───────────────────────── controllers ───────────────────────────
+  final _formKey = GlobalKey<FormState>();
+  final _firstNameController = TextEditingController();
+  final _lastNameController = TextEditingController();
+  final _dobController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+
+  // ───────────────────────── misc state ────────────────────────────
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final SecureStorageService secureStorage = SecureStorageService();
 
   String _selectedRole = 'customer';
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-
   bool _isLoading = false;
   bool _agreedToTnC = false;
 
-  // secure storage
-  final SecureStorageService secureStorage = SecureStorageService();
-
-  // ─── helpers ─────────────────────────────────────────────────────
-  String capitalize(String s) =>
+  // ───────────────────────── helpers ───────────────────────────────
+  String _cap(String s) =>
       s.isEmpty ? s : s[0].toUpperCase() + s.substring(1).toLowerCase();
 
-  void _toggleAgreed(bool? newValue) =>
-      setState(() => _agreedToTnC = newValue ?? false);
+  void _setLoading(bool v) => setState(() => _isLoading = v);
+  void _toggleAgreed(bool? v) => setState(() => _agreedToTnC = v ?? false);
 
-  // ─── main submit ─────────────────────────────────────────────────
-  Future<void> _submitForm() async {
+  // ───────────────── prettier conflict dialog ─────────────────────
+  Future<void> _showRoleConflictDialog({
+    required String existingRole,
+    required String email,
+  }) async {
     if (!mounted) return;
 
-    if (_formKey.currentState!.validate()) {
-      // 1️⃣ age-check (18+)
-      final DateTime? dob = DateTime.tryParse(_dobController.text.trim());
-      if (dob == null || DateTime.now().difference(dob).inDays < 365 * 18) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('You must be at least 18 years old to sign up.'),
-          backgroundColor: Colors.red,
-        ));
-        return;
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 32,
+                backgroundColor: _brandColor,
+                child: const Icon(Icons.info_outline_rounded,
+                    color: Colors.white, size: 38),
+              ),
+              const SizedBox(height: 22),
+              const Text(
+                'Account already exists',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'The e-mail address\n$email\nis already registered as a '
+                '$existingRole. To create a separate $_selectedRole account, '
+                'please choose a different e-mail address.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 15, height: 1.45),
+              ),
+              const SizedBox(height: 30),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Choose another e-mail',
+                      style: TextStyle(fontSize: 16)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    await FirebaseAuth.instance.signOut();
+  }
+
+  // ───────────────── social sign-in handler ───────────────────────
+  Future<void> _handleSocialSignIn(
+      Future<UserCredential?> Function() method) async {
+    if (_isLoading) return;
+    _setLoading(true);
+
+    try {
+      final cred = await method();
+      if (cred == null) throw Exception('Sign-in aborted');
+
+      final docRef =
+          FirebaseFirestore.instance.collection('users').doc(cred.user!.uid);
+      final doc = await docRef.get();
+
+      // conflict?
+      if (doc.exists) {
+        final existingRole =
+            (doc.data()!['role'] ?? '').toString().toLowerCase();
+        if (existingRole != _selectedRole.toLowerCase()) {
+          await _showRoleConflictDialog(
+              existingRole: existingRole, email: cred.user!.email ?? '');
+          _setLoading(false);
+          return;
+        }
       }
 
-      if (!_agreedToTnC) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('You must agree to the Terms & Conditions'),
-          backgroundColor: Color(0xFFFFA726),
-        ));
-        return;
-      }
+      // create profile if first time
+      if (!doc.exists) {
+        final display = cred.user!.displayName ?? '';
+        final parts = display.split(' ');
+        final first = _cap(parts.isNotEmpty ? parts.first : '');
+        final last = _cap(parts.length > 1 ? parts.sublist(1).join(' ') : '');
 
-      setState(() => _isLoading = true);
-
-      try {
-        // 🚩 NEW: if the current user is a guest, sign out before creating account
-        final current = _auth.currentUser;
-        if (current != null && current.isAnonymous) {
-          await _auth.signOut();
-        }
-
-        // 2️⃣ create user
-        UserCredential cred = await _auth.createUserWithEmailAndPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text.trim(),
-        );
-
-        // 3️⃣ send verification email
-        await cred.user?.sendEmailVerification();
-
-        // 4️⃣ store ID token (optional)
-        if (cred.user != null) {
-          final idToken = await cred.user!.getIdToken();
-          await secureStorage.writeData('auth_token', idToken!);
-        }
-
-        // 5️⃣ save Firestore profile
-        final String first = capitalize(_firstNameController.text.trim());
-        final String last = capitalize(_lastNameController.text.trim());
-        final String display = "$first $last";
-
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(cred.user!.uid)
-            .set({
+        await docRef.set({
           'firstName': first,
           'firstName_lowerCase': first.toLowerCase(),
           'lastName': last,
           'lastName_lowerCase': last.toLowerCase(),
           'displayName': display,
           'displayName_lowerCase': display.toLowerCase(),
-          'dob': _dobController.text.trim(),
-          'email': _emailController.text.trim(),
-          'phone': _phoneController.text.trim(),
+          'dob': '',
+          'email': cred.user!.email ?? '',
+          'phone': cred.user!.phoneNumber ?? '',
           'role': _selectedRole,
-          'emailVerified': false,
+          'emailVerified': cred.user!.emailVerified,
           'hasAgreedToTnC': true,
           'createdAt': FieldValue.serverTimestamp(),
         });
-
-        // 6️⃣ cache role locally
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.clear();
-        await prefs.setString('userRole', _selectedRole.toLowerCase());
-
-        if (!mounted) return;
-
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text(
-              '✅ Signup complete! Check your inbox (and junk folder) for the verification email.'),
-          backgroundColor: Color(0xFFFFA726),
-        ));
-
-        // 7️⃣ go to verification page
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const EmailVerificationPage()),
-        );
-      } catch (e) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('❌ Signup Failed: $e'),
-          backgroundColor: Colors.red,
-        ));
       }
 
-      setState(() => _isLoading = false);
+      // cache role
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('userRole', _selectedRole.toLowerCase());
+
+      // decide destination
+      final verified = cred.user?.emailVerified ?? false;
+
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+            builder: (_) => verified
+                ? const RoleRedirect()
+                : const EmailVerificationPage()),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          backgroundColor: Colors.red,
+          content: Text('❌ ${prettyAuthError(e)}'),
+        ));
+      }
     }
+
+    _setLoading(false);
   }
 
-  // ─── date picker ────────────────────────────────────────────────
-  Future<void> _selectDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
+  // ───────────────── email/password sign-up ───────────────────────
+  Future<void> _submitForm() async {
+    if (!mounted || _isLoading) return;
+    if (!_formKey.currentState!.validate()) return;
+
+    // age check
+    final dob = DateTime.tryParse(_dobController.text.trim());
+    if (dob == null || DateTime.now().difference(dob).inDays < 365 * 18) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        backgroundColor: Colors.red,
+        content: Text('You must be at least 18 years old to sign up.'),
+      ));
+      return;
+    }
+
+    if (!_agreedToTnC) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        backgroundColor: _brandColor,
+        content: const Text('You must agree to the Terms & Conditions'),
+      ));
+      return;
+    }
+
+    _setLoading(true);
+    try {
+      final current = _auth.currentUser;
+      if (current != null && current.isAnonymous) await _auth.signOut();
+
+      final cred = await _auth.createUserWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+      await cred.user?.sendEmailVerification();
+
+      // optional token
+      if (cred.user != null) {
+        final token = await cred.user!.getIdToken();
+        await secureStorage.writeData('auth_token', token!);
+      }
+
+      final first = _cap(_firstNameController.text.trim());
+      final last = _cap(_lastNameController.text.trim());
+      final display = '$first $last';
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(cred.user!.uid)
+          .set({
+        'firstName': first,
+        'firstName_lowerCase': first.toLowerCase(),
+        'lastName': last,
+        'lastName_lowerCase': last.toLowerCase(),
+        'displayName': display,
+        'displayName_lowerCase': display.toLowerCase(),
+        'dob': _dobController.text.trim(),
+        'email': _emailController.text.trim(),
+        'phone': _phoneController.text.trim(),
+        'role': _selectedRole,
+        'emailVerified': false,
+        'hasAgreedToTnC': true,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+      await prefs.setString('userRole', _selectedRole.toLowerCase());
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        backgroundColor: _brandColor,
+        content: const Text(
+            '✅ Signup complete! Check your inbox for the verification email.'),
+      ));
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const EmailVerificationPage()),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          backgroundColor: Colors.red,
+          content: Text('❌ ${prettyAuthError(e)}'),
+        ));
+      }
+    }
+    _setLoading(false);
+  }
+
+  // ───────────────── date picker ──────────────────────────────────
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
       context: context,
       initialDate: DateTime(1990, 1, 1),
       firstDate: DateTime(1900),
       lastDate: DateTime.now(),
     );
     if (picked != null) {
-      setState(() => _dobController.text = picked.toIso8601String().split('T')[0]);
+      setState(
+          () => _dobController.text = picked.toIso8601String().split('T')[0]);
     }
   }
 
-  // ─── dispose ────────────────────────────────────────────────────
+  // ───────────────── lifecycle ────────────────────────────────────
   @override
   void dispose() {
     _firstNameController.dispose();
@@ -171,215 +330,209 @@ class SignupPageState extends State<SignupPage> {
     super.dispose();
   }
 
-  // ─── UI / build ────────────────────────────────────────────────
+  // ───────────────── UI ───────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Sign Up',
-            style:
-                TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        backgroundColor: const Color(0xFFFFA726),
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        backgroundColor: _brandColor,
         iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
       ),
       backgroundColor: Colors.white,
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
-          child: Card(
-            elevation: 3,
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            child: Padding(
-              padding: const EdgeInsets.all(22),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  children: [
-                    const Text('Create your account',
+      body: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
+            child: Card(
+              elevation: 3,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.all(22),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    children: [
+                      const Text(
+                        'Create your account',
                         style: TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.bold,
-                            color: Colors.black)),
-                    const SizedBox(height: 20),
-
-                    // First name
-                    TextFormField(
-                      controller: _firstNameController,
-                      decoration: const InputDecoration(
-                        labelText: 'First Name',
-                        border: OutlineInputBorder(),
+                            color: Colors.black),
                       ),
-                      validator: (v) =>
-                          v == null || v.trim().isEmpty ? 'Required' : null,
-                    ),
-                    const SizedBox(height: 16),
+                      const SizedBox(height: 20),
 
-                    // Last name
-                    TextFormField(
-                      controller: _lastNameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Last Name',
-                        border: OutlineInputBorder(),
+                      // ───────────── form fields ──────────────────────
+                      TextFormField(
+                        controller: _firstNameController,
+                        decoration: const InputDecoration(
+                          labelText: 'First Name',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (v) =>
+                            v == null || v.trim().isEmpty ? 'Required' : null,
                       ),
-                      validator: (v) =>
-                          v == null || v.trim().isEmpty ? 'Required' : null,
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Info line
-                    const Text(
-                      "We ask for your birthdate to verify you're 18+, as required by our community guidelines.",
-                      style: TextStyle(fontSize: 13, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 6),
-
-                    // DOB
-                    TextFormField(
-                      controller: _dobController,
-                      readOnly: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Date of Birth (18+ age verification)',
-                        hintText: 'e.g. 2000-01-01',
-                        helperText: 'We use this to confirm you are over 18',
-                        border: OutlineInputBorder(),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _lastNameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Last Name',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (v) =>
+                            v == null || v.trim().isEmpty ? 'Required' : null,
                       ),
-                      onTap: () => _selectDate(context),
-                      validator: (v) =>
-                          v == null || v.trim().isEmpty ? 'Required' : null,
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Email
-                    TextFormField(
-                      controller: _emailController,
-                      keyboardType: TextInputType.emailAddress,
-                      decoration: const InputDecoration(
-                        labelText: 'Email',
-                        border: OutlineInputBorder(),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'We ask for your birthdate to verify you are 18+, '
+                        'as required by our community guidelines.',
+                        style: TextStyle(fontSize: 13, color: Colors.grey),
                       ),
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) {
-                          return 'Required';
-                        }
-                        final regex = RegExp(
-                            r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}");
-                        return regex.hasMatch(v) ? null : 'Invalid email';
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Phone (optional)
-                    TextFormField(
-                      controller: _phoneController,
-                      keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(
-                        labelText: 'Phone Number (Optional)',
-                        border: OutlineInputBorder(),
+                      const SizedBox(height: 6),
+                      TextFormField(
+                        controller: _dobController,
+                        readOnly: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Date of Birth (18+ age verification)',
+                          hintText: 'e.g. 2000-01-01',
+                          helperText: 'We use this to confirm you are over 18',
+                          border: OutlineInputBorder(),
+                        ),
+                        onTap: _pickDate,
+                        validator: (v) =>
+                            v == null || v.trim().isEmpty ? 'Required' : null,
                       ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Password
-                    TextFormField(
-                      controller: _passwordController,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Password',
-                        border: OutlineInputBorder(),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(
+                          labelText: 'Email',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty) return 'Required';
+                          final r = RegExp(
+                              r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
+                          return r.hasMatch(v) ? null : 'Invalid email';
+                        },
                       ),
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) {
-                          return 'Required';
-                        } else if (v.trim().length < 6) {
-                          return 'Min 6 characters';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Confirm password
-                    TextFormField(
-                      controller: _confirmPasswordController,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Confirm Password',
-                        border: OutlineInputBorder(),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _phoneController,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                          labelText: 'Phone Number (Optional)',
+                          border: OutlineInputBorder(),
+                        ),
                       ),
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) {
-                          return 'Required';
-                        } else if (v.trim() != _passwordController.text.trim()) {
-                          return 'Passwords don\'t match';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Role dropdown
-                    DropdownButtonFormField<String>(
-                      value: _selectedRole,
-                      decoration: const InputDecoration(
-                        labelText: 'Sign up as',
-                        border: OutlineInputBorder(),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _passwordController,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Password',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty) return 'Required';
+                          if (v.trim().length < 6) return 'Min 6 characters';
+                          return null;
+                        },
                       ),
-                      items: const [
-                        DropdownMenuItem(
-                            value: 'customer', child: Text('Customer')),
-                        DropdownMenuItem(
-                            value: 'trainer',
-                            child: Text('Personal Trainer')),
-                      ],
-                      onChanged: (v) => setState(() => _selectedRole = v!),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Terms and conditions
-                    Row(
-                      children: [
-                        Checkbox(value: _agreedToTnC, onChanged: _toggleAgreed),
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => const LegalAgreementPage()),
-                            ),
-                            child: const Text(
-                              'I agree to the Terms & Conditions',
-                              style: TextStyle(
-                                  decoration: TextDecoration.underline,
-                                  color: Colors.blue),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _confirmPasswordController,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Confirm Password',
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (v) {
+                          if (v == null || v.trim().isEmpty) return 'Required';
+                          if (v.trim() != _passwordController.text.trim()) {
+                            return 'Passwords don’t match';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<String>(
+                        value: _selectedRole,
+                        decoration: const InputDecoration(
+                          labelText: 'Sign up as',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                              value: 'customer', child: Text('Customer')),
+                          DropdownMenuItem(
+                              value: 'trainer',
+                              child: Text('Personal Trainer')),
+                        ],
+                        onChanged: (v) => setState(() => _selectedRole = v!),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Checkbox(
+                              value: _agreedToTnC, onChanged: _toggleAgreed),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => const LegalAgreementPage()),
+                              ),
+                              child: const Text(
+                                'I agree to the Terms & Conditions',
+                                style: TextStyle(
+                                    decoration: TextDecoration.underline,
+                                    color: Colors.blue),
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Sign up button
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: _isLoading ? null : _submitForm,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          textStyle: const TextStyle(fontSize: 18),
-                        ),
-                        child: _isLoading
-                            ? const CircularProgressIndicator(
-                                valueColor:
-                                    AlwaysStoppedAnimation<Color>(Colors.white),
-                              )
-                            : const Text('Sign Up',
-                                style: TextStyle(color: Colors.white)),
+                        ],
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 24),
+
+                      // ───────────── social buttons ───────────────────
+                      SocialSignInButtons(
+                        loading: _isLoading,
+                        onGooglePressed: () =>
+                            _handleSocialSignIn(AuthService.googleOneTap),
+                        onApplePressed: () =>
+                            _handleSocialSignIn(AuthService.appleOneTap),
+                      ),
+                      const SizedBox(height: 24),
+
+                      // ───────────── email sign-up btn ───────────────
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _isLoading ? null : _submitForm,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.black,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            textStyle: const TextStyle(fontSize: 18),
+                          ),
+                          child: _isLoading
+                              ? const CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor:
+                                      AlwaysStoppedAnimation(Colors.white),
+                                )
+                              : const Text('Sign Up',
+                                  style: TextStyle(color: Colors.white)),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

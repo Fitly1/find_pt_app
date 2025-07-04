@@ -1,10 +1,12 @@
-include: package:flutter_lints/flutter.yaml
+include: package:flutter_lints/flutter_lints.yaml
 
 analyzer:
   exclude:
     # Ignore generated files
     - '**/*.g.dart'
     - 'lib/src/generated/*.dart'
+    - ios/**/example/**'
+    -ios/geolocator_apple_plugin/example/**'
 linter:
   rules:
     - public_member_api_docs

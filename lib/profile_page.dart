@@ -1,5 +1,8 @@
+// lib/profile_page.dart
+// ignore_for_file: use_build_context_synchronously
 import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -10,6 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logger/logger.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import 'secure_storage_service.dart';
 import 'edit_profile_page.dart';
@@ -27,10 +32,95 @@ import 'manage_subscription.dart';
 import 'login_page.dart';
 import 'trainer_dashboard_page.dart';
 
-//─────────────────────────────────────────────────────────────────────────────
+/// ─────────────────────────────────────────────────────────────
 final Logger logger = Logger();
-const Set<String> _kProductIds = <String>{'fitly.membership.1'}; // Apple SKU
-//─────────────────────────────────────────────────────────────────────────────
+const Set<String> _kProductIds = <String>{'fitly.membership.1'};
+const Color _brandColor = Color(0xFFFFA726);
+
+/// ─────────────────────────────────────────────────────────────
+/// 1) Map FirebaseAuthException → short, friendly copy
+String prettyAuthError(dynamic error) {
+  if (error is FirebaseAuthException) {
+    switch (error.code) {
+      case 'invalid-credential':
+      case 'wrong-password':
+        return 'Incorrect e-mail or password.';
+      case 'user-not-found':
+        return 'No account exists for that e-mail address.';
+      case 'user-disabled':
+        return 'This account has been disabled.';
+      case 'too-many-requests':
+        return 'Too many attempts. Try again later.';
+      case 'network-request-failed':
+        return 'Network error. Check your connection.';
+      default:
+        return 'Authentication failed. Please try again.';
+    }
+  }
+  return 'Something went wrong. Please try again.';
+}
+
+/// 2) Re-usable dialog (colour + rounded look is on-brand)
+Future<void> showInfoDialog(
+  BuildContext ctx, {
+  required String title,
+  required String message,
+  bool error = false,
+  String buttonText = 'OK',
+}) {
+  return showDialog<void>(
+    context: ctx,
+    barrierDismissible: true,
+    builder: (_) => Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 28, 24, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: 32,
+              backgroundColor: error ? Colors.red : _brandColor,
+              child: Icon(
+                error
+                    ? Icons.error_outline_rounded
+                    : Icons.info_outline_rounded,
+                color: Colors.white,
+                size: 38,
+              ),
+            ),
+            const SizedBox(height: 22),
+            Text(title,
+                textAlign: TextAlign.center,
+                style:
+                    const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 14),
+            Text(message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 15, height: 1.45)),
+            const SizedBox(height: 30),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: Text(buttonText, style: const TextStyle(fontSize: 16)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+/// ─────────────────────────────────────────────────────────────
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -46,7 +136,7 @@ class _ProfilePageState extends State<ProfilePage> {
   // Promo-code controller
   final TextEditingController _promoCodeController = TextEditingController();
 
-  // IAP
+  // In-app-purchase
   StreamSubscription<List<PurchaseDetails>>? _purchaseSub;
   ProductDetails? _membershipProduct;
   InAppPurchaseStoreKitPlatformAddition? _skAddition;
@@ -57,50 +147,89 @@ class _ProfilePageState extends State<ProfilePage> {
     super.initState();
     _loadUserRole();
     _initIAP();
-    // store last profile-view timestamp
     secureStorage
         .writeData('last_profile_view', DateTime.now().toIso8601String())
         .catchError((e) => logger.e("SecureStorage error: $e"));
   }
 
-  //───────────────── Promo dialog ──────────
+  //───────────────── Snack helper ─────────────────────────────
+  void _showSnack(String message, {bool error = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: error ? Colors.red : Colors.green,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  //───────────────── Promo-code dialog ─────────────────────────
   void _showPromoDialog() {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Enter Promo Code'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            TextField(
-              controller: _promoCodeController,
-              decoration: const InputDecoration(
-                hintText: 'Promo code',
-                border: OutlineInputBorder(),
+      builder: (_) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 32,
+                backgroundColor: _brandColor,
+                child: const Icon(Icons.local_offer_rounded,
+                    color: Colors.white, size: 38),
               ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Credit card used only for verification Cancel anytime',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-          ],
+              const SizedBox(height: 22),
+              const Text('Enter Promo Code',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 18),
+              TextField(
+                controller: _promoCodeController,
+                decoration: const InputDecoration(
+                  hintText: 'Promo code',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Your card is used only for verification.\nCancel any time.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const SizedBox(height: 26),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      child: const Text('Cancel'),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('Apply',
+                          style: TextStyle(color: Colors.white)),
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _activateSubscription();
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _activateSubscription(); // uses controller text
-            },
-            child: const Text('Apply'),
-          ),
-        ],
       ),
     );
   }
@@ -123,8 +252,9 @@ class _ProfilePageState extends State<ProfilePage> {
     }
     _membershipProduct = res.productDetails.first;
     _purchaseSub = InAppPurchase.instance.purchaseStream.listen(
-        _onPurchaseUpdate,
-        onError: (e) => logger.e('Purchase stream error: $e'));
+      _onPurchaseUpdate,
+      onError: (e) => logger.e('Purchase stream error: $e'),
+    );
     await InAppPurchase.instance.restorePurchases();
     _skAddition = InAppPurchase.instance
         .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
@@ -138,13 +268,16 @@ class _ProfilePageState extends State<ProfilePage> {
           break;
         case PurchaseStatus.error:
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(p.error?.message ?? 'Purchase error')));
+            await showInfoDialog(
+              context,
+              title: 'Purchase Failed',
+              message: p.error?.message ?? 'Purchase cancelled or failed.',
+              error: true,
+            );
           }
           break;
         case PurchaseStatus.purchased:
         case PurchaseStatus.restored:
-          // upload iOS receipt
           if (Platform.isIOS && _skAddition != null) {
             String? receipt;
             try {
@@ -196,10 +329,12 @@ class _ProfilePageState extends State<ProfilePage> {
       if (addition != null) {
         final status =
             await addition.beginRefundRequest(_membershipProduct!.id);
-        logger.i('Refund request status: $status');
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Refund flow status: $status')));
+        await showInfoDialog(
+          context,
+          title: 'Refund',
+          message: 'Refund flow status: $status',
+        );
         return;
       }
     } catch (_) {}
@@ -220,13 +355,9 @@ class _ProfilePageState extends State<ProfilePage> {
 
   //──────────────── start subscription ────
   Future<void> _activateSubscription() async {
-    // iOS → Apple IAP
     if (Platform.isIOS) {
       if (_membershipProduct == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Product not ready. Try again.')));
-        }
+        _showSnack('Product not ready. Try again.', error: true);
         return;
       }
       final param = PurchaseParam(
@@ -237,19 +368,15 @@ class _ProfilePageState extends State<ProfilePage> {
       return;
     }
 
-    // Android → Stripe
     try {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text("Loading…")));
+      _showSnack('Loading…');
       final callable = FirebaseFunctions.instance
           .httpsCallable('createSubscriptionCheckoutSession');
       final result =
           await callable.call({'promoCode': _promoCodeController.text.trim()});
-      if (!mounted) return;
       final sessionUrl = result.data['sessionUrl'];
       if (sessionUrl == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Failed to get checkout URL.")));
+        _showSnack('Failed to get checkout URL.', error: true);
         return;
       }
       await launchUrl(Uri.parse(sessionUrl),
@@ -257,72 +384,198 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (e) {
       logger.e('Stripe error: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text("Error: $e")));
+      await showInfoDialog(
+        context,
+        title: 'Payment Error',
+        message:
+            'Could not start checkout. Check your connection and try again.',
+        error: true,
+      );
     }
   }
 
-  //──────────────── account deletion helpers ────────────────────
-  void _promptReauthAndDelete(String email) {
-    final TextEditingController pwController = TextEditingController();
-    showDialog(
+  //──────────────── Account-deletion helpers ──────────────────
+  Future<bool> _confirmDeletion() async {
+    final res = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirm Account Deletion'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Please re-enter your password to continue.'),
-            const SizedBox(height: 10),
-            TextField(
-              controller: pwController,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Password',
-                border: OutlineInputBorder(),
+      barrierDismissible: false,
+      builder: (_) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircleAvatar(
+                radius: 32,
+                backgroundColor: Colors.red,
+                child: Icon(Icons.warning_amber_rounded,
+                    color: Colors.white, size: 38),
               ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _reauthAndDelete(email, pwController.text);
-            },
-            child: const Text('Delete'),
+              const SizedBox(height: 22),
+              const Text('Delete Account?',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 14),
+              const Text(
+                'This action is permanent and will remove all your data.\nAre you sure you want to continue?',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 28),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      child: const Text('Cancel'),
+                      onPressed: () => Navigator.pop(context, false),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red.shade700,
+                          padding: const EdgeInsets.symmetric(vertical: 14)),
+                      child: const Text('Delete',
+                          style: TextStyle(color: Colors.white)),
+                      onPressed: () => Navigator.pop(context, true),
+                    ),
+                  ),
+                ],
+              )
+            ],
           ),
-        ],
+        ),
+      ),
+    );
+    return res ?? false;
+  }
+
+  Future<String?> _askForPassword() async {
+    final TextEditingController pwController = TextEditingController();
+    return await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 32,
+                backgroundColor: _brandColor,
+                child: const Icon(Icons.lock_outline_rounded,
+                    color: Colors.white, size: 38),
+              ),
+              const SizedBox(height: 22),
+              const Text('Confirm with Password',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 18),
+              TextField(
+                controller: pwController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Password',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 26),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      child: const Text('Cancel'),
+                      onPressed: () => Navigator.pop(context, null),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 14)),
+                      child: const Text('Continue',
+                          style: TextStyle(color: Colors.white)),
+                      onPressed: () =>
+                          Navigator.pop(context, pwController.text.trim()),
+                    ),
+                  ),
+                ],
+              )
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Future<void> _reauthAndDelete(String email, String password) async {
+  //──────── re-auth helpers ─────
+  Future<void> _reauthGoogle() async {
+    final googleUser = await GoogleSignIn().signIn();
+    if (googleUser == null) throw FirebaseAuthException(code: 'cancelled');
+    final googleAuth = await googleUser.authentication;
+    final cred = GoogleAuthProvider.credential(
+        idToken: googleAuth.idToken, accessToken: googleAuth.accessToken);
+    await FirebaseAuth.instance.currentUser!.reauthenticateWithCredential(cred);
+  }
+
+  Future<void> _reauthApple() async {
+    final appleCred = await SignInWithApple.getAppleIDCredential(
+        scopes: [AppleIDAuthorizationScopes.email]);
+    final cred = OAuthProvider('apple.com').credential(
+        idToken: appleCred.identityToken,
+        accessToken: appleCred.authorizationCode);
+    await FirebaseAuth.instance.currentUser!.reauthenticateWithCredential(cred);
+  }
+
+  Future<void> _reauthEmail(String email) async {
+    final pw = await _askForPassword();
+    if (pw == null) throw FirebaseAuthException(code: 'cancelled');
+    final cred = EmailAuthProvider.credential(email: email, password: pw);
+    await FirebaseAuth.instance.currentUser!.reauthenticateWithCredential(cred);
+  }
+
+  Future<void> _handleDeleteAccount() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    if (!await _confirmDeletion()) return;
+
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) throw FirebaseAuthException(code: 'no-user');
+      final providers = user.providerData.map((e) => e.providerId).toList();
+      if (providers.contains('google.com')) {
+        await _reauthGoogle();
+      } else if (providers.contains('apple.com')) {
+        await _reauthApple();
+      } else {
+        await _reauthEmail(user.email ?? '');
+      }
 
-      final credential =
-          EmailAuthProvider.credential(email: email, password: password);
-
-      await user.reauthenticateWithCredential(credential);
       await user.delete();
-
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Account deleted successfully.")));
+      await showInfoDialog(context,
+          title: 'Account Deleted',
+          message: 'Your account has been deleted successfully.');
 
       await FirebaseAuth.instance.signOut();
-
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/login');
+      Navigator.pushReplacement(
+          context, MaterialPageRoute(builder: (_) => const LoginPage()));
     } on FirebaseAuthException catch (e) {
+      if (e.code == 'cancelled') return;
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text("❌ Failed: ${e.message}")));
+      await showInfoDialog(context,
+          title: 'Error', message: prettyAuthError(e), error: true);
+    } catch (e) {
+      logger.e('Delete account error: $e');
+      if (!mounted) return;
+      await showInfoDialog(context,
+          title: 'Error',
+          message: 'Something went wrong. Please try again.',
+          error: true);
     }
   }
 
@@ -336,9 +589,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
   //──────────────── helpers ───────────────
   Widget _buildBottomNavigation() {
-    bool isTrainer = (userRole == 'trainer' ||
-        userRole == 'personal trainer' ||
-        userRole == 'personaltrainer');
+    final isTrainer =
+        ['trainer', 'personal trainer', 'personaltrainer'].contains(userRole);
     return isTrainer
         ? const BottomNavigation(currentIndex: 4)
         : const BottomNavigationCustomers(currentIndex: 4);
@@ -358,8 +610,7 @@ class _ProfilePageState extends State<ProfilePage> {
           clipBehavior: Clip.none,
           children: [
             IconButton(
-              icon: const Icon(Icons.notifications_none,
-                  color: Color.fromRGBO(255, 255, 255, 1)),
+              icon: const Icon(Icons.notifications_none, color: Colors.white),
               onPressed: _handleReviewBellTap,
             ),
             if (hasNew)
@@ -377,12 +628,12 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _handleReviewBellTap() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    final reviewsRef = FirebaseFirestore.instance
+    final ref = FirebaseFirestore.instance
         .collection("trainer_profiles")
         .doc(user.uid)
         .collection("reviews");
     try {
-      final snap = await reviewsRef.where("notified", isEqualTo: false).get();
+      final snap = await ref.where("notified", isEqualTo: false).get();
       final batch = FirebaseFirestore.instance.batch();
       for (var doc in snap.docs) {
         batch.update(doc.reference, {"notified": true});
@@ -392,40 +643,68 @@ class _ProfilePageState extends State<ProfilePage> {
       logger.e("Mark reviews notified error: $e");
     }
     if (!mounted) return;
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("New Review Received"),
-        content: const Text("You have received a new review!"),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text("OK"))
-        ],
-      ),
-    );
+    await showInfoDialog(context,
+        title: 'New Review',
+        message: 'You have received a new review!',
+        buttonText: 'OK');
   }
 
   void _showSignUpPrompt() {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text("Sign In Required"),
-        content: const Text(
-            "Please sign in or sign up to manage your subscription."),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text("Cancel")),
-          TextButton(
-            child: const Text("Sign In / Sign Up"),
-            onPressed: () {
-              Navigator.of(context).pop();
-              Navigator.pushReplacement(context,
-                  MaterialPageRoute(builder: (_) => const LoginPage()));
-            },
-          )
-        ],
+      builder: (_) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 32,
+                backgroundColor: _brandColor,
+                child: const Icon(Icons.login_rounded,
+                    color: Colors.white, size: 38),
+              ),
+              const SizedBox(height: 22),
+              const Text('Sign-In Required',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 14),
+              const Text(
+                'Please sign in or sign up to manage your subscription.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 28),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      child: const Text('Cancel'),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 14)),
+                      child: const Text('Sign In / Sign Up',
+                          style: TextStyle(color: Colors.white)),
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const LoginPage()));
+                      },
+                    ),
+                  ),
+                ],
+              )
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -437,13 +716,12 @@ class _ProfilePageState extends State<ProfilePage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Profile', style: TextStyle(color: Colors.white)),
-        backgroundColor: const Color(0xFFFFA726),
+        backgroundColor: _brandColor,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Color(0xFFFFFFFF)),
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () {
-            final bool isTrainer = (userRole == 'trainer' ||
-                userRole == 'personal trainer' ||
-                userRole == 'personaltrainer');
+            final isTrainer = ['trainer', 'personal trainer', 'personaltrainer']
+                .contains(userRole);
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
@@ -502,7 +780,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                           IconButton(
                               icon: const Icon(Icons.camera_alt,
-                                  color: Color.fromRGBO(255, 255, 255, 1)),
+                                  color: Colors.white),
                               onPressed: () => Navigator.push(
                                   context,
                                   MaterialPageRoute(
@@ -538,7 +816,6 @@ class _ProfilePageState extends State<ProfilePage> {
               final active = d['isActive'] ?? false;
               final stripeId = d['stripeId'] ?? '';
 
-              //──────── ACTIVE ─────────
               if (active) {
                 return Card(
                   shape: RoundedRectangleBorder(
@@ -574,7 +851,6 @@ class _ProfilePageState extends State<ProfilePage> {
                 );
               }
 
-              //──────── INACTIVE ───────
               return Card(
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16)),
@@ -599,7 +875,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         child: const Text(
                           'Have a promo code?',
                           style: TextStyle(
-                            color: Color.fromARGB(255, 33, 150, 243),
+                            color: Color(0xFF2196F3),
                             decoration: TextDecoration.underline,
                           ),
                         ),
@@ -639,7 +915,7 @@ class _ProfilePageState extends State<ProfilePage> {
               page: const LegalDocumentsPage()),
           _deleteTile(),
           const SizedBox(height: 16),
-          //──────────────── LOG-OUT BUTTON ──────────────────────
+          //──────────────── LOG-OUT BUTTON ───────────────────────
           ElevatedButton(
             style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
@@ -666,7 +942,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  //──────────────── helper tile builders ────────────────────────
+  //──────────────── helper tile builders ───────────────────────
   Widget _simpleTile(
           {required IconData icon,
           required String label,
@@ -696,12 +972,7 @@ class _ProfilePageState extends State<ProfilePage> {
             title: const Text('Delete Account',
                 style: TextStyle(color: Colors.red)),
             trailing: const Icon(Icons.arrow_forward_ios, color: Colors.red),
-            onTap: () {
-              final user = FirebaseAuth.instance.currentUser;
-              if (user != null && user.email != null) {
-                _promptReauthAndDelete(user.email!);
-              }
-            },
+            onTap: _handleDeleteAccount,
           ),
         ),
       );

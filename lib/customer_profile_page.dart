@@ -1,7 +1,10 @@
+// lib/customer_profile_page.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 import 'edit_profile_page_customers.dart';
 import 'faq_page.dart';
@@ -14,6 +17,31 @@ import 'privacy_policy_page.dart';
 import 'legal_documents_page.dart';
 import 'secure_storage_service.dart';
 
+/* ───────────────── Brand colour & helpers ───────────────── */
+const Color _brandColor = Color(0xFFFFA726);
+
+/* Same mapping function you used on the login page */
+String prettyAuthError(dynamic error) {
+  if (error is FirebaseAuthException) {
+    switch (error.code) {
+      case 'invalid-credential':
+      case 'wrong-password':
+        return 'Incorrect e-mail or password.';
+      case 'user-not-found':
+        return 'No account exists for that e-mail address.';
+      case 'user-disabled':
+        return 'This account has been disabled.';
+      case 'too-many-requests':
+        return 'Too many attempts. Try again later.';
+      case 'network-request-failed':
+        return 'Network error. Check your connection.';
+      default:
+        return 'Authentication failed. Please try again.';
+    }
+  }
+  return 'Something went wrong. Please try again.';
+}
+
 class CustomerProfilePage extends StatefulWidget {
   const CustomerProfilePage({super.key});
 
@@ -22,24 +50,19 @@ class CustomerProfilePage extends StatefulWidget {
 }
 
 class _CustomerProfilePageState extends State<CustomerProfilePage> {
-  // ──────────────────────────
-  // State
-  // ──────────────────────────
+  /* ───────────── State ───────────── */
   String _displayName = 'Customer Name';
   String _email = 'customer@example.com';
   String? _profileImageUrl;
   String userRole = 'customer'; // default
   final SecureStorageService secureStorage = SecureStorageService();
 
-  // ──────────────────────────
-  // init / dispose
-  // ──────────────────────────
+  /* ───────────── init ───────────── */
   @override
   void initState() {
     super.initState();
     _loadUserData();
 
-    // 1️⃣ load role then bounce non-customers away
     _loadUserRole().then((_) {
       if (userRole != 'customer' && mounted) {
         Navigator.pushReplacement(
@@ -49,16 +72,13 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
       }
     });
 
-    // store last-view timestamp
     secureStorage
         .writeData(
             'last_customer_profile_view', DateTime.now().toIso8601String())
         .catchError((e) => debugPrint('Timestamp write failed: $e'));
   }
 
-  // ──────────────────────────
-  // Firestore & prefs helpers
-  // ──────────────────────────
+  /* ───────────── Firestore & prefs ───────────── */
   Future<void> _loadUserData() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -74,6 +94,7 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
       final lastName = data['lastName'] ?? '';
       final combined = '$firstName $lastName'.trim();
 
+      if (!mounted) return;
       setState(() {
         _displayName = combined.isNotEmpty ? combined : 'Customer Name';
         _email = data['email'] ?? 'customer@example.com';
@@ -86,8 +107,6 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
 
   Future<void> _loadUserRole() async {
     final prefs = await SharedPreferences.getInstance();
-
-    // 2️⃣ always lower-case
     if (mounted) {
       setState(() {
         userRole = prefs.getString('userRole')?.toLowerCase() ?? 'customer';
@@ -97,26 +116,158 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
     }
   }
 
-  // ──────────────────────────
-  // Auth helpers
-  // ──────────────────────────
+  /* ───────────── styled info / error / confirm dialogs ───────────── */
+  Future<void> _showInfoDialog({
+    required String title,
+    required String message,
+    bool error = false,
+    String buttonText = 'OK',
+  }) async {
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 32,
+                backgroundColor: error ? Colors.red : _brandColor,
+                child: Icon(
+                  error
+                      ? Icons.error_outline_rounded
+                      : Icons.info_outline_rounded,
+                  color: Colors.white,
+                  size: 38,
+                ),
+              ),
+              const SizedBox(height: 22),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style:
+                    const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 15, height: 1.45),
+              ),
+              const SizedBox(height: 30),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: Text(buttonText,
+                      style:
+                          const TextStyle(fontSize: 16, color: Colors.white)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<bool> _showConfirmDialog({
+    required String title,
+    required String message,
+    String confirmText = 'Delete',
+    Color confirmColor = Colors.red,
+  }) async {
+    if (!mounted) return false;
+    return await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 32,
+                backgroundColor: confirmColor,
+                child: const Icon(Icons.warning_amber_rounded,
+                    color: Colors.white, size: 38),
+              ),
+              const SizedBox(height: 22),
+              Text(title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 14),
+              Text(message,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 15, height: 1.45)),
+              const SizedBox(height: 30),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: const BorderSide(color: Colors.black),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                      ),
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      child: const Text('Cancel',
+                          style: TextStyle(fontSize: 16, color: Colors.black)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: confirmColor,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      child: Text(confirmText,
+                          style: const TextStyle(
+                              fontSize: 16, color: Colors.white)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ).then((v) => v ?? false);
+  }
+
+  /* ───────────── Auth helpers ───────────── */
   Future<void> _logout() async {
-    // 1️⃣ Capture navigator early
-    final navigator = Navigator.of(context);
-
-    // 2️⃣ Sign out of Firebase
     await FirebaseAuth.instance.signOut();
-
-    // 3️⃣ Reset local role to 'guest'
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('userRole', 'guest');
-
-    // 4️⃣ Clean up secure storage
     await secureStorage.deleteData('userToken');
     await secureStorage.deleteData('last_customer_profile_view');
 
-    // 5️⃣ Redirect to WelcomePage
-    navigator.pushReplacement(
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
       MaterialPageRoute(builder: (_) => const WelcomePage()),
     );
   }
@@ -125,99 +276,170 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    // cache navigator / messenger for later use
-    final navigator = Navigator.of(context);
-    final messenger = ScaffoldMessenger.of(context);
-
-    // 1️⃣ Are you sure?
-    final wantsToDelete = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Account'),
-        content: const Text(
-            'This will permanently remove your account and data. Continue?'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Delete', style: TextStyle(color: Colors.red))),
-        ],
-      ),
+    /* 1️⃣  final confirmation */
+    final sure = await _showConfirmDialog(
+      title: 'Delete your account?',
+      message: 'This will permanently remove your account and data. ',
+      confirmText: 'Delete',
+      confirmColor: Colors.red,
     );
-    if (wantsToDelete != true) return;
+    if (!sure) return;
 
-    // 2️⃣ Prompt for password again  ─── (guard context before re-using)
-    if (!mounted) return;
-    final passController = TextEditingController();
-    final reauthConfirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Re-enter Password'),
-        content: TextField(
-          controller: passController,
-          obscureText: true,
-          decoration: const InputDecoration(labelText: 'Password'),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Cancel')),
-          TextButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Confirm')),
-        ],
-      ),
-    );
-    if (reauthConfirmed != true) {
-      passController.dispose();
-      return;
-    }
+    /* 2️⃣  obtain fresh credential depending on provider */
+    final AuthCredential? credential =
+        await _obtainFreshCredentialFor(user.providerData.first.providerId);
+    if (credential == null) return; // user aborted
 
     try {
-      // 3️⃣ Re-authenticate
-      final credential = EmailAuthProvider.credential(
-        email: user.email!,
-        password: passController.text.trim(),
-      );
       await user.reauthenticateWithCredential(credential);
 
-      // 4️⃣ Delete Firestore record then Firebase account
+      /* 3️⃣  delete in Firestore → FirebaseAuth */
       await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .delete();
       await user.delete();
 
-      // 5️⃣ Clean local storage / prefs
+      // for Google: disconnect so account picker appears again
+      if (credential.providerId == 'google.com') {
+        await GoogleSignIn().disconnect();
+      }
+
+      /* 4️⃣  local cleanup & goodbye */
       await secureStorage.deleteData('userToken');
       await secureStorage.deleteData('last_customer_profile_view');
       final prefs = await SharedPreferences.getInstance();
       await prefs.clear();
 
-      navigator.pushAndRemoveUntil(
+      await _showInfoDialog(
+        title: 'Account deleted',
+        message: 'Your account has been removed successfully. '
+            'We hope to see you again!',
+        error: false,
+        buttonText: 'Close',
+      );
+
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const WelcomePage()),
         (_) => false,
       );
     } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Failed to delete account: $e')),
+      await _showInfoDialog(
+        title: 'Couldn\'t delete account',
+        message: prettyAuthError(e),
+        error: true,
       );
-    } finally {
-      passController.dispose();
+      debugPrint('Delete account error: $e');
     }
   }
 
-  // ──────────────────────────
-  // Bottom nav
-  // ──────────────────────────
+  /* ───────────── obtain credential ───────────── */
+  Future<AuthCredential?> _obtainFreshCredentialFor(String providerId) async {
+    if (providerId == 'password') {
+      final pass = await _askForPassword();
+      if (pass == null) return null;
+      final user = FirebaseAuth.instance.currentUser!;
+      return EmailAuthProvider.credential(
+        email: user.email!,
+        password: pass,
+      );
+    } else if (providerId == 'google.com') {
+      final googleUser = await GoogleSignIn().signIn();
+      if (googleUser == null) return null;
+      final googleAuth = await googleUser.authentication;
+      return GoogleAuthProvider.credential(
+        idToken: googleAuth.idToken,
+        accessToken: googleAuth.accessToken,
+      );
+    } else if (providerId == 'apple.com') {
+      final appleCred = await SignInWithApple.getAppleIDCredential(
+        scopes: [AppleIDAuthorizationScopes.email],
+      );
+      return OAuthProvider('apple.com').credential(
+        idToken: appleCred.identityToken,
+        accessToken: appleCred.authorizationCode,
+      );
+    } else {
+      await _showInfoDialog(
+        title: 'Unsupported sign-in method',
+        message: 'We currently do not support deleting accounts '
+            'signed in with this method.',
+        error: true,
+      );
+      return null;
+    }
+  }
+
+  /* Email users: ask for password in the same brand style */
+  Future<String?> _askForPassword() async {
+    final controller = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 32,
+                backgroundColor: _brandColor,
+                child: const Icon(Icons.lock_outline,
+                    color: Colors.white, size: 38),
+              ),
+              const SizedBox(height: 22),
+              const Text('Confirm password',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 14),
+              const Text(
+                'Please re-enter your password to continue.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 15, height: 1.45),
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: controller,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Password',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 30),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text('Continue',
+                      style: TextStyle(fontSize: 16, color: Colors.white)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    final value = (ok == true) ? controller.text.trim() : null;
+    controller.dispose();
+    return (value == null || value.isEmpty) ? null : value;
+  }
+
+  /* ───────────── Bottom nav ───────────── */
   Widget _buildBottomNavigation() =>
       const BottomNavigationCustomers(currentIndex: 4);
 
-  // ──────────────────────────
-  // UI
-  // ──────────────────────────
+  /* ───────────── UI ───────────── */
   @override
   Widget build(BuildContext context) {
     const double kHeaderNameSize = 22;
@@ -231,9 +453,8 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
         ? NetworkImage(_profileImageUrl!)
         : const AssetImage('assets/default_profile.png') as ImageProvider;
 
-    // build all menu widgets
     final List<Widget> menuItems = [
-      // header
+      /* header */
       Container(
         padding: const EdgeInsets.symmetric(vertical: 16),
         color: const Color.fromRGBO(255, 167, 38, 0.25),
@@ -257,12 +478,12 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
           ],
         ),
       ),
-      // edit profile
+      /* edit profile */
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: _editProfileButton(),
       ),
-      // menu options
+      /* menu options */
       _menuTile(
         Icons.help,
         'FAQ / Help',
@@ -336,7 +557,7 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
           ),
         ),
         title: const Text('My Profile', style: TextStyle(color: Colors.white)),
-        backgroundColor: const Color(0xFFFFA726),
+        backgroundColor: _brandColor,
       ),
       backgroundColor: Colors.white,
       body: ListView.separated(
@@ -349,22 +570,20 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
     );
   }
 
-  // ──────────────────────────
-  // widgets / helpers
-  // ──────────────────────────
+  /* ───────────── widgets ───────────── */
   Widget _editProfileButton() {
     return ElevatedButton.icon(
       onPressed: () {
-        // 3️⃣ guard access to Edit-Profile
         if (userRole == 'customer') {
           Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const EditProfilePageCustomers()),
           ).then((_) => _loadUserData());
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('Access restricted to customers only.')),
+          _showInfoDialog(
+            title: 'Access denied',
+            message: 'Only customers can edit their profile.',
+            error: true,
           );
         }
       },
