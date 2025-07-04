@@ -62,15 +62,12 @@ dependencies:
   uuid: ^4.5.1
   pdf: ^3.11.3
   printing: ^5.14.2
-<<<<<<< HEAD
   google_fonts: ^6.2.1
-=======
   google_sign_in: ^6.2.1
   sign_in_with_apple: ^7.0.1
   crypto: ^3.0.6
 
 
->>>>>>> 9d7ddd1 (feat: added full sign-up and login flow including Apple sign-in, email verification, and secure token storage)
 
 
   
