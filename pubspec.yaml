@@ -113,12 +113,9 @@ flutter:
     - .env
     - assets/background.png
     - assets/1024.png
-<<<<<<< HEAD
     - assets/fonts/Roboto-Regular.ttf
     - assets/fonts/Roboto-Bold.ttf
-=======
     - assets/google_logo.png
->>>>>>> 9d7ddd1 (feat: added full sign-up and login flow including Apple sign-in, email verification, and secure token storage)
 
 dependency_overrides:
   vm_service: 14.3.1
