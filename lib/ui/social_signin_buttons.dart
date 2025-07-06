@@ -1,5 +1,4 @@
 import 'dart:io' show Platform;
-
 import 'package:flutter/material.dart';
 
 class SocialSignInButtons extends StatelessWidget {
@@ -13,9 +12,9 @@ class SocialSignInButtons extends StatelessWidget {
   /* Whether a sign-in operation is currently running */
   final bool loading;
 
-  /* Callbacks supplied by the parent widget */
-  final VoidCallback onGooglePressed;
-  final VoidCallback onApplePressed;
+  /* Callbacks supplied by the parent widget (nullable so buttons can be disabled) */
+  final VoidCallback? onGooglePressed;
+  final VoidCallback? onApplePressed;
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +22,8 @@ class SocialSignInButtons extends StatelessWidget {
       children: [
         // ─────────── Google ───────────
         ElevatedButton(
-          onPressed: loading ? null : onGooglePressed,
+          onPressed:
+              (loading || onGooglePressed == null) ? null : onGooglePressed,
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.white,
             foregroundColor: Colors.black,
@@ -33,7 +33,7 @@ class SocialSignInButtons extends StatelessWidget {
               side: const BorderSide(color: Colors.grey),
             ),
           ),
-          child: loading
+          child: loading && onGooglePressed != null
               ? const SizedBox(
                   height: 20,
                   width: 20,
@@ -53,11 +53,12 @@ class SocialSignInButtons extends StatelessWidget {
                 ),
         ),
 
-        // ─────────── Apple (iOS / macOS) ─────
+        // ─────────── Apple (iOS / macOS) ───────────
         if (Platform.isIOS || Platform.isMacOS) ...[
           const SizedBox(height: 12),
           ElevatedButton(
-            onPressed: loading ? null : onApplePressed,
+            onPressed:
+                (loading || onApplePressed == null) ? null : onApplePressed,
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.black,
               foregroundColor: Colors.white,
@@ -66,7 +67,7 @@ class SocialSignInButtons extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
               ),
             ),
-            child: loading
+            child: loading && onApplePressed != null
                 ? const SizedBox(
                     height: 20,
                     width: 20,

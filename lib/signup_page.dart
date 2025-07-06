@@ -63,11 +63,14 @@ class SignupPageState extends State<SignupPage> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final SecureStorageService secureStorage = SecureStorageService();
 
-  String _selectedRole = 'customer';
+  String? _selectedRole; // ← user must pick
   bool _isLoading = false;
   bool _agreedToTnC = false;
 
   // ───────────────────────── helpers ───────────────────────────────
+  bool get _hasRole => _selectedRole != null && _selectedRole!.isNotEmpty;
+  bool get _socialEnabled => _hasRole && !_isLoading; // ← NEW
+
   String _cap(String s) =>
       s.isEmpty ? s : s[0].toUpperCase() + s.substring(1).toLowerCase();
 
@@ -105,7 +108,7 @@ class SignupPageState extends State<SignupPage> {
               const SizedBox(height: 14),
               Text(
                 'The e-mail address\n$email\nis already registered as a '
-                '$existingRole. To create a separate $_selectedRole account, '
+                '$existingRole. To create a separate ${_selectedRole ?? ''} account, '
                 'please choose a different e-mail address.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 15, height: 1.45),
@@ -137,6 +140,16 @@ class SignupPageState extends State<SignupPage> {
   // ───────────────── social sign-in handler ───────────────────────
   Future<void> _handleSocialSignIn(
       Future<UserCredential?> Function() method) async {
+    if (!_hasRole) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          backgroundColor: Colors.orange,
+          content: Text('Please choose “Customer” or “Trainer” first.'),
+        ));
+      }
+      return;
+    }
+
     if (_isLoading) return;
     _setLoading(true);
 
@@ -148,11 +161,10 @@ class SignupPageState extends State<SignupPage> {
           FirebaseFirestore.instance.collection('users').doc(cred.user!.uid);
       final doc = await docRef.get();
 
-      // conflict?
       if (doc.exists) {
         final existingRole =
             (doc.data()!['role'] ?? '').toString().toLowerCase();
-        if (existingRole != _selectedRole.toLowerCase()) {
+        if (existingRole != _selectedRole!.toLowerCase()) {
           await _showRoleConflictDialog(
               existingRole: existingRole, email: cred.user!.email ?? '');
           _setLoading(false);
@@ -160,7 +172,6 @@ class SignupPageState extends State<SignupPage> {
         }
       }
 
-      // create profile if first time
       if (!doc.exists) {
         final display = cred.user!.displayName ?? '';
         final parts = display.split(' ');
@@ -184,11 +195,9 @@ class SignupPageState extends State<SignupPage> {
         });
       }
 
-      // cache role
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('userRole', _selectedRole.toLowerCase());
+      await prefs.setString('userRole', _selectedRole!.toLowerCase());
 
-      // decide destination
       final verified = cred.user?.emailVerified ?? false;
 
       if (!mounted) return;
@@ -216,7 +225,14 @@ class SignupPageState extends State<SignupPage> {
     if (!mounted || _isLoading) return;
     if (!_formKey.currentState!.validate()) return;
 
-    // age check
+    if (!_hasRole) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        backgroundColor: Colors.orange,
+        content: Text('Please choose “Customer” or “Trainer” first.'),
+      ));
+      return;
+    }
+
     final dob = DateTime.tryParse(_dobController.text.trim());
     if (dob == null || DateTime.now().difference(dob).inDays < 365 * 18) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -246,7 +262,6 @@ class SignupPageState extends State<SignupPage> {
 
       await cred.user?.sendEmailVerification();
 
-      // optional token
       if (cred.user != null) {
         final token = await cred.user!.getIdToken();
         await secureStorage.writeData('auth_token', token!);
@@ -277,7 +292,7 @@ class SignupPageState extends State<SignupPage> {
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.clear();
-      await prefs.setString('userRole', _selectedRole.toLowerCase());
+      await prefs.setString('userRole', _selectedRole!.toLowerCase());
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -372,28 +387,55 @@ class SignupPageState extends State<SignupPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // ─── Title ─────────────────────────────────────
-                    const Text('Create your account',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black)),
+                    const Text(
+                      'Create your account',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black),
+                    ),
                     const SizedBox(height: 24),
-
-                    // ─── Social sign-in buttons (now at the top) ───
+                    const Text('I want to sign up as',
+                        style: TextStyle(fontSize: 16)),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: _selectedRole,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                            value: 'customer', child: Text('Customer')),
+                        DropdownMenuItem(
+                            value: 'trainer', child: Text('Personal trainer')),
+                      ],
+                      validator: (v) => v == null ? 'Required' : null,
+                      onChanged: (v) => setState(() => _selectedRole = v),
+                    ),
+                    const SizedBox(height: 24),
                     SocialSignInButtons(
                       loading: _isLoading,
-                      onGooglePressed: () =>
-                          _handleSocialSignIn(AuthService.googleOneTap),
-                      onApplePressed: () =>
-                          _handleSocialSignIn(AuthService.appleOneTap),
+                      onGooglePressed: _socialEnabled
+                          ? () => _handleSocialSignIn(AuthService.googleOneTap)
+                          : null,
+                      onApplePressed: _socialEnabled
+                          ? () => _handleSocialSignIn(AuthService.appleOneTap)
+                          : null,
                     ),
+                    if (!_socialEnabled)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          'Choose “Customer” or “Personal trainer”',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              fontSize: 12, color: Colors.orange.shade700),
+                        ),
+                      ),
                     const SizedBox(height: 18),
                     orDivider(),
                     const SizedBox(height: 20),
-
-                    // ─── Email signup form ────────────────────────
                     TextFormField(
                       controller: _firstNameController,
                       decoration: const InputDecoration(
@@ -404,7 +446,6 @@ class SignupPageState extends State<SignupPage> {
                           v == null || v.trim().isEmpty ? 'Required' : null,
                     ),
                     const SizedBox(height: 16),
-
                     TextFormField(
                       controller: _lastNameController,
                       decoration: const InputDecoration(
@@ -415,7 +456,6 @@ class SignupPageState extends State<SignupPage> {
                           v == null || v.trim().isEmpty ? 'Required' : null,
                     ),
                     const SizedBox(height: 16),
-
                     TextFormField(
                       controller: _dobController,
                       readOnly: true,
@@ -429,7 +469,6 @@ class SignupPageState extends State<SignupPage> {
                           v == null || v.trim().isEmpty ? 'Required' : null,
                     ),
                     const SizedBox(height: 16),
-
                     TextFormField(
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
@@ -445,8 +484,6 @@ class SignupPageState extends State<SignupPage> {
                       },
                     ),
                     const SizedBox(height: 16),
-
-                    // Optional phone field (still kept, shorter page if you delete)
                     TextFormField(
                       controller: _phoneController,
                       keyboardType: TextInputType.phone,
@@ -456,7 +493,6 @@ class SignupPageState extends State<SignupPage> {
                       ),
                     ),
                     const SizedBox(height: 16),
-
                     TextFormField(
                       controller: _passwordController,
                       obscureText: true,
@@ -471,7 +507,6 @@ class SignupPageState extends State<SignupPage> {
                       },
                     ),
                     const SizedBox(height: 16),
-
                     TextFormField(
                       controller: _confirmPasswordController,
                       obscureText: true,
@@ -488,23 +523,6 @@ class SignupPageState extends State<SignupPage> {
                       },
                     ),
                     const SizedBox(height: 16),
-
-                    DropdownButtonFormField<String>(
-                      value: _selectedRole,
-                      decoration: const InputDecoration(
-                        labelText: 'Sign up as',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                            value: 'customer', child: Text('Customer')),
-                        DropdownMenuItem(
-                            value: 'trainer', child: Text('Personal trainer')),
-                      ],
-                      onChanged: (v) => setState(() => _selectedRole = v!),
-                    ),
-                    const SizedBox(height: 16),
-
                     Row(
                       children: [
                         Checkbox(value: _agreedToTnC, onChanged: _toggleAgreed),
@@ -526,8 +544,6 @@ class SignupPageState extends State<SignupPage> {
                       ],
                     ),
                     const SizedBox(height: 24),
-
-                    // ─── Submit button ─────────────────────────────
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
@@ -542,9 +558,11 @@ class SignupPageState extends State<SignupPage> {
                                 height: 20,
                                 width: 20,
                                 child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor:
-                                        AlwaysStoppedAnimation(Colors.white)))
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white),
+                                ),
+                              )
                             : const Text('Sign up',
                                 style: TextStyle(color: Colors.white)),
                       ),
