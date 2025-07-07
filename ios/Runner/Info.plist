@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>dev.fitly.refresh</string>
+	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
@@ -25,6 +29,16 @@
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.googleusercontent.apps.794098237480-l5jlakvjv7955416bsp8p9udenbhpj3b</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.794098237480-l5jlakvjv7955416bsp8p9udenbhpj3b</string>
+			</array>
+		</dict>
+		<dict>
 			<key>CFBundleURLName</key>
 			<string>com.yourcompany.fitly</string>
 			<key>CFBundleURLSchemes</key>
@@ -32,47 +46,42 @@
 				<string>fitly</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.googleusercontent.apps.794098237480</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.794098237480-l5jlakvjv7955416bsp8p9udenbhpj3b</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>16</string>
+	<key>GIDClientID</key>
+	<string>794098237480-l5jlakvjv7955416bsp8p9udenbhpj3b.apps.googleusercontent.com</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>NSCameraUsageDescription</key>
-	<string>Fitly requires access to the camera to capture images for profiles and documents.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Fitly requires access to your photo library so you can upload and select images.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Fitly may use your microphone for video or audio-based features.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Fitly uses your location to provide you with nearby trainer and gym recommendations.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Fitly uses your location to provide you with nearby trainer and gym recommendations.</string>
-
-	<!-- ✅ Added for printing & PDF preview support -->
-	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>This app uses Bluetooth for printing functionality.</string>
-
-	<!-- ✅ Added to allow memory-based image/font rendering -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
-
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>processing</string>
-		<string>fetch</string>
-	</array>
-
-	<!-- ✅ Required if "processing" is used -->
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>dev.fitly.refresh</string>
-	</array>
-
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>This app uses Bluetooth for printing functionality.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Fitly requires access to the camera to capture images for profiles and documents.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Fitly uses your location to provide you with nearby trainer and gym recommendations.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Fitly uses your location to provide you with nearby trainer and gym recommendations.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Fitly may use your microphone for video or audio-based features.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Fitly requires access to your photo library so you can upload and select images.</string>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict>
@@ -82,6 +91,11 @@
 	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>processing</string>
+		<string>fetch</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
