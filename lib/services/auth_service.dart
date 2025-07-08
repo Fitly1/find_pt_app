@@ -4,13 +4,13 @@ import 'dart:io' show Platform;
 
 import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';           // NEW
-import 'package:flutter/foundation.dart';                        // kDebugMode
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart' as gsi;
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 class AuthService {
-  AuthService._(); // static-only
+  AuthService._();                       // static-only
 
   static final FirebaseAuth _auth = FirebaseAuth.instance;
 
@@ -18,7 +18,7 @@ class AuthService {
     if (kDebugMode) print(msg);
   }
 
-  // ─────────────────────── GOOGLE ───────────────────────
+  // ───────── GOOGLE ─────────
   static Future<UserCredential?> googleOneTap() async {
     try {
       final gsi.GoogleSignInAccount? googleUser =
@@ -45,14 +45,14 @@ class AuthService {
     }
   }
 
-  // ─────────────────────── APPLE ────────────────────────
+  // ───────── APPLE ─────────
   static const String _appleClientId = 'com.fitly.findptapp';
 
   static String _generateNonce([int length = 32]) {
     const charset =
         '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._';
-    final random = Random.secure();
-    return List.generate(length, (_) => charset[random.nextInt(charset.length)])
+    final r = Random.secure();
+    return List.generate(length, (_) => charset[r.nextInt(charset.length)])
         .join();
   }
 
@@ -68,7 +68,7 @@ class AuthService {
     }
 
     try {
-      final rawNonce = _generateNonce();
+      final rawNonce   = _generateNonce();
       final hashedNonce = _sha256of(rawNonce);
 
       final appleCredential = await SignInWithApple.getAppleIDCredential(
@@ -80,44 +80,47 @@ class AuthService {
       );
 
       final oauthCredential = OAuthProvider('apple.com').credential(
-        idToken: appleCredential.identityToken!,
-        rawNonce: rawNonce,
+        idToken:     appleCredential.identityToken!,
+        rawNonce:    rawNonce,
         accessToken: appleCredential.authorizationCode!,
       );
 
       final userCred = await _auth.signInWithCredential(oauthCredential);
-      final user = userCred.user!;
+      final user     = userCred.user!;
       _log('✅ Apple  | Firebase uid = ${user.uid}');
 
-      // ──────────────── NEW: create / patch users doc ────────────────
+      // ─── SET EMAIL ONCE (keeps your guest-check happy) ───
+      if (appleCredential.email != null &&
+          (user.email == null || user.email!.isEmpty)) {
+        await user.updateEmail(appleCredential.email!);      // runs only first time
+      }
+
+      // ─── Firestore users/{uid} creation / patch ───
       final usersRef =
           FirebaseFirestore.instance.collection('users').doc(user.uid);
 
       await FirebaseFirestore.instance.runTransaction((tx) async {
         final snap = await tx.get(usersRef);
 
-        final String? appleEmail = appleCredential.email;
         final String? firstName = appleCredential.givenName;
-        final String? lastName = appleCredential.familyName;
-        final String displayName =
-            '${firstName ?? ''} ${lastName ?? ''}'.trim();
+        final String? lastName  = appleCredential.familyName;
+        final displayName       = '${firstName ?? ''} ${lastName ?? ''}'.trim();
 
         if (!snap.exists) {
           tx.set(usersRef, {
-            'createdAt': FieldValue.serverTimestamp(),
-            'role': 'customer',
-            'email': appleEmail ?? user.email ?? '',
-            'firstName': firstName ?? '',
-            'lastName': lastName ?? '',
-            'displayName': displayName,
-            'emailVerified': true,
+            'createdAt'     : FieldValue.serverTimestamp(),
+            'role'          : 'customer',
+            'email'         : user.email ?? '',
+            'firstName'     : firstName ?? '',
+            'lastName'      : lastName  ?? '',
+            'displayName'   : displayName,
+            'emailVerified' : true,
             'hasAgreedToTnC': true,
           });
         } else {
           final updates = <String, dynamic>{};
-          if ((snap['email'] as String).isEmpty &&
-              (appleEmail ?? user.email) != null) {
-            updates['email'] = appleEmail ?? user.email!;
+          if ((snap['email'] as String).isEmpty && user.email != null) {
+            updates['email'] = user.email!;
           }
           if ((snap['firstName'] as String).isEmpty && firstName != null) {
             updates['firstName'] = firstName;
@@ -128,14 +131,12 @@ class AuthService {
           if (updates.isNotEmpty) tx.update(usersRef, updates);
         }
       });
-      // ───────────────────────────────────────────────────────────────
 
-      // store display name in FirebaseAuth profile (optional)
+      // optional: store displayName in FirebaseAuth profile
       if (appleCredential.givenName != null &&
           appleCredential.familyName != null) {
         await user.updateDisplayName(
-          '${appleCredential.givenName} ${appleCredential.familyName}',
-        );
+            '${appleCredential.givenName} ${appleCredential.familyName}');
       }
 
       return userCred;
@@ -145,7 +146,7 @@ class AuthService {
     }
   }
 
-  // ─────────── misc helpers ───────────
+  // ───────── misc helpers ─────────
   static Future<void> signOut() async {
     await _auth.signOut();
     await gsi.GoogleSignIn().signOut();
