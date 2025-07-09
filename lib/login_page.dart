@@ -1,3 +1,4 @@
+// lib/login_page.dart
 import 'dart:async' show unawaited;
 import 'dart:io' show Platform;
 
@@ -11,7 +12,7 @@ import 'email_verification_page.dart';
 import 'forgot_password_page.dart';
 import 'role_redirect.dart';
 import 'secure_storage_service.dart';
-import 'services/auth_service.dart'; // ← NEW
+import 'services/auth_service.dart';
 import 'ui/social_signin_buttons.dart';
 
 /* ───────────────────── Logger ───────────────────── */
@@ -170,9 +171,18 @@ class _LoginPageState extends State<LoginPage> {
       final idToken = await cred.user!.getIdToken();
       unawaited(secureStorage.writeData('auth_token', idToken!));
 
+      /* ─── Decide where to navigate ─── */
+      final user = cred.user!;
+      final isPasswordUser =
+          user.providerData.any((p) => p.providerId == 'password');
+
+      final Widget nextPage = (isPasswordUser && !user.emailVerified)
+          ? const EmailVerificationPage()
+          : const RoleRedirect();
+
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const RoleRedirect()),
+        MaterialPageRoute(builder: (_) => nextPage),
         (_) => false,
       );
     } catch (e, s) {
@@ -210,8 +220,11 @@ class _LoginPageState extends State<LoginPage> {
       final user = cred.user;
       if (user == null) throw Exception('Null user');
 
-      // e-mail verification
-      if (!user.emailVerified) {
+      final isPasswordUser =
+          user.providerData.any((p) => p.providerId == 'password');
+
+      // e-mail verification only for password users
+      if (isPasswordUser && !user.emailVerified) {
         await user.reload();
         if (!user.emailVerified) {
           if (!mounted) return;

@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'welcome_page.dart';               // <─ your public landing screen
 import 'login_page.dart';
 import 'email_verification_page.dart';
 import 'profile_page.dart' as profile;
@@ -55,12 +56,14 @@ class RoleRedirectState extends State<RoleRedirect> {
   /* ───────── main decision tree ───────── */
   Future<void> _checkUserRole() async {
     debugPrint("🔍 Checking user authentication status…");
-    Widget nextPage = const LoginPage();
+
+    // Fallback target when nothing else applies
+    Widget nextPage = const WelcomePage();
 
     try {
       final User? initial = await _getCurrentUserWithGracePeriod();
       if (initial == null) {
-        debugPrint("❌ No user after grace period → LoginPage");
+        debugPrint("❌ No user after grace period → WelcomePage");
         _navigateTo(nextPage);
         return;
       }
@@ -69,16 +72,16 @@ class RoleRedirectState extends State<RoleRedirect> {
       final User user = FirebaseAuth.instance.currentUser!;  // refreshed data
       debugPrint("✅ User is logged in: ${user.email}");
 
-      /* ─── Apple users skip e-mail verification screen ─── */
-      final bool isAppleUser =
-          user.providerData.any((p) => p.providerId == 'apple.com');
+      /* ─── provider-aware e-mail verification ─── */
+      final bool isPasswordUser =
+          user.providerData.any((p) => p.providerId == 'password');
 
-      if (!isAppleUser && !user.emailVerified) {
-        debugPrint("⚠️ Email NOT verified → EmailVerificationPage");
+      if (isPasswordUser && !user.emailVerified) {
+        debugPrint("⚠️ Password user & e-mail NOT verified → EmailVerificationPage");
         _navigateTo(const EmailVerificationPage());
         return;
       }
-      /* ──────────────────────────────────────────────── */
+      /* ────────────────────────────────────────── */
 
       final snap = await FirebaseFirestore.instance
           .collection("users")
@@ -86,7 +89,7 @@ class RoleRedirectState extends State<RoleRedirect> {
           .get();
 
       if (!snap.exists || snap.data() == null) {
-        debugPrint("❌ User doc missing → LoginPage");
+        debugPrint("❌ User doc missing → WelcomePage");
         _navigateTo(nextPage);
         return;
       }
@@ -94,7 +97,7 @@ class RoleRedirectState extends State<RoleRedirect> {
       final String role =
           (snap.data()!['role'] ?? '').toString().trim().toLowerCase();
       if (role.isEmpty) {
-        debugPrint("❌ role field empty → LoginPage");
+        debugPrint("❌ role field empty → WelcomePage");
         _navigateTo(nextPage);
         return;
       }
@@ -114,9 +117,10 @@ class RoleRedirectState extends State<RoleRedirect> {
       }
     } catch (e) {
       debugPrint("❌ Error during role checking: $e");
-      nextPage = const LoginPage();
+      nextPage = const WelcomePage();
     }
 
+    // record last redirect timestamp (debug / analytics)
     await secureStorage.writeData(
       'last_role_redirect',
       DateTime.now().toIso8601String(),

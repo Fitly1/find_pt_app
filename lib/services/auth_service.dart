@@ -4,13 +4,13 @@ import 'dart:io' show Platform;
 
 import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart' as gsi;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 class AuthService {
-  AuthService._();                       // static-only
+  AuthService._(); // static-only
 
   static final FirebaseAuth _auth = FirebaseAuth.instance;
 
@@ -18,7 +18,7 @@ class AuthService {
     if (kDebugMode) print(msg);
   }
 
-  // ───────── GOOGLE ─────────
+  // ───────────────────── GOOGLE ─────────────────────
   static Future<UserCredential?> googleOneTap() async {
     try {
       final gsi.GoogleSignInAccount? googleUser =
@@ -33,7 +33,7 @@ class AuthService {
 
       final credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
+        idToken:    googleAuth.idToken,
       );
 
       final userCred = await _auth.signInWithCredential(credential);
@@ -45,15 +45,14 @@ class AuthService {
     }
   }
 
-  // ───────── APPLE ─────────
+  // ───────────────────── APPLE ──────────────────────
   static const String _appleClientId = 'com.fitly.findptapp';
 
   static String _generateNonce([int length = 32]) {
-    const charset =
+    const chars =
         '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._';
     final r = Random.secure();
-    return List.generate(length, (_) => charset[r.nextInt(charset.length)])
-        .join();
+    return List.generate(length, (_) => chars[r.nextInt(chars.length)]).join();
   }
 
   static String _sha256of(String input) =>
@@ -89,50 +88,17 @@ class AuthService {
       final user     = userCred.user!;
       _log('✅ Apple  | Firebase uid = ${user.uid}');
 
-      // ─── SET EMAIL ONCE (keeps your guest-check happy) ───
+      // ─── Persist Apple’s one-time email ───
       if (appleCredential.email != null &&
           (user.email == null || user.email!.isEmpty)) {
-        await user.updateEmail(appleCredential.email!);      // runs only first time
+        try {
+          await user.updateEmail(appleCredential.email!);
+        } on FirebaseAuthException catch (e) {
+          if (e.code != 'email-already-in-use') rethrow;
+        }
       }
 
-      // ─── Firestore users/{uid} creation / patch ───
-      final usersRef =
-          FirebaseFirestore.instance.collection('users').doc(user.uid);
-
-      await FirebaseFirestore.instance.runTransaction((tx) async {
-        final snap = await tx.get(usersRef);
-
-        final String? firstName = appleCredential.givenName;
-        final String? lastName  = appleCredential.familyName;
-        final displayName       = '${firstName ?? ''} ${lastName ?? ''}'.trim();
-
-        if (!snap.exists) {
-          tx.set(usersRef, {
-            'createdAt'     : FieldValue.serverTimestamp(),
-            'role'          : 'customer',
-            'email'         : user.email ?? '',
-            'firstName'     : firstName ?? '',
-            'lastName'      : lastName  ?? '',
-            'displayName'   : displayName,
-            'emailVerified' : true,
-            'hasAgreedToTnC': true,
-          });
-        } else {
-          final updates = <String, dynamic>{};
-          if ((snap['email'] as String).isEmpty && user.email != null) {
-            updates['email'] = user.email!;
-          }
-          if ((snap['firstName'] as String).isEmpty && firstName != null) {
-            updates['firstName'] = firstName;
-          }
-          if ((snap['lastName'] as String).isEmpty && lastName != null) {
-            updates['lastName'] = lastName;
-          }
-          if (updates.isNotEmpty) tx.update(usersRef, updates);
-        }
-      });
-
-      // optional: store displayName in FirebaseAuth profile
+      // ─── Optional: store displayName in FirebaseAuth profile ───
       if (appleCredential.givenName != null &&
           appleCredential.familyName != null) {
         await user.updateDisplayName(
@@ -146,15 +112,19 @@ class AuthService {
     }
   }
 
-  // ───────── misc helpers ─────────
+  // ───────────────── misc helpers ──────────────────
   static Future<void> signOut() async {
     await _auth.signOut();
     await gsi.GoogleSignIn().signOut();
+
+    // Clear cached role so next login starts clean
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('userRole');
   }
 
   static User? get currentUser => _auth.currentUser;
 
-  static bool isSocialUser(User user) =>
-      user.providerData.any((p) => p.providerId == 'apple.com' ||
-                                   p.providerId == 'google.com');
+  static bool isSocialUser(User user) => user.providerData.any(
+        (p) => p.providerId == 'apple.com' || p.providerId == 'google.com',
+      );
 }

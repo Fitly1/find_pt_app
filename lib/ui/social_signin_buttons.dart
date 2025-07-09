@@ -1,5 +1,7 @@
+// lib/ui/social_signin_buttons.dart
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 class SocialSignInButtons extends StatelessWidget {
   const SocialSignInButtons({
@@ -9,10 +11,7 @@ class SocialSignInButtons extends StatelessWidget {
     required this.onApplePressed,
   });
 
-  /* Whether a sign-in operation is currently running */
   final bool loading;
-
-  /* Callbacks supplied by the parent widget (nullable so buttons can be disabled) */
   final VoidCallback? onGooglePressed;
   final VoidCallback? onApplePressed;
 
@@ -39,7 +38,7 @@ class SocialSignInButtons extends StatelessWidget {
                   width: 20,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation(Colors.black),
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.black),
                   ),
                 )
               : Row(
@@ -56,27 +55,30 @@ class SocialSignInButtons extends StatelessWidget {
         // ─────────── Apple (iOS / macOS) ───────────
         if (Platform.isIOS || Platform.isMacOS) ...[
           const SizedBox(height: 12),
-          ElevatedButton(
-            onPressed:
-                (loading || onApplePressed == null) ? null : onApplePressed,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.black,
-              foregroundColor: Colors.white,
-              minimumSize: const Size.fromHeight(48),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              // The official Apple button
+              AbsorbPointer(
+                absorbing: loading || onApplePressed == null,
+                child: SignInWithAppleButton(
+                  onPressed: onApplePressed ?? () {},
+                  style: SignInWithAppleButtonStyle.black,
+                  height: 48,
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
-            ),
-            child: loading && onApplePressed != null
-                ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation(Colors.white),
-                    ),
-                  )
-                : const Text('Continue with Apple'),
+              // Loading spinner overlay
+              if (loading && onApplePressed != null)
+                const SizedBox(
+                  height: 20,
+                  width: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+            ],
           ),
         ],
       ],

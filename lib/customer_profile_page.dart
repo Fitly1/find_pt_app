@@ -261,7 +261,7 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
   Future<void> _logout() async {
     await FirebaseAuth.instance.signOut();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('userRole', 'guest');
+    await prefs.remove('userRole');                 // ← CHANGED
     await secureStorage.deleteData('userToken');
     await secureStorage.deleteData('last_customer_profile_view');
 
@@ -309,7 +309,7 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
       await secureStorage.deleteData('userToken');
       await secureStorage.deleteData('last_customer_profile_view');
       final prefs = await SharedPreferences.getInstance();
-      await prefs.clear();
+      await prefs.clear();                            // ← clears userRole too
 
       await _showInfoDialog(
         title: 'Account deleted',

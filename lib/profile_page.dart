@@ -538,46 +538,67 @@ class _ProfilePageState extends State<ProfilePage> {
     await FirebaseAuth.instance.currentUser!.reauthenticateWithCredential(cred);
   }
 
-  Future<void> _handleDeleteAccount() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+Future<void> _handleDeleteAccount() async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return;
 
-    if (!await _confirmDeletion()) return;
+  if (!await _confirmDeletion()) return;
 
-    try {
-      final providers = user.providerData.map((e) => e.providerId).toList();
-      if (providers.contains('google.com')) {
-        await _reauthGoogle();
-      } else if (providers.contains('apple.com')) {
-        await _reauthApple();
-      } else {
-        await _reauthEmail(user.email ?? '');
-      }
-
-      await user.delete();
-      if (!mounted) return;
-      await showInfoDialog(context,
-          title: 'Account Deleted',
-          message: 'Your account has been deleted successfully.');
-
-      await FirebaseAuth.instance.signOut();
-      if (!mounted) return;
-      Navigator.pushReplacement(
-          context, MaterialPageRoute(builder: (_) => const LoginPage()));
-    } on FirebaseAuthException catch (e) {
-      if (e.code == 'cancelled') return;
-      if (!mounted) return;
-      await showInfoDialog(context,
-          title: 'Error', message: prettyAuthError(e), error: true);
-    } catch (e) {
-      logger.e('Delete account error: $e');
-      if (!mounted) return;
-      await showInfoDialog(context,
-          title: 'Error',
-          message: 'Something went wrong. Please try again.',
-          error: true);
+  try {
+    // ─── re-authenticate ───
+    final providers = user.providerData.map((e) => e.providerId).toList();
+    if (providers.contains('google.com')) {
+      await _reauthGoogle();
+    } else if (providers.contains('apple.com')) {
+      await _reauthApple();
+    } else {
+      await _reauthEmail(user.email ?? '');
     }
+
+    // ─── delete Firestore docs before removing Auth user ───
+    final batch = FirebaseFirestore.instance.batch();
+    batch.delete(
+        FirebaseFirestore.instance.collection('users').doc(user.uid));
+    batch.delete(
+        FirebaseFirestore.instance.collection('trainer_profiles').doc(user.uid));
+    await batch.commit();
+
+    // ─── delete Auth row ───
+    await user.delete();
+
+    // Google: disconnect so chooser appears next time
+    if (providers.contains('google.com')) {
+      await GoogleSignIn().disconnect();
+    }
+
+    // ─── local cleanup ───
+    await secureStorage.deleteData('userToken');
+    await secureStorage.deleteData('last_profile_view');
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();                         // removes cached role
+
+    await showInfoDialog(context,
+        title: 'Account Deleted',
+        message: 'Your account has been deleted successfully.');
+
+    // back to welcome
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const WelcomePage()),
+      (_) => false,
+    );
+  } on FirebaseAuthException catch (e) {
+    if (e.code == 'cancelled') return;
+    await showInfoDialog(context,
+        title: 'Error', message: prettyAuthError(e), error: true);
+  } catch (e) {
+    logger.e('Delete account error: $e');
+    await showInfoDialog(context,
+        title: 'Error',
+        message: 'Something went wrong. Please try again.',
+        error: true);
   }
+}
 
   //──────────────── dispose ───────────────
   @override
@@ -925,7 +946,7 @@ class _ProfilePageState extends State<ProfilePage> {
             onPressed: () async {
               await FirebaseAuth.instance.signOut();
               final prefs = await SharedPreferences.getInstance();
-              await prefs.setString('userRole', 'guest');
+              await prefs.remove('userRole');
               await secureStorage.deleteData('userToken');
               await secureStorage.deleteData('last_profile_view');
               if (!mounted) return;
