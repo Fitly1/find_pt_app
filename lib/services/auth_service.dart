@@ -46,6 +46,7 @@ class AuthService {
   }
 
   // ───────────────────── APPLE ──────────────────────
+  // ignore: unused_field
   static const String _appleClientId = 'com.fitly.findptapp';
 
   static String _generateNonce([int length = 32]) {
@@ -81,7 +82,7 @@ class AuthService {
       final oauthCredential = OAuthProvider('apple.com').credential(
         idToken:     appleCredential.identityToken!,
         rawNonce:    rawNonce,
-        accessToken: appleCredential.authorizationCode!,
+        accessToken: appleCredential.authorizationCode,
       );
 
       final userCred = await _auth.signInWithCredential(oauthCredential);
@@ -92,6 +93,7 @@ class AuthService {
       if (appleCredential.email != null &&
           (user.email == null || user.email!.isEmpty)) {
         try {
+          // ignore: deprecated_member_use
           await user.updateEmail(appleCredential.email!);
         } on FirebaseAuthException catch (e) {
           if (e.code != 'email-already-in-use') rethrow;
