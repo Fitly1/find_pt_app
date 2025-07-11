@@ -1,4 +1,4 @@
-// ignore_for_file: prefer_const_constructors
+// ignore_for_file: prefer_const_constructors, avoid_print
 import 'dart:async';
 import 'dart:convert';
 
@@ -11,14 +11,19 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:app_links/app_links.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:logger/logger.dart';
+import 'dart:io' show Platform;
 
+/* ─── local files ─── */
 import 'firebase_options.dart';
+import 'package:find_pt_app/services/push_notification_service.dart';
+
 import 'welcome_page.dart';
 import 'marketplace_page.dart';
 import 'signup_page.dart';
@@ -34,16 +39,17 @@ import 'manage_subscription.dart';
 
 final Logger logger = Logger(printer: PrettyPrinter());
 
-/* ───────── FCM background handler ───────── */
+/* ───────── FCM BACKGROUND HANDLER ───────── */
+@pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  debugPrint('Handling a background message: ${message.messageId}');
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  debugPrint('🔹 BG message handled: ${message.messageId}');
 }
 
-/* ───────── Deep-link handler widget ───────── */
+/* ───────── DEEP-LINK HANDLER (unchanged) ───────── */
 class DeepLinkHandler extends StatefulWidget {
   final Widget child;
   const DeepLinkHandler({super.key, required this.child});
-
   @override
   State<DeepLinkHandler> createState() => _DeepLinkHandlerState();
 }
@@ -51,7 +57,6 @@ class DeepLinkHandler extends StatefulWidget {
 class _DeepLinkHandlerState extends State<DeepLinkHandler> {
   final AppLinks _appLinks = AppLinks();
   StreamSubscription? _linkSub;
-
   @override
   void initState() {
     super.initState();
@@ -75,12 +80,7 @@ class _DeepLinkHandlerState extends State<DeepLinkHandler> {
   }
 
   void _handleDeepLink(String link) {
-    debugPrint('Deep link: $link');
-    if (link.startsWith('fitly://payment-success')) {
-      debugPrint('Payment success');
-    } else if (link.startsWith('fitly://payment-cancel')) {
-      debugPrint('Payment cancel');
-    } else if (link.startsWith('fitly://billing-portal-return')) {
+    if (link.startsWith('fitly://billing-portal-return')) {
       Navigator.of(context).pushNamed('/ManageSubscription');
     }
   }
@@ -95,10 +95,9 @@ class _DeepLinkHandlerState extends State<DeepLinkHandler> {
   Widget build(BuildContext context) => widget.child;
 }
 
-/* ───────── Stripe checkout helper (unchanged) ───────── */
+/* ───────── STRIPE CHECKOUT HELPER (unchanged) ───────── */
 Future<void> startStripeCheckout(BuildContext context) async {
   final messenger = ScaffoldMessenger.of(context);
-
   try {
     final userEmail =
         FirebaseAuth.instance.currentUser?.email ?? "test@example.com";
@@ -126,7 +125,6 @@ Future<void> startStripeCheckout(BuildContext context) async {
       throw Exception("Failed to create Stripe session");
     }
   } catch (e) {
-    debugPrint("❌ Payment error: $e");
     messenger.showSnackBar(
       SnackBar(content: Text("Payment failed! Try again.")),
     );
@@ -138,35 +136,28 @@ Future<void> main() async {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
-
       await dotenv.load(fileName: ".env");
       await Firebase.initializeApp(
           options: DefaultFirebaseOptions.currentPlatform);
 
       await FirebaseAppCheck.instance.activate(
-        androidProvider:
-            kReleaseMode ? AndroidProvider.playIntegrity : AndroidProvider.debug,
+        androidProvider: kReleaseMode
+            ? AndroidProvider.playIntegrity
+            : AndroidProvider.debug,
         appleProvider:
             kReleaseMode ? AppleProvider.deviceCheck : AppleProvider.debug,
       );
 
-      // NOTE: No automatic anonymous sign-in here.
-      // “Browse as guest” will call signInAnonymously() explicitly
-      // from the WelcomePage.
-
       FirebaseMessaging.onBackgroundMessage(
           _firebaseMessagingBackgroundHandler);
+
+      await PushNotificationService.initializeLocalNotifications();
 
       Stripe.publishableKey = dotenv.env['STRIPE_PUBLISHABLE_KEY'] ?? "";
 
       await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
-      FlutterError.onError = (FlutterErrorDetails details) {
-        try {
-          FirebaseCrashlytics.instance.recordFlutterFatalError(details);
-        } catch (e) {
-          debugPrint('⚠️ Crashlytics upload failed: $e');
-        }
-      };
+      FlutterError.onError =
+          FirebaseCrashlytics.instance.recordFlutterFatalError;
 
       runApp(
         ProviderScope(
@@ -176,47 +167,104 @@ Future<void> main() async {
         ),
       );
     },
-    (error, stack) {
-      try {
-        FirebaseCrashlytics.instance.recordError(error, stack);
-      } catch (_) {
-        debugPrint('⚠️ Crashlytics recordError failed');
-      }
-    },
+    (e, s) => FirebaseCrashlytics.instance.recordError(e, s),
   );
 }
 
-/* ───────── Root gate to keep users logged-in ───────── */
+/* ───────── ROOT GATE ───────── */
 class RootGate extends StatelessWidget {
   const RootGate({super.key});
-
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+          return Scaffold(body: Center(child: CircularProgressIndicator()));
         }
-
         final user = snap.data;
         if (user == null || user.isAnonymous) return const WelcomePage();
-
         return const RoleRedirect();
       },
     );
   }
 }
 
-/* ───────── MaterialApp & routes ───────── */
-class FindPTApp extends StatelessWidget {
+/* ══════════════════════════ APP ══════════════════════════ */
+class FindPTApp extends StatefulWidget {
   const FindPTApp({super.key});
+  @override
+  State<FindPTApp> createState() => _FindPTAppState();
+}
+
+class _FindPTAppState extends State<FindPTApp> {
+  StreamSubscription<User?>? _authSub;
+  StreamSubscription<RemoteMessage>? _fgSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _configureFCM();
+    _authSub =
+        FirebaseAuth.instance.authStateChanges().listen((_) => _configureFCM());
+  }
+
+  @override
+  void dispose() {
+    _authSub?.cancel();
+    _fgSub?.cancel();
+    super.dispose();
+  }
+
+  /* ---------- helper to save token ---------- */
+  Future<void> _saveToken(String? token) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || token == null) return;
+
+    await FirebaseFirestore.instance.collection('users').doc(uid).set(
+        {'createdAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('tokens')
+        .doc(token)
+        .set({
+      'createdAt': FieldValue.serverTimestamp(),
+      'platform': Platform.operatingSystem,
+    });
+    debugPrint('✅ token saved for $uid');
+  }
+
+  /* ---------- configure FCM ---------- */
+  Future<void> _configureFCM() async {
+    final fcm = FirebaseMessaging.instance;
+    final settings =
+        await fcm.requestPermission(alert: true, badge: true, sound: true);
+    debugPrint('perm: ${settings.authorizationStatus}');
+
+    await _saveToken(await fcm.getToken());
+    fcm.onTokenRefresh.listen(_saveToken);
+
+    _fgSub?.cancel(); // avoid duplicates
+    _fgSub = FirebaseMessaging.onMessage
+        .listen((msg) => PushNotificationService.showFlutterNotification(msg));
+
+    final initial = await fcm.getInitialMessage();
+    if (initial != null) _handleNavigation(initial);
+  }
+
+  void _handleNavigation(RemoteMessage msg) {
+    final route = msg.data['route'] as String?;
+    if (route != null && mounted) {
+      Navigator.of(context).pushNamed(route);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       title: 'Find PT App',
       debugShowCheckedModeBanner: false,
       home: const RootGate(),
@@ -226,8 +274,7 @@ class FindPTApp extends StatelessWidget {
         '/signup': (context) => const SignupPage(),
         '/login': (context) => const LoginPage(),
         '/forgot_password': (context) => const ForgotPasswordPage(),
-        '/trainer_profile_setup': (context) =>
-            const TrainerProfileSetupPage(),
+        '/trainer_profile_setup': (context) => const TrainerProfileSetupPage(),
         '/role_redirect': (context) => const RoleRedirect(),
         '/listings': (context) => const ListingsPage(),
         '/trainer_home': (context) => const TrainerHomePage(),

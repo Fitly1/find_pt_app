@@ -1,15 +1,20 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Optional: add INTERNET permission if not already present -->
+    <!-- Permissions -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/> <!-- ✅ Push notifications -->
 
     <application
         android:label="Fitly"
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon">
+
+        <!-- ✅ Use custom notification icon -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_fitly2" />
 
         <activity
             android:name=".MainActivity"
@@ -31,14 +36,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- NEW: Intent filter for mailto links -->
+            <!-- Intent filter for mailto links -->
             <intent-filter>
-              <action android:name="android.intent.action.SENDTO" />
-              <category android:name="android.intent.category.DEFAULT" />
-              <data android:scheme="mailto" />
+                <action android:name="android.intent.action.SENDTO" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="mailto" />
             </intent-filter>
 
-            <!-- NEW: Intent filter for deep linking fitly://billing-portal-return -->
+            <!-- Intent filter for deep linking fitly://billing-portal-return -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -50,15 +55,13 @@
 
         </activity>
 
-<!-- 🔧 UCropActivity must be a separate activity entry -->
+        <!-- UCrop image cropping activity -->
         <activity
             android:name="com.yalantis.ucrop.UCropActivity"
             android:exported="false"
             android:theme="@style/UCropActivityTheme" />
 
-
-        <!-- Don't delete the meta-data below.
-             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <!-- Flutter plugin registry -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

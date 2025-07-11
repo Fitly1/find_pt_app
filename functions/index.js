@@ -12,7 +12,11 @@ const cors = require("cors");
 require("dotenv").config(); // local .env support
 
 const admin = require("firebase-admin");
-admin.initializeApp();
+admin.initializeApp({
+  credential: admin.credential.applicationDefault(),
+  projectId : "findptapp", 
+
+});
 
 /* ─── Helper: recompute and store average rating (NEW) ────────*/
 async function recomputeTrainerRating(uid) {
@@ -641,5 +645,153 @@ exports.updateTrainerAvgRating = onDocumentWritten(
   async (event) => {
     const { uid } = event.params;
     await recomputeTrainerRating(uid);
+  }
+);
+
+
+/* ──────────────────────────────────────────────────────────────
+   FIRESTORE TRIGGER → SEND PUSH NOTIFICATION (NEW BLOCK)
+───────────────────────────────────────────────────────────────*/
+exports.pushOnNewNotification = onDocumentCreated(
+  "users/{userId}/notifications/{notifId}",
+  async (event) => {
+    const data = event.data.data();          // what the client wrote
+    const userId = event.params.userId;
+
+    // 1) Fetch this user’s device tokens
+    const tokensSnap = await admin
+      .firestore()
+      .collection("users")
+      .doc(userId)
+      .collection("tokens")
+      .get();
+
+    if (tokensSnap.empty) {
+      console.log(`No device tokens for user ${userId}`);
+      return null;
+    }
+
+    // 2) Build the FCM payload
+    const payload = {
+      notification: {
+        title: data.title ?? "Fitly",
+        body:  data.body  ?? "",
+      },
+      data: {
+        route: data.route ?? "",            // used by _handleNavigationFromMessage
+      },
+    };
+
+    // 3) Send to every token
+    const tokens = tokensSnap.docs.map((d) => d.id);
+    const resp = await admin.messaging().sendToDevice(tokens, payload);
+
+    // 4) Clean up any outdated / invalid tokens
+    const batch = admin.firestore().batch();
+    resp.results.forEach((r, idx) => {
+      const err = r.error;
+      if (
+        err &&
+        (err.code === "messaging/invalid-registration-token" ||
+         err.code === "messaging/registration-token-not-registered")
+      ) {
+        batch.delete(
+          admin
+            .firestore()
+            .collection("users")
+            .doc(userId)
+            .collection("tokens")
+            .doc(tokens[idx])
+        );
+      }
+    });
+    await batch.commit();
+
+    console.log(
+      `🕊️  Sent push to ${tokens.length} tokens for user ${userId}`
+    );
+    return null;
+  }
+);
+/* ──────────────────────────────────────────────────────────────
+   CHAT  →  PUSH NOTIFICATION   (v1 API version)
+───────────────────────────────────────────────────────────────*/
+exports.notifyOnNewMessage = onDocumentCreated(
+  "conversations/{cid}/messages/{mid}",
+  async (event) => {
+    const msg = event.data.data();
+    if (!msg) return null;
+
+    const toUid   = msg.recipientId;
+    const fromUid = msg.senderId;
+    if (!toUid || !fromUid || toUid === fromUid) return null;
+
+    /* 1) fetch recipient tokens */
+    const tokensSnap = await admin
+      .firestore()
+      .collection("users")
+      .doc(toUid)
+      .collection("tokens")
+      .get();
+    if (tokensSnap.empty) {
+      console.log(`notifyOnNewMessage: no tokens for user ${toUid}`);
+      return null;
+    }
+    const tokens = tokensSnap.docs.map((d) => d.id);
+
+    /* 2) compose notification */
+    const title =
+      msg.senderName ||
+      (await admin
+        .auth()
+        .getUser(fromUid)
+        .then((u) => u.displayName || "New message")
+        .catch(() => "New message"));
+
+    const body =
+      typeof msg.message === "string" && msg.message.length > 40
+        ? msg.message.substring(0, 37) + "…"
+        : msg.message || "";
+
+    const notif = { title, body };
+    const data  = {
+      route: "/chat",                         // adjust if needed
+      conversationId: event.params.cid,
+    };
+
+    /* 3) send through FCM v1 (sendEach) */
+    const resp = await admin.messaging().sendEach(
+      tokens.map((t) => ({
+        token: t,
+        notification: notif,
+        data: data,
+      }))
+    );
+    console.log(
+      `💬 sent to ${tokens.length} device(s) – convo ${event.params.cid}`
+    );
+
+    /* 4) remove invalid tokens */
+    const batch = admin.firestore().batch();
+    resp.responses.forEach((r, idx) => {
+      if (!r.success) {
+        const code = r.error.code;
+        if (
+          code === "messaging/invalid-registration-token" ||
+          code === "messaging/registration-token-not-registered"
+        ) {
+          batch.delete(
+            admin
+              .firestore()
+              .collection("users")
+              .doc(toUid)
+              .collection("tokens")
+              .doc(tokens[idx])
+          );
+        }
+      }
+    });
+    await batch.commit();
+    return null;
   }
 );
