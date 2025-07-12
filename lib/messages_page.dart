@@ -13,10 +13,10 @@ class MessagesPage extends StatefulWidget {
   const MessagesPage({super.key});
 
   @override
-  MessagesPageState createState() => MessagesPageState();
+  State<MessagesPage> createState() => _MessagesPageState();
 }
 
-class MessagesPageState extends State<MessagesPage> {
+class _MessagesPageState extends State<MessagesPage> {
   String userRole = 'customer';
 
   @override
@@ -70,9 +70,8 @@ class MessagesPageState extends State<MessagesPage> {
             Navigator.pushReplacement(
               context,
               MaterialPageRoute(
-                builder: (_) => isTrainer
-                    ? const TrainerHomePage()
-                    : const MarketplacePage(),
+                builder: (_) =>
+                    isTrainer ? const TrainerHomePage() : const MarketplacePage(),
               ),
             );
           },
@@ -80,23 +79,23 @@ class MessagesPageState extends State<MessagesPage> {
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: conversationsQuery.snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
+        builder: (context, convSnap) {
+          if (convSnap.hasError) {
+            return Center(child: Text('Error: ${convSnap.error}'));
           }
-          if (!snapshot.hasData) {
+          if (!convSnap.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final docs = snapshot.data!.docs;
+          final docs = convSnap.data!.docs;
           if (docs.isEmpty) {
             return const Center(child: Text('No conversations yet.'));
           }
 
           return ListView.separated(
             padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: docs.length,
             separatorBuilder: (_, __) => const SizedBox(height: 6),
+            itemCount: docs.length,
             itemBuilder: (context, index) {
               final conversation = docs[index];
               final data = conversation.data() as Map<String, dynamic>;
@@ -117,164 +116,34 @@ class MessagesPageState extends State<MessagesPage> {
               return FutureBuilder<Map<String, dynamic>?>(
                 future: _fetchOtherUser(otherUid),
                 builder: (context, userSnap) {
-                  /* ───────── Account deleted / loading state ───────── */
+                  // ───────── 1.  still loading ─────────
+                  if (userSnap.connectionState != ConnectionState.done) {
+                    return _loadingTile(formattedTime);
+                  }
+
+                  // ───────── 2.  user not found ─────────
                   if (!userSnap.hasData || userSnap.data == null) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(minHeight: 100),
-                        child: Card(
-                          elevation: 3,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16)),
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 20, vertical: 12),
-                            title: const Text(
-                              'Account deleted',
-                              style: TextStyle(
-                                  fontSize: 20, fontWeight: FontWeight.w500),
-                            ),
-                            subtitle: const Padding(
-                              padding: EdgeInsets.only(top: 8.0),
-                              child: Text(
-                                'This user no longer exists.',
-                                style: TextStyle(
-                                    fontSize: 16, color: Colors.black54),
-                              ),
-                            ),
-                            trailing: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(
-                                  formattedTime,
-                                  style: const TextStyle(
-                                      fontSize: 13, color: Colors.grey),
-                                ),
-                                const SizedBox(height: 4),
-                                GestureDetector(
-                                  onTap: () => _confirmDeleteConversation(
-                                      context, conversation.id),
-                                  child: const Icon(Icons.delete,
-                                      color: Colors.red, size: 20),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
+                    return _deletedTile(
+                      formattedTime: formattedTime,
+                      conversationId: conversation.id,
                     );
                   }
 
-                  /* ───────── Normal tile when user exists ───────── */
+                  // ───────── 3.  normal tile ───────────
                   final u = userSnap.data!;
                   final displayName =
-                      '${u['firstName'] ?? ''} ${u['lastName'] ?? ''}'
-                              .trim()
-                              .isNotEmpty
+                      '${u['firstName'] ?? ''} ${u['lastName'] ?? ''}'.trim().isNotEmpty
                           ? '${u['firstName'] ?? ''} ${u['lastName'] ?? ''}'
                           : 'Unknown';
 
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(minHeight: 110),
-                      child: Card(
-                        elevation: 3,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16)),
-                        child: ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 20, vertical: 12),
-
-                          // ───────── title + unread dot ─────────
-                          title: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  displayName,
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: isUnread
-                                        ? FontWeight.bold
-                                        : FontWeight.normal,
-                                  ),
-                                ),
-                              ),
-                              if (isUnread)
-                                Container(
-                                  width: 10,
-                                  height: 10,
-                                  margin: const EdgeInsets.only(left: 4),
-                                  decoration: const BoxDecoration(
-                                      color: Colors.blueAccent,
-                                      shape: BoxShape.circle),
-                                ),
-                            ],
-                          ),
-
-                          // ───────── message preview ─────────
-                          subtitle: Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              lastMessage,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: isUnread
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                                color:
-                                    isUnread ? Colors.black87 : Colors.black54,
-                              ),
-                            ),
-                          ),
-
-                          // ───────── trailing ─────────
-                          trailing: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(
-                                formattedTime,
-                                style: const TextStyle(
-                                    fontSize: 13, color: Colors.grey),
-                              ),
-                              const SizedBox(height: 4),
-                              GestureDetector(
-                                onTap: () => _confirmDeleteConversation(
-                                    context, conversation.id),
-                                child: const Icon(Icons.delete,
-                                    color: Colors.red, size: 20),
-                              ),
-                            ],
-                          ),
-
-                          // ───────── tap -> chat ─────────
-                          onTap: () {
-                            FirebaseFirestore.instance
-                                .collection('conversations')
-                                .doc(conversation.id)
-                                .update({
-                              'unreadBy':
-                                  FieldValue.arrayRemove([currentUser.uid])
-                            });
-
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => chat.ChatPage(
-                                  conversationId: conversation.id,
-                                  otherUserId: otherUid as String,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
+                  return _conversationTile(
+                    displayName: displayName,
+                    formattedTime: formattedTime,
+                    lastMessage: lastMessage,
+                    isUnread: isUnread,
+                    conversationId: conversation.id,
+                    otherUid: otherUid as String,
+                    currentUserId: currentUser.uid,
                   );
                 },
               );
@@ -285,6 +154,186 @@ class MessagesPageState extends State<MessagesPage> {
       bottomNavigationBar: Container(color: Colors.black, child: _bottomNav()),
     );
   }
+
+  /* ─────────────────────── tile builders ────────────────────────── */
+
+  Widget _loadingTile(String formattedTime) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 110),
+          child: Card(
+            elevation: 3,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: ListTile(
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+              title: Container(
+                height: 16,
+                width: 120,
+                color: Colors.grey.shade300,
+              ),
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Container(
+                  height: 14,
+                  color: Colors.grey.shade300,
+                ),
+              ),
+              trailing: Text(
+                formattedTime,
+                style: const TextStyle(fontSize: 13, color: Colors.grey),
+              ),
+            ),
+          ),
+        ),
+      );
+
+  Widget _deletedTile({
+    required String formattedTime,
+    required String conversationId,
+  }) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 110),
+          child: Card(
+            elevation: 3,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: ListTile(
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              title: const Text(
+                'Account deleted',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
+              ),
+              subtitle: const Padding(
+                padding: EdgeInsets.only(top: 8.0),
+                child: Text(
+                  'This user no longer exists.',
+                  style: TextStyle(fontSize: 16, color: Colors.black54),
+                ),
+              ),
+              trailing: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    formattedTime,
+                    style: const TextStyle(fontSize: 13, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 4),
+                  GestureDetector(
+                    onTap: () =>
+                        _confirmDeleteConversation(context, conversationId),
+                    child: const Icon(Icons.delete, color: Colors.red, size: 20),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+
+  Widget _conversationTile({
+    required String displayName,
+    required String formattedTime,
+    required String lastMessage,
+    required bool isUnread,
+    required String conversationId,
+    required String otherUid,
+    required String currentUserId,
+  }) =>
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 110),
+          child: Card(
+            elevation: 3,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: ListTile(
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              // title + unread badge
+              title: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      displayName,
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight:
+                            isUnread ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                  ),
+                  if (isUnread)
+                    Container(
+                      width: 10,
+                      height: 10,
+                      margin: const EdgeInsets.only(left: 4),
+                      decoration: const BoxDecoration(
+                          color: Colors.blueAccent, shape: BoxShape.circle),
+                    ),
+                ],
+              ),
+              // message preview
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  lastMessage,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight:
+                        isUnread ? FontWeight.bold : FontWeight.normal,
+                    color: isUnread ? Colors.black87 : Colors.black54,
+                  ),
+                ),
+              ),
+              // trailing time + delete button
+              trailing: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    formattedTime,
+                    style: const TextStyle(fontSize: 13, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 4),
+                  GestureDetector(
+                    onTap: () =>
+                        _confirmDeleteConversation(context, conversationId),
+                    child: const Icon(Icons.delete, color: Colors.red, size: 20),
+                  ),
+                ],
+              ),
+              // tap → open chat
+              onTap: () {
+                FirebaseFirestore.instance
+                    .collection('conversations')
+                    .doc(conversationId)
+                    .update({
+                  'unreadBy': FieldValue.arrayRemove([currentUserId])
+                });
+
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => chat.ChatPage(
+                      conversationId: conversationId,
+                      otherUserId: otherUid,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+      );
 
   /* ─────────────────────────── Helpers ──────────────────────────── */
 
@@ -335,7 +384,6 @@ class MessagesPageState extends State<MessagesPage> {
                   .doc(conversationId)
                   .delete();
 
-              // Safety check for the context after async work
               if (!ctx.mounted) return;
 
               ScaffoldMessenger.of(ctx).showSnackBar(

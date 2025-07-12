@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_const_constructors, avoid_print
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -13,12 +14,12 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import 'package:device_info_plus/device_info_plus.dart';      // <── NEW
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:app_links/app_links.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:logger/logger.dart';
-import 'dart:io' show Platform;
 
 /* ─── local files ─── */
 import 'firebase_options.dart';
@@ -38,6 +39,13 @@ import 'messages_page.dart';
 import 'manage_subscription.dart';
 
 final Logger logger = Logger(printer: PrettyPrinter());
+
+/* ───────── HELPERS ───────── */
+Future<bool> _runningOnIosSimulator() async {
+  if (!Platform.isIOS) return false;
+  final info = await DeviceInfoPlugin().iosInfo;
+  return !info.isPhysicalDevice; // true when on simulator
+}
 
 /* ───────── FCM BACKGROUND HANDLER ───────── */
 @pragma('vm:entry-point')
@@ -138,12 +146,12 @@ Future<void> main() async {
       WidgetsFlutterBinding.ensureInitialized();
       await dotenv.load(fileName: ".env");
       await Firebase.initializeApp(
-          options: DefaultFirebaseOptions.currentPlatform);
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
 
       await FirebaseAppCheck.instance.activate(
-        androidProvider: kReleaseMode
-            ? AndroidProvider.playIntegrity
-            : AndroidProvider.debug,
+        androidProvider:
+            kReleaseMode ? AndroidProvider.playIntegrity : AndroidProvider.debug,
         appleProvider:
             kReleaseMode ? AppleProvider.deviceCheck : AppleProvider.debug,
       );
@@ -151,7 +159,7 @@ Future<void> main() async {
       FirebaseMessaging.onBackgroundMessage(
           _firebaseMessagingBackgroundHandler);
 
-      await PushNotificationService.initializeLocalNotifications();
+      await PushNotificationService.initialize(); // full init (incl. local notif)
 
       Stripe.publishableKey = dotenv.env['STRIPE_PUBLISHABLE_KEY'] ?? "";
 
@@ -239,17 +247,30 @@ class _FindPTAppState extends State<FindPTApp> {
   /* ---------- configure FCM ---------- */
   Future<void> _configureFCM() async {
     final fcm = FirebaseMessaging.instance;
+
+    // Request permission (no-op on Android)
     final settings =
         await fcm.requestPermission(alert: true, badge: true, sound: true);
     debugPrint('perm: ${settings.authorizationStatus}');
 
-    await _saveToken(await fcm.getToken());
-    fcm.onTokenRefresh.listen(_saveToken);
+    // Skip all token work when on iOS simulator
+    if (await _runningOnIosSimulator()) {
+      debugPrint('📵  Running on iOS simulator – skipping FCM/APNs token');
+    } else {
+      try {
+        await _saveToken(await fcm.getToken());
+      } catch (e) {
+        debugPrint('❌ Failed to get FCM token: $e');
+      }
+      fcm.onTokenRefresh.listen(_saveToken);
+    }
 
-    _fgSub?.cancel(); // avoid duplicates
+    // Foreground notifications
+    _fgSub?.cancel();
     _fgSub = FirebaseMessaging.onMessage
         .listen((msg) => PushNotificationService.showFlutterNotification(msg));
 
+    // Handle tap on terminated notification
     final initial = await fcm.getInitialMessage();
     if (initial != null) _handleNavigation(initial);
   }
@@ -274,7 +295,8 @@ class _FindPTAppState extends State<FindPTApp> {
         '/signup': (context) => const SignupPage(),
         '/login': (context) => const LoginPage(),
         '/forgot_password': (context) => const ForgotPasswordPage(),
-        '/trainer_profile_setup': (context) => const TrainerProfileSetupPage(),
+        '/trainer_profile_setup': (context) =>
+            const TrainerProfileSetupPage(),
         '/role_redirect': (context) => const RoleRedirect(),
         '/listings': (context) => const ListingsPage(),
         '/trainer_home': (context) => const TrainerHomePage(),

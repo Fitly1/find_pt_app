@@ -1,12 +1,21 @@
 import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:device_info_plus/device_info_plus.dart';          // <── NEW
 
 /// Global key so a tap on the local notification can navigate
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+/* ───────── helper ───────── */
+Future<bool> _runningOnIosSimulator() async {
+  if (!Platform.isIOS) return false;
+  final info = await DeviceInfoPlugin().iosInfo;
+  return !info.isPhysicalDevice;                                  // true == simulator
+}
 
 class PushNotificationService {
   /* ─── singleton objects ─── */
@@ -59,15 +68,24 @@ class PushNotificationService {
             AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(channel);
 
-    /* 4. Store current token */
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    await _saveTokenToFirestore(
-        uid, await FirebaseMessaging.instance.getToken());
+    /* 4. Store current token   ──── NEW GUARD HERE ──── */
+    if (!await _runningOnIosSimulator()) {
+      try {
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        final token = await FirebaseMessaging.instance.getToken();
+        await _saveTokenToFirestore(uid, token);
+      } catch (e) {
+        debugPrint('❌ Failed to get / save FCM token: $e');
+      }
 
-    /* 5. Listen for token refresh */
-    FirebaseMessaging.instance.onTokenRefresh.listen(
-      (t) => _saveTokenToFirestore(uid, t),
-    );
+      /* 5. Listen for token refresh */
+      FirebaseMessaging.instance.onTokenRefresh.listen(
+        (t) => _saveTokenToFirestore(
+            FirebaseAuth.instance.currentUser?.uid, t),
+      );
+    } else {
+      debugPrint('📵  iOS simulator – skipping FCM/APNs token logic');
+    }
 
     /* 6. Foreground message → local banner */
     FirebaseMessaging.onMessage.listen(showFlutterNotification);

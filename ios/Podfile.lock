@@ -1214,6 +1214,8 @@ PODS:
     - Firebase/Functions (= 11.15.0)
     - firebase_core
     - Flutter
+  - device_info_plus (0.0.1):
+    - Flutter
   - Firebase/Auth (11.15.0):
     - Firebase/CoreOnly
     - FirebaseAuth (~> 11.15.0)
@@ -1362,6 +1364,8 @@ PODS:
     - SDWebImage
     - SDWebImageWebPCoder
   - flutter_keyboard_visibility (0.0.1):
+    - Flutter
+  - flutter_local_notifications (0.0.1):
     - Flutter
   - flutter_secure_storage (6.0.0):
     - Flutter
@@ -1627,6 +1631,7 @@ DEPENDENCIES:
   - app_links (from `.symlinks/plugins/app_links/ios`)
   - cloud_firestore (from `.symlinks/plugins/cloud_firestore/ios`)
   - cloud_functions (from `.symlinks/plugins/cloud_functions/ios`)
+  - device_info_plus (from `.symlinks/plugins/device_info_plus/ios`)
   - firebase_app_check (from `.symlinks/plugins/firebase_app_check/ios`)
   - firebase_auth (from `.symlinks/plugins/firebase_auth/ios`)
   - firebase_core (from `.symlinks/plugins/firebase_core/ios`)
@@ -1637,6 +1642,7 @@ DEPENDENCIES:
   - flutter_email_sender (from `.symlinks/plugins/flutter_email_sender/ios`)
   - flutter_image_compress_common (from `.symlinks/plugins/flutter_image_compress_common/ios`)
   - flutter_keyboard_visibility (from `.symlinks/plugins/flutter_keyboard_visibility/ios`)
+  - flutter_local_notifications (from `.symlinks/plugins/flutter_local_notifications/ios`)
   - flutter_secure_storage (from `.symlinks/plugins/flutter_secure_storage/ios`)
   - geolocator_apple (from `.symlinks/plugins/geolocator_apple/darwin`)
   - google_sign_in_ios (from `.symlinks/plugins/google_sign_in_ios/darwin`)
@@ -1712,6 +1718,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/cloud_firestore/ios"
   cloud_functions:
     :path: ".symlinks/plugins/cloud_functions/ios"
+  device_info_plus:
+    :path: ".symlinks/plugins/device_info_plus/ios"
   firebase_app_check:
     :path: ".symlinks/plugins/firebase_app_check/ios"
   firebase_auth:
@@ -1732,6 +1740,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/flutter_image_compress_common/ios"
   flutter_keyboard_visibility:
     :path: ".symlinks/plugins/flutter_keyboard_visibility/ios"
+  flutter_local_notifications:
+    :path: ".symlinks/plugins/flutter_local_notifications/ios"
   flutter_secure_storage:
     :path: ".symlinks/plugins/flutter_secure_storage/ios"
   geolocator_apple:
@@ -1773,6 +1783,7 @@ SPEC CHECKSUMS:
   BoringSSL-GRPC: dded2a44897e45f28f08ae87a55ee4bcd19bc508
   cloud_firestore: 8b8ad857da9a98527dab9c7ae520d0eba975bef9
   cloud_functions: 2deea2254d9a845af7e6bcfe37bd2cb9887600fe
+  device_info_plus: 335f3ce08d2e174b9fdc3db3db0f4e3b1f66bd89
   Firebase: d99ac19b909cd2c548339c2241ecd0d1599ab02e
   firebase_app_check: 100edcd23a22677ab58a133b72a690f20101997c
   firebase_auth: dad1f2f9c317dba1b300933a3f7622fa30eb721c
@@ -1802,6 +1813,7 @@ SPEC CHECKSUMS:
   flutter_email_sender: aa1e9772696691d02cd91fea829856c11efb8e58
   flutter_image_compress_common: 1697a328fd72bfb335507c6bca1a65fa5ad87df1
   flutter_keyboard_visibility: 4625131e43015dbbe759d9b20daaf77e0e3f6619
+  flutter_local_notifications: a5a732f069baa862e728d839dd2ebb904737effb
   flutter_secure_storage: 1ed9476fba7e7a782b22888f956cce43e2c62f13
   geolocator_apple: ab36aa0e8b7d7a2d7639b3b4e48308394e8cef5e
   google_sign_in_ios: b48bb9af78576358a168361173155596c845f0b9

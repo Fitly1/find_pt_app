@@ -67,6 +67,7 @@ dependencies:
   sign_in_with_apple: ^7.0.1
   crypto: ^3.0.6
   flutter_local_notifications: ^19.3.0
+  device_info_plus: ^9.0.3
 
 
 
