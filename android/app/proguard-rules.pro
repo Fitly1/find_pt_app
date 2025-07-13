@@ -12,7 +12,3 @@
 # Suppress warnings about Stripe push provisioning classes
 -dontwarn com.stripe.android.pushProvisioning.**
 
-# Keep SafetyNet classes for Firebase App Check compatibility
--keep class com.google.android.gms.safetynet.** { *; }
--dontwarn com.google.android.gms.safetynet.**
-
