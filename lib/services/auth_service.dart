@@ -12,32 +12,29 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 class AuthService {
   AuthService._(); // static-only
 
+  /* ───────── shared helpers ───────── */
   static final FirebaseAuth _auth = FirebaseAuth.instance;
+  static void _log(Object? m) { if (kDebugMode) print(m); }
 
-  static void _log(Object? msg) {
-    if (kDebugMode) print(msg);
-  }
-
-  // ───────────────────── GOOGLE ─────────────────────
+  /* ───────── GOOGLE ───────── */
   static Future<UserCredential?> googleOneTap() async {
     try {
       final gsi.GoogleSignInAccount? googleUser =
           await gsi.GoogleSignIn().signIn();
       if (googleUser == null) {
-        _log('🤖 Google | user cancelled sheet');
+        _log('🤖 Google | user cancelled');
         return null;
       }
-
       final gsi.GoogleSignInAuthentication googleAuth =
           await googleUser.authentication;
 
-      final credential = GoogleAuthProvider.credential(
+      final cred = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
-        idToken:    googleAuth.idToken,
+        idToken:     googleAuth.idToken,
       );
 
-      final userCred = await _auth.signInWithCredential(credential);
-      _log('✅ Google | Firebase uid = ${userCred.user?.uid}');
+      final userCred = await _auth.signInWithCredential(cred);
+      _log('✅ Google | uid=${userCred.user?.uid}');
       return userCred;
     } catch (e, s) {
       _log('❌ Google sign-in failed → $e\n$s');
@@ -45,18 +42,17 @@ class AuthService {
     }
   }
 
-  // ───────────────────── APPLE ──────────────────────
-  // ignore: unused_field
+  /* ───────── APPLE ───────── */
   static const String _appleClientId = 'com.fitly.findptapp';
 
-  static String _generateNonce([int length = 32]) {
+  static String _genNonce([int len = 32]) {
     const chars =
-        '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._';
+        '0123456789ABCDEFGHIJKLMNPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-._';
     final r = Random.secure();
-    return List.generate(length, (_) => chars[r.nextInt(chars.length)]).join();
+    return List.generate(len, (_) => chars[r.nextInt(chars.length)]).join();
   }
 
-  static String _sha256of(String input) =>
+  static String _sha256(String input) =>
       sha256.convert(utf8.encode(input)).toString();
 
   static Future<UserCredential?> appleOneTap() async {
@@ -67,66 +63,105 @@ class AuthService {
       );
     }
 
+    final rawNonce    = _genNonce();
+    final hashedNonce = _sha256(rawNonce);
+
+    // 1. Ask Apple
+    final apple = await SignInWithApple.getAppleIDCredential(
+      scopes: [
+        AppleIDAuthorizationScopes.email,
+        AppleIDAuthorizationScopes.fullName,
+      ],
+      nonce: hashedNonce,
+    );
+
+    final oauthCred = OAuthProvider('apple.com').credential(
+      idToken:     apple.identityToken!,
+      rawNonce:    rawNonce,
+      accessToken: apple.authorizationCode,
+    );
+
     try {
-      final rawNonce   = _generateNonce();
-      final hashedNonce = _sha256of(rawNonce);
-
-      final appleCredential = await SignInWithApple.getAppleIDCredential(
-        scopes: [
-          AppleIDAuthorizationScopes.email,
-          AppleIDAuthorizationScopes.fullName,
-        ],
-        nonce: hashedNonce,
-      );
-
-      final oauthCredential = OAuthProvider('apple.com').credential(
-        idToken:     appleCredential.identityToken!,
-        rawNonce:    rawNonce,
-        accessToken: appleCredential.authorizationCode,
-      );
-
-      final userCred = await _auth.signInWithCredential(oauthCredential);
-      final user     = userCred.user!;
-      _log('✅ Apple  | Firebase uid = ${user.uid}');
-
-      // ─── Persist Apple’s one-time email ───
-      if (appleCredential.email != null &&
-          (user.email == null || user.email!.isEmpty)) {
-        try {
-          // ignore: deprecated_member_use
-          await user.updateEmail(appleCredential.email!);
-        } on FirebaseAuthException catch (e) {
-          if (e.code != 'email-already-in-use') rethrow;
-        }
-      }
-
-      // ─── Optional: store displayName in FirebaseAuth profile ───
-      if (appleCredential.givenName != null &&
-          appleCredential.familyName != null) {
-        await user.updateDisplayName(
-            '${appleCredential.givenName} ${appleCredential.familyName}');
-      }
-
+      // 2. Normal sign-in
+      final userCred = await _auth.signInWithCredential(oauthCred);
+      await _postAppleProfileUpdates(userCred, apple);
+      _log('✅ Apple | uid=${userCred.user?.uid}');
       return userCred;
+
+    } on FirebaseAuthException catch (e) {
+      // 3. Handle duplicate-credential situation
+      if (e.code == 'account-exists-with-different-credential' ||
+          e.code == 'credential-already-in-use') {
+        final email   = e.email!;
+        final methods = await _auth.fetchSignInMethodsForEmail(email);
+
+        /* a) already signed-in (e.g. Google) → just link */
+        if (_auth.currentUser != null) {
+          final linkedCred =
+              await _auth.currentUser!.linkWithCredential(oauthCred);
+          await _postAppleProfileUpdates(linkedCred, apple);
+          return linkedCred;                       // <- real UserCredential
+        }
+
+        /* b) sign-in with existing method first */
+        if (methods.contains('google.com')) {
+          final googleCred = await googleOneTap();
+          if (googleCred == null) {
+            throw FirebaseAuthException(
+                code: 'sign-in-cancelled',
+                message:
+                    'Google sign-in cancelled while linking Apple account.');
+          }
+        } else if (methods.contains('password')) {
+          throw FirebaseAuthException(
+            code: 'password-required',
+            message:
+                'An account with this e-mail already exists. '
+                'Please sign in with e-mail & password first, then '
+                'choose “Sign in with Apple” again to link.',
+          );
+        } else {
+          rethrow; // other providers not supported
+        }
+
+        // link after signing-in
+        final linkedCred =
+            await _auth.currentUser!.linkWithCredential(oauthCred);
+        await _postAppleProfileUpdates(linkedCred, apple);
+        return linkedCred;                         // <- real UserCredential
+      }
+      rethrow; // any other FirebaseAuthException
     } on SignInWithAppleAuthorizationException catch (e) {
       if (e.code == AuthorizationErrorCode.canceled) return null;
       rethrow;
     }
   }
 
-  // ───────────────── misc helpers ──────────────────
+  /* ───── update email/displayName once ───── */
+  static Future<void> _postAppleProfileUpdates(
+      UserCredential cred, AuthorizationCredentialAppleID apple) async {
+    final user = cred.user!;
+    if (apple.email != null &&
+        (user.email == null || user.email!.isEmpty)) {
+      try { await user.updateEmail(apple.email!); } catch (_) {}
+    }
+    if (apple.givenName != null && apple.familyName != null) {
+      await user.updateDisplayName(
+          '${apple.givenName} ${apple.familyName}');
+    }
+  }
+
+  /* ───────── misc ───────── */
   static Future<void> signOut() async {
     await _auth.signOut();
     await gsi.GoogleSignIn().signOut();
-
-    // Clear cached role so next login starts clean
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('userRole');
+    final p = await SharedPreferences.getInstance();
+    await p.remove('userRole');
   }
 
   static User? get currentUser => _auth.currentUser;
 
-  static bool isSocialUser(User user) => user.providerData.any(
-        (p) => p.providerId == 'apple.com' || p.providerId == 'google.com',
-      );
+  static bool isSocialUser(User u) =>
+      u.providerData.any((p) => p.providerId == 'apple.com' ||
+                                p.providerId == 'google.com');
 }

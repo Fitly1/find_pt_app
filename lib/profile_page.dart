@@ -121,6 +121,123 @@ Future<void> showInfoDialog(
 }
 
 /// ─────────────────────────────────────────────────────────────
+/// Subscription disclosure bottom sheet
+class _SubscriptionSheet extends StatelessWidget {
+  final ProductDetails? product;
+  final VoidCallback onStart;
+  const _SubscriptionSheet({
+    Key? key,
+    required this.product,
+    required this.onStart,
+  }) : super(key: key);
+
+  String _priceString() =>
+      product == null ? '—' : '${product!.price} / month';
+
+  @override
+  Widget build(BuildContext context) {
+    const features = [
+      'Get listed on Trainer Marketplace',
+      'Unlimited invoice generator tool',
+      'Trainer notes dashboard',
+      'Contact customers directly',
+      'Contact customer with listing',
+    ];
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade400,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const Text('Fitly PRO Membership',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 12),
+            const Text(
+              'Length: Auto-renewing monthly subscription',
+              style: TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 6),
+
+            // --------------  NOT const  -----------------
+            Text(
+              'Price: ${_priceString()} after a 3-month free trial',
+              style: const TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 18),
+
+            // feature bullets
+            ...features.map(
+              (f) => Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  children: [
+                    const Icon(Icons.check, size: 18, color: Colors.green),
+                    const SizedBox(width: 6),
+                    Expanded(child: Text(f)),   // also NOT const
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                TextButton(
+                  child: const Text('Privacy Policy'),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const PrivacyPolicyPage()),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                TextButton(
+                  child: const Text('Terms of Use'),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const TermsConditionsPage()),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                child: const Text('Start Free Trial',
+                    style: TextStyle(fontSize: 16, color: Colors.white)),
+                onPressed: () {
+                  Navigator.pop(context);
+                  onStart();
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// ─────────────────────────────────────────────────────────────
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -394,6 +511,21 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  //──────────────── open bottom sheet ──────
+  void _openSubscriptionSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => _SubscriptionSheet(
+        product: _membershipProduct,
+        onStart: _activateSubscription,
+      ),
+    );
+  }
+
   //──────────────── Account-deletion helpers ──────────────────
   Future<bool> _confirmDeletion() async {
     final res = await showDialog<bool>(
@@ -538,67 +670,67 @@ class _ProfilePageState extends State<ProfilePage> {
     await FirebaseAuth.instance.currentUser!.reauthenticateWithCredential(cred);
   }
 
-Future<void> _handleDeleteAccount() async {
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null) return;
+  Future<void> _handleDeleteAccount() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
 
-  if (!await _confirmDeletion()) return;
+    if (!await _confirmDeletion()) return;
 
-  try {
-    // ─── re-authenticate ───
-    final providers = user.providerData.map((e) => e.providerId).toList();
-    if (providers.contains('google.com')) {
-      await _reauthGoogle();
-    } else if (providers.contains('apple.com')) {
-      await _reauthApple();
-    } else {
-      await _reauthEmail(user.email ?? '');
+    try {
+      // ─── re-authenticate ───
+      final providers = user.providerData.map((e) => e.providerId).toList();
+      if (providers.contains('google.com')) {
+        await _reauthGoogle();
+      } else if (providers.contains('apple.com')) {
+        await _reauthApple();
+      } else {
+        await _reauthEmail(user.email ?? '');
+      }
+
+      // ─── delete Firestore docs before removing Auth user ───
+      final batch = FirebaseFirestore.instance.batch();
+      batch.delete(
+          FirebaseFirestore.instance.collection('users').doc(user.uid));
+      batch.delete(
+          FirebaseFirestore.instance.collection('trainer_profiles').doc(user.uid));
+      await batch.commit();
+
+      // ─── delete Auth row ───
+      await user.delete();
+
+      // Google: disconnect so chooser appears next time
+      if (providers.contains('google.com')) {
+        await GoogleSignIn().disconnect();
+      }
+
+      // ─── local cleanup ───
+      await secureStorage.deleteData('userToken');
+      await secureStorage.deleteData('last_profile_view');
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();                         // removes cached role
+
+      await showInfoDialog(context,
+          title: 'Account Deleted',
+          message: 'Your account has been deleted successfully.');
+
+      // back to welcome
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const WelcomePage()),
+        (_) => false,
+      );
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'cancelled') return;
+      await showInfoDialog(context,
+          title: 'Error', message: prettyAuthError(e), error: true);
+    } catch (e) {
+      logger.e('Delete account error: $e');
+      await showInfoDialog(context,
+          title: 'Error',
+          message: 'Something went wrong. Please try again.',
+          error: true);
     }
-
-    // ─── delete Firestore docs before removing Auth user ───
-    final batch = FirebaseFirestore.instance.batch();
-    batch.delete(
-        FirebaseFirestore.instance.collection('users').doc(user.uid));
-    batch.delete(
-        FirebaseFirestore.instance.collection('trainer_profiles').doc(user.uid));
-    await batch.commit();
-
-    // ─── delete Auth row ───
-    await user.delete();
-
-    // Google: disconnect so chooser appears next time
-    if (providers.contains('google.com')) {
-      await GoogleSignIn().disconnect();
-    }
-
-    // ─── local cleanup ───
-    await secureStorage.deleteData('userToken');
-    await secureStorage.deleteData('last_profile_view');
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();                         // removes cached role
-
-    await showInfoDialog(context,
-        title: 'Account Deleted',
-        message: 'Your account has been deleted successfully.');
-
-    // back to welcome
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const WelcomePage()),
-      (_) => false,
-    );
-  } on FirebaseAuthException catch (e) {
-    if (e.code == 'cancelled') return;
-    await showInfoDialog(context,
-        title: 'Error', message: prettyAuthError(e), error: true);
-  } catch (e) {
-    logger.e('Delete account error: $e');
-    await showInfoDialog(context,
-        title: 'Error',
-        message: 'Something went wrong. Please try again.',
-        error: true);
   }
-}
 
   //──────────────── dispose ───────────────
   @override
@@ -886,22 +1018,23 @@ Future<void> _handleDeleteAccount() async {
                               fontWeight: FontWeight.bold,
                               color: Colors.orange.shade900)),
                       trailing: const Icon(Icons.arrow_forward_ios),
-                      onTap: _activateSubscription,
+                      onTap: _openSubscriptionSheet, // changed
                     ),
-                    Padding(
-                      padding: const EdgeInsets.only(
-                          left: 72.0, right: 16.0, bottom: 12.0),
-                      child: GestureDetector(
-                        onTap: _showPromoDialog,
-                        child: const Text(
-                          'Have a promo code?',
-                          style: TextStyle(
-                            color: Color(0xFF2196F3),
-                            decoration: TextDecoration.underline,
+                    if (!Platform.isIOS) // promo code hidden on iOS
+                      Padding(
+                        padding: const EdgeInsets.only(
+                            left: 72.0, right: 16.0, bottom: 12.0),
+                        child: GestureDetector(
+                          onTap: _showPromoDialog,
+                          child: const Text(
+                            'Have a promo code?',
+                            style: TextStyle(
+                              color: Color(0xFF2196F3),
+                              decoration: TextDecoration.underline,
+                            ),
                           ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               );
