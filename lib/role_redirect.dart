@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'welcome_page.dart';               // <─ your public landing screen
+import 'welcome_page.dart';
 import 'login_page.dart';
 import 'email_verification_page.dart';
 import 'profile_page.dart' as profile;
@@ -23,6 +23,11 @@ class RoleRedirect extends StatefulWidget {
 class RoleRedirectState extends State<RoleRedirect> {
   final SecureStorageService secureStorage = SecureStorageService();
 
+  /* ───────── helpers ───────── */
+  bool _isSocial(User u) => u.providerData.any(
+        (p) => p.providerId == 'apple.com' || p.providerId == 'google.com',
+      );
+
   @override
   void initState() {
     super.initState();
@@ -30,7 +35,6 @@ class RoleRedirectState extends State<RoleRedirect> {
     _markFirstLaunch().then((_) => _checkUserRole());
   }
 
-  /* ───────── first launch helper ───────── */
   Future<void> _markFirstLaunch() async {
     final prefs = await SharedPreferences.getInstance();
     if (!(prefs.getBool('hasRunBefore') ?? false)) {
@@ -39,7 +43,6 @@ class RoleRedirectState extends State<RoleRedirect> {
     }
   }
 
-  /* ───────── give auth stream a few seconds ───────── */
   Future<User?> _getCurrentUserWithGracePeriod() async {
     User? user = FirebaseAuth.instance.currentUser;
     if (user != null) return user;
@@ -56,9 +59,7 @@ class RoleRedirectState extends State<RoleRedirect> {
   /* ───────── main decision tree ───────── */
   Future<void> _checkUserRole() async {
     debugPrint("🔍 Checking user authentication status…");
-
-    // Fallback target when nothing else applies
-    Widget nextPage = const WelcomePage();
+    Widget nextPage = const WelcomePage();               // default fallback
 
     try {
       final User? initial = await _getCurrentUserWithGracePeriod();
@@ -96,6 +97,7 @@ class RoleRedirectState extends State<RoleRedirect> {
 
       final String role =
           (snap.data()!['role'] ?? '').toString().trim().toLowerCase();
+
       if (role.isEmpty) {
         debugPrint("❌ role field empty → WelcomePage");
         _navigateTo(nextPage);
@@ -120,7 +122,6 @@ class RoleRedirectState extends State<RoleRedirect> {
       nextPage = const WelcomePage();
     }
 
-    // record last redirect timestamp (debug / analytics)
     await secureStorage.writeData(
       'last_role_redirect',
       DateTime.now().toIso8601String(),

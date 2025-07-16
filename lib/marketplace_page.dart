@@ -15,6 +15,62 @@ import 'trainer_home_page.dart';
 import 'welcome_page.dart';
 import 'listings_page.dart';
 
+///////////////////////////////////////////////////////////////////////////////
+//  Helpers added for sign-in checks and shared “sign-up required” dialog   ///
+///////////////////////////////////////////////////////////////////////////////
+
+// ── Helper: wait for FirebaseAuth + Prefs ───────────────────────────────────
+Future<bool> _needsSignIn() async {
+  User? user = FirebaseAuth.instance.currentUser;
+  if (user == null) {
+    try {
+      user = await FirebaseAuth.instance
+          .authStateChanges()
+          .firstWhere((u) => u != null)
+          .timeout(const Duration(seconds: 3));
+    } catch (_) {}
+  }
+  if (user == null || user.isAnonymous) return true;
+
+  final isPassword =
+      user.providerData.any((p) => p.providerId == 'password');
+  if (isPassword && !user.emailVerified) return true;
+
+  return false;
+}
+
+// ── Helper: shared “Sign-up required” dialog ───────────────────────────────
+void _showSignUpDialog(BuildContext ctx) {
+  showDialog(
+    context: ctx,
+    barrierDismissible: false,
+    builder: (_) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text('Sign Up',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+      content: const Text(
+        'Please create an account or sign in to access features.',
+        textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 18),
+      ),
+      actionsAlignment: MainAxisAlignment.center,
+      actions: [
+        ElevatedButton(
+          onPressed: () {
+            Navigator.pop(ctx);
+            Navigator.pushReplacement(
+                ctx, MaterialPageRoute(builder: (_) => const WelcomePage()));
+          },
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
 void main() {
   runApp(const MyApp());
 }
@@ -316,41 +372,9 @@ class MarketplacePageState extends State<MarketplacePage> {
   //                             FILTER DIALOG
   // ---------------------------------------------------------------------------
 
-  void showFilterDialog() {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null || user.isAnonymous || !user.emailVerified) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16.0),
-          ),
-          title: const Text(
-            "Sign Up",
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
-          content: const Text(
-            "Please create an account or sign in to access features.",
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 18),
-          ),
-          actionsAlignment: MainAxisAlignment.center,
-          actions: [
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const WelcomePage()),
-                );
-              },
-              child: const Text("OK"),
-            )
-          ],
-        ),
-      );
+  Future<void> showFilterDialog() async {
+    if (await _needsSignIn()) {
+      _showSignUpDialog(context);
       return;
     }
 
@@ -585,31 +609,9 @@ class MarketplacePageState extends State<MarketplacePage> {
   //                     SEARCH & BOTTOM NAV HELPERS
   // ---------------------------------------------------------------------------
 
-  void _showSearch(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null || user.isAnonymous || !user.emailVerified) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => AlertDialog(
-          title: const Text("Sign In Required"),
-          content: const Text(
-              "Please sign in or sign up to manage your subscription."),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Cancel")),
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                Navigator.pushReplacement(context,
-                    MaterialPageRoute(builder: (_) => const WelcomePage()));
-              },
-              child: const Text("Sign In / Sign Up"),
-            ),
-          ],
-        ),
-      );
+  Future<void> _showSearch(BuildContext context) async {
+    if (await _needsSignIn()) {
+      _showSignUpDialog(context);
       return;
     }
 
@@ -705,7 +707,8 @@ class MarketplacePageState extends State<MarketplacePage> {
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           IconButton(
-              icon: const Icon(Icons.filter_list), onPressed: showFilterDialog),
+              icon: const Icon(Icons.filter_list),
+              onPressed: () => showFilterDialog()),
           IconButton(
             icon: const Icon(Icons.search),
             onPressed: () => _showSearch(context),
@@ -767,46 +770,9 @@ class MarketplacePageState extends State<MarketplacePage> {
                     itemBuilder: (context, index) {
                       final trainer = filtered[index];
                       return InkWell(
-                        onTap: () {
-                          final user = FirebaseAuth.instance.currentUser;
-                          if (user == null ||
-                              user.isAnonymous ||
-                              !user.emailVerified) {
-                            showDialog(
-                              context: context,
-                              barrierDismissible: false,
-                              builder: (_) => AlertDialog(
-                                shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16.0)),
-                                title: const Text(
-                                  "Sign Up",
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.bold),
-                                ),
-                                content: const Text(
-                                  "Please create an account or sign in to access features.",
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(fontSize: 18),
-                                ),
-                                actionsAlignment: MainAxisAlignment.center,
-                                actions: [
-                                  ElevatedButton(
-                                    onPressed: () {
-                                      Navigator.pop(context);
-                                      Navigator.pushReplacement(
-                                        context,
-                                        MaterialPageRoute(
-                                            builder: (_) =>
-                                                const WelcomePage()),
-                                      );
-                                    },
-                                    child: const Text("OK"),
-                                  ),
-                                ],
-                              ),
-                            );
+                        onTap: () async {
+                          if (await _needsSignIn()) {
+                            _showSignUpDialog(context);
                             return;
                           }
 

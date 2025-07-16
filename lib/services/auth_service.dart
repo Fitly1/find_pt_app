@@ -1,7 +1,9 @@
+// auth_service.dart   (Dart-2 compatible)
 import 'dart:convert';
 import 'dart:math';
 import 'dart:io' show Platform;
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:crypto/crypto.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -10,9 +12,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 class AuthService {
-  AuthService._(); // static-only
+  AuthService._();                       // static-only
 
-  /* ───────── shared helpers ───────── */
   static final FirebaseAuth _auth = FirebaseAuth.instance;
   static void _log(Object? m) { if (kDebugMode) print(m); }
 
@@ -21,10 +22,8 @@ class AuthService {
     try {
       final gsi.GoogleSignInAccount? googleUser =
           await gsi.GoogleSignIn().signIn();
-      if (googleUser == null) {
-        _log('🤖 Google | user cancelled');
-        return null;
-      }
+      if (googleUser == null) { _log('🤖 Google | user cancelled'); return null; }
+
       final gsi.GoogleSignInAuthentication googleAuth =
           await googleUser.authentication;
 
@@ -34,6 +33,15 @@ class AuthService {
       );
 
       final userCred = await _auth.signInWithCredential(cred);
+
+      /* ensure /users/{uid} exists */
+      final names = _splitName(userCred.user?.displayName);
+      await _ensureUserDocument(
+        user     : userCred.user!,
+        firstName: names[0],
+        lastName : names[1],
+      );
+
       _log('✅ Google | uid=${userCred.user?.uid}');
       return userCred;
     } catch (e, s) {
@@ -58,9 +66,8 @@ class AuthService {
   static Future<UserCredential?> appleOneTap() async {
     if (!Platform.isIOS && !Platform.isMacOS) {
       throw FirebaseAuthException(
-        code: 'apple-signin-unsupported',
-        message: 'Sign-in with Apple is only available on iOS / macOS.',
-      );
+          code: 'apple-signin-unsupported',
+          message: 'Sign-in with Apple is only available on iOS / macOS.');
     }
 
     final rawNonce    = _genNonce();
@@ -68,87 +75,132 @@ class AuthService {
 
     // 1. Ask Apple
     final apple = await SignInWithApple.getAppleIDCredential(
-      scopes: [
-        AppleIDAuthorizationScopes.email,
-        AppleIDAuthorizationScopes.fullName,
-      ],
-      nonce: hashedNonce,
+      scopes: [AppleIDAuthorizationScopes.email,
+               AppleIDAuthorizationScopes.fullName],
+      nonce : hashedNonce,
     );
 
     final oauthCred = OAuthProvider('apple.com').credential(
-      idToken:     apple.identityToken!,
-      rawNonce:    rawNonce,
-      accessToken: apple.authorizationCode,
+      idToken     : apple.identityToken!,
+      rawNonce    : rawNonce,
+      accessToken : apple.authorizationCode,
     );
 
     try {
       // 2. Normal sign-in
       final userCred = await _auth.signInWithCredential(oauthCred);
+
+      // 3. Once-off profile updates
       await _postAppleProfileUpdates(userCred, apple);
+
+      // 4. Ensure Firestore user-doc exists
+      await _ensureUserDocument(
+        user     : userCred.user!,
+        firstName: apple.givenName,
+        lastName : apple.familyName,
+      );
+
       _log('✅ Apple | uid=${userCred.user?.uid}');
       return userCred;
 
     } on FirebaseAuthException catch (e) {
-      // 3. Handle duplicate-credential situation
+      /* duplicate-credential resolution (unchanged) */
       if (e.code == 'account-exists-with-different-credential' ||
           e.code == 'credential-already-in-use') {
         final email   = e.email!;
         final methods = await _auth.fetchSignInMethodsForEmail(email);
 
-        /* a) already signed-in (e.g. Google) → just link */
         if (_auth.currentUser != null) {
           final linkedCred =
               await _auth.currentUser!.linkWithCredential(oauthCred);
           await _postAppleProfileUpdates(linkedCred, apple);
-          return linkedCred;                       // <- real UserCredential
+          await _ensureUserDocument(
+            user     : linkedCred.user!,
+            firstName: apple.givenName,
+            lastName : apple.familyName,
+          );
+          return linkedCred;
         }
 
-        /* b) sign-in with existing method first */
         if (methods.contains('google.com')) {
           final googleCred = await googleOneTap();
           if (googleCred == null) {
             throw FirebaseAuthException(
-                code: 'sign-in-cancelled',
-                message:
-                    'Google sign-in cancelled while linking Apple account.');
+                code   : 'sign-in-cancelled',
+                message: 'Google sign-in cancelled while linking Apple.');
           }
         } else if (methods.contains('password')) {
           throw FirebaseAuthException(
-            code: 'password-required',
-            message:
-                'An account with this e-mail already exists. '
-                'Please sign in with e-mail & password first, then '
-                'choose “Sign in with Apple” again to link.',
-          );
+              code   : 'password-required',
+              message: 'Account exists. Sign in with e-mail & password first.');
         } else {
-          rethrow; // other providers not supported
+          rethrow;
         }
 
-        // link after signing-in
         final linkedCred =
             await _auth.currentUser!.linkWithCredential(oauthCred);
         await _postAppleProfileUpdates(linkedCred, apple);
-        return linkedCred;                         // <- real UserCredential
+        await _ensureUserDocument(
+          user     : linkedCred.user!,
+          firstName: apple.givenName,
+          lastName : apple.familyName,
+        );
+        return linkedCred;
       }
-      rethrow; // any other FirebaseAuthException
+      rethrow;
     } on SignInWithAppleAuthorizationException catch (e) {
       if (e.code == AuthorizationErrorCode.canceled) return null;
       rethrow;
     }
   }
 
-  /* ───── update email/displayName once ───── */
+  /* update e-mail / displayName once */
   static Future<void> _postAppleProfileUpdates(
       UserCredential cred, AuthorizationCredentialAppleID apple) async {
     final user = cred.user!;
-    if (apple.email != null &&
-        (user.email == null || user.email!.isEmpty)) {
+    if (apple.email != null && (user.email?.isEmpty ?? true)) {
       try { await user.updateEmail(apple.email!); } catch (_) {}
     }
     if (apple.givenName != null && apple.familyName != null) {
-      await user.updateDisplayName(
-          '${apple.givenName} ${apple.familyName}');
+      await user.updateDisplayName('${apple.givenName} ${apple.familyName}');
     }
+  }
+
+  /* ───── guarantee Firestore user-doc ───── */
+  static Future<void> _ensureUserDocument({
+    required User user,
+    String? firstName,
+    String? lastName,
+    String? role,                       // optional
+  }) async {
+    final doc  = FirebaseFirestore.instance.collection('users').doc(user.uid);
+    final snap = await doc.get();
+
+    final display =
+        '${firstName ?? ''}${lastName != null ? ' $lastName' : ''}'.trim();
+
+    final data = <String, dynamic>{
+      'createdAt'            : FieldValue.serverTimestamp(),
+      'email'                : user.email ?? '',
+      'displayName'          : display,
+      'displayName_lowerCase': display.toLowerCase(),
+      'firstName'            : firstName ?? '',
+      'firstName_lowerCase'  : (firstName ?? '').toLowerCase(),
+      'lastName'             : lastName ?? '',
+      'lastName_lowerCase'   : (lastName ?? '').toLowerCase(),
+      'emailVerified'        : user.emailVerified,
+      'hasAgreedToTnc'       : false,
+    };
+
+    if (role != null) {
+      // caller explicitly wants to set / change role
+      data['role'] = role;
+    } else if (!snap.exists) {
+      // first ever login → default role
+      data['role'] = 'customer';
+    }
+
+    await doc.set(data, SetOptions(merge: true));
   }
 
   /* ───────── misc ───────── */
@@ -164,4 +216,13 @@ class AuthService {
   static bool isSocialUser(User u) =>
       u.providerData.any((p) => p.providerId == 'apple.com' ||
                                 p.providerId == 'google.com');
+
+  /* ───── helper: split name (pre-Dart-3) ───── */
+  static List<String?> _splitName(String? displayName) {
+    if (displayName == null || displayName.trim().isEmpty) return [null, null];
+    final parts = displayName.trim().split(RegExp(r'\s+'));
+    return parts.length == 1
+        ? [parts.first, null]
+        : [parts.first, parts.sublist(1).join(' ')];
+  }
 }
