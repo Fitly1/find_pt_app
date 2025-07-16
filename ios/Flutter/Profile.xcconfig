@@ -1,0 +1,2 @@
+#include "Generated.xcconfig"         // ← keep the default include
+DEVELOPMENT_TEAM = VP3573D499
