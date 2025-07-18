@@ -91,31 +91,7 @@ class SignupPageState extends State<SignupPage> {
       final cred = await method();
       if (cred == null) throw Exception('cancelled');
 
-      /* create / merge user document – keep chosen role */
-      final docRef =
-          FirebaseFirestore.instance.collection('users').doc(cred.user!.uid);
-
-      final display = cred.user!.displayName ?? '';
-      final parts = display.split(' ');
-      final first = _cap(parts.isNotEmpty ? parts.first : '');
-      final last  = _cap(parts.length > 1 ? parts.sublist(1).join(' ') : '');
-
-      await docRef.set({
-        'firstName'           : first,
-        'firstName_lowerCase' : first.toLowerCase(),
-        'lastName'            : last,
-        'lastName_lowerCase'  : last.toLowerCase(),
-        'displayName'         : display,
-        'displayName_lowerCase': display.toLowerCase(),
-        'dob'   : '',
-        'email' : cred.user!.email ?? '',
-        'phone' : cred.user!.phoneNumber ?? '',
-        'role'  : _selectedRole,             // trainer / customer
-        'emailVerified' : cred.user!.emailVerified,
-        'hasAgreedToTnC': true,
-        'createdAt'     : FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
+      // AuthService already created / merged the Firestore user-doc.
       (await SharedPreferences.getInstance())
           .setString('userRole', _selectedRole!.toLowerCase());
 
@@ -311,10 +287,14 @@ class SignupPageState extends State<SignupPage> {
                     SocialSignInButtons(
                       loading: _isLoading,
                       onGooglePressed: _socialEnabled
-                          ? () => _handleSocialSignIn(AuthService.googleOneTap)
+                          ? () => _handleSocialSignIn(
+                                () => AuthService.googleOneTap(
+                                      role: _selectedRole))
                           : null,
                       onApplePressed: _socialEnabled
-                          ? () => _handleSocialSignIn(AuthService.appleOneTap)
+                          ? () => _handleSocialSignIn(
+                                () => AuthService.appleOneTap(
+                                      role: _selectedRole))
                           : null,
                     ),
                     if (!_socialEnabled)
