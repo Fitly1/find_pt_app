@@ -1,3 +1,4 @@
+// ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
 import 'dart:convert'; // For decoding JSON
 import 'dart:math'; // For mathematical functions
@@ -9,11 +10,11 @@ import 'package:firebase_auth/firebase_auth.dart'; // For FirebaseAuth
 import 'package:shared_preferences/shared_preferences.dart'; // For SharedPreferences
 import 'bottom_navigation.dart'; // Shared trainer bottom navigation
 import 'bottom_navigation_customers.dart'; // Customer-specific bottom navigation
-
 import 'components/trainer_card.dart';
 import 'trainer_home_page.dart';
 import 'welcome_page.dart';
 import 'listings_page.dart';
+import 'services/block_service.dart'; // ← NEW
 
 ///////////////////////////////////////////////////////////////////////////////
 //  Helpers added for sign-in checks and shared “sign-up required” dialog   ///
@@ -32,8 +33,7 @@ Future<bool> _needsSignIn() async {
   }
   if (user == null || user.isAnonymous) return true;
 
-  final isPassword =
-      user.providerData.any((p) => p.providerId == 'password');
+  final isPassword = user.providerData.any((p) => p.providerId == 'password');
   if (isPassword && !user.emailVerified) return true;
 
   return false;
@@ -172,6 +172,9 @@ class MarketplacePageState extends State<MarketplacePage> {
   // User role stored locally (default is customer)
   String userRole = 'customer';
 
+  // Block list -------------------------------------------------------------- NEW
+  List<String> _blocked = []; // NEW
+
   // ---------------------------------------------------------------------------
   //                               LIFE-CYCLE
   // ---------------------------------------------------------------------------
@@ -181,6 +184,12 @@ class MarketplacePageState extends State<MarketplacePage> {
     super.initState();
     loadSuburbData();
     loadUserRole();
+    _refreshBlocked(); // NEW
+  }
+
+  Future<void> _refreshBlocked() async {
+    _blocked = await BlockService.instance.blockedIds();
+    if (mounted) setState(() {});
   }
 
   /// Loads the user role from SharedPreferences.
@@ -197,7 +206,8 @@ class MarketplacePageState extends State<MarketplacePage> {
     try {
       final String jsonData =
           await rootBundle.loadString('assets/Suburbs.json');
-      allSuburbs = (json.decode(jsonData) as List).cast<Map<String, dynamic>>();
+      allSuburbs =
+          (json.decode(jsonData) as List).cast<Map<String, dynamic>>();
       setState(() {});
     } catch (e) {
       debugPrint("Error loading suburbs data: $e");
@@ -232,10 +242,13 @@ class MarketplacePageState extends State<MarketplacePage> {
     return earthRadius * c;
   }
 
-  /// Filters trainers based on the selected filters.
+  /// Filters trainers based on the selected filters AND block list.
   List<Map<String, dynamic>> _filterTrainers(
       List<Map<String, dynamic>> trainersList) {
     return trainersList.where((trainer) {
+      // ------------- BLOCK FILTER ------------------------------------------ NEW
+      if (_blocked.contains(trainer['uid'])) return false; // NEW
+
       // Specialties filter (case-insensitive)
       bool matchesCategory = selectedCategories.isEmpty ||
           selectedCategories.any((category) {
@@ -247,14 +260,16 @@ class MarketplacePageState extends State<MarketplacePage> {
           });
 
       // Rating filter
-      double trainerRating = ((trainer['rating'] as num?)?.toDouble() ?? 0.0);
+      double trainerRating =
+          ((trainer['rating'] as num?)?.toDouble() ?? 0.0);
       bool matchesRating = trainerRating >= minRating;
 
       // Price filter
       bool matchesPrice = true;
       if (trainer['rate'] != null && trainer['rate'] is num) {
         double rate = (trainer['rate'] as num).toDouble();
-        matchesPrice = (rate >= priceRange.start && rate <= priceRange.end);
+        matchesPrice =
+            (rate >= priceRange.start && rate <= priceRange.end);
       } else {
         matchesPrice = false;
       }
@@ -262,14 +277,18 @@ class MarketplacePageState extends State<MarketplacePage> {
       // Suburb filter & distance filter
       bool matchesDistance = true;
       if (selectedSuburbData != null) {
-        double userLat =
-            double.tryParse(selectedSuburbData!['Latitude'].toString()) ?? 0.0;
-        double userLng =
-            double.tryParse(selectedSuburbData!['Longitude'].toString()) ?? 0.0;
+        double userLat = double.tryParse(
+                selectedSuburbData!['Latitude'].toString()) ??
+            0.0;
+        double userLng = double.tryParse(
+                selectedSuburbData!['Longitude'].toString()) ??
+            0.0;
         final geoLocation = trainer['geoLocation'];
         if (geoLocation is Map) {
-          double trainerLat = (geoLocation['lat'] as num?)?.toDouble() ?? 0.0;
-          double trainerLng = (geoLocation['lng'] as num?)?.toDouble() ?? 0.0;
+          double trainerLat =
+              (geoLocation['lat'] as num?)?.toDouble() ?? 0.0;
+          double trainerLng =
+              (geoLocation['lng'] as num?)?.toDouble() ?? 0.0;
           double distanceKm =
               calculateDistance(trainerLat, trainerLng, userLat, userLng);
           matchesDistance = distanceKm <= maxDistance;
@@ -400,7 +419,7 @@ class MarketplacePageState extends State<MarketplacePage> {
               return Padding(
                 padding: const EdgeInsets.all(16.0),
                 // ============================================================
-                // UPDATED SECTION – adaptive bottom padding for safe-area space
+                // adaptive bottom padding for safe-area space
                 // ============================================================
                 child: SingleChildScrollView(
                   padding: EdgeInsets.only(
@@ -433,14 +452,15 @@ class MarketplacePageState extends State<MarketplacePage> {
                                 .compareTo(b['Suburb'].toString()));
                             return matches.take(10).toList();
                           },
-                          itemBuilder: (context, suggestion) =>
-                              ListTile(title: Text(_formatSuburb(suggestion))),
+                          itemBuilder: (context, suggestion) => ListTile(
+                              title: Text(_formatSuburb(suggestion))),
                           onSelected: (suggestion) {
                             setStateDialog(() {
                               dialogSelectedSuburbData = suggestion;
                               dialogSelectedSuburbText =
                                   _formatSuburb(suggestion);
-                              suburbController.text = dialogSelectedSuburbText;
+                              suburbController.text =
+                                  dialogSelectedSuburbText;
                             });
                           },
                           builder: (context, textController, focusNode) {
@@ -470,8 +490,8 @@ class MarketplacePageState extends State<MarketplacePage> {
                       Wrap(
                         spacing: 8.0,
                         children: ['Online', 'Face-to-Face'].map((method) {
-                          bool selected =
-                              dialogSelectedTrainingMethods.contains(method);
+                          bool selected = dialogSelectedTrainingMethods
+                              .contains(method);
                           return FilterChip(
                             label: Text(method),
                             selected: selected,
@@ -480,7 +500,8 @@ class MarketplacePageState extends State<MarketplacePage> {
                                 if (v) {
                                   dialogSelectedTrainingMethods.add(method);
                                 } else {
-                                  dialogSelectedTrainingMethods.remove(method);
+                                  dialogSelectedTrainingMethods
+                                      .remove(method);
                                 }
                               });
                             },
@@ -530,8 +551,8 @@ class MarketplacePageState extends State<MarketplacePage> {
                       const Text('Minimum Rating:'),
                       DropdownButton<double>(
                         value: dialogSelectedRating,
-                        onChanged: (value) =>
-                            setStateDialog(() => dialogSelectedRating = value!),
+                        onChanged: (value) => setStateDialog(
+                            () => dialogSelectedRating = value!),
                         items: [0.0, 3.0, 4.0, 4.5, 5.0].map((r) {
                           return DropdownMenuItem(
                               value: r, child: Text(r == 0.0 ? "All" : '$r+'));
@@ -579,8 +600,10 @@ class MarketplacePageState extends State<MarketplacePage> {
                                 setState(() {
                                   selectedDistance = dialogSelectedDistance;
                                   minRating = dialogSelectedRating;
-                                  selectedSuburbData = dialogSelectedSuburbData;
-                                  selectedSuburbText = dialogSelectedSuburbText;
+                                  selectedSuburbData =
+                                      dialogSelectedSuburbData;
+                                  selectedSuburbText =
+                                      dialogSelectedSuburbText;
                                   selectedTrainingMethods =
                                       List.from(dialogSelectedTrainingMethods);
                                   selectedCategories =
@@ -631,6 +654,31 @@ class MarketplacePageState extends State<MarketplacePage> {
   }
 
   // ---------------------------------------------------------------------------
+  //        CONTEXT MENU / LONG-PRESS TO BLOCK A SELLER (trainer)      NEW
+  // ---------------------------------------------------------------------------
+
+  void _showTrainerOptions(BuildContext ctx, Map<String, dynamic> trainer) {
+    showModalBottomSheet(
+      context: ctx,
+      builder: (_) => SafeArea(
+        child: ListTile(
+          leading: const Icon(Icons.block),
+          title: const Text('Block seller'),
+          onTap: () async {
+            Navigator.pop(ctx);
+            await BlockService.instance.block(trainer['uid']);
+            if (!mounted) return;
+            setState(() => _blocked.add(trainer['uid']));
+            ScaffoldMessenger.of(ctx).showSnackBar(
+              const SnackBar(content: Text('Seller blocked')),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   //                               BUILD METHOD
   // ---------------------------------------------------------------------------
 
@@ -641,8 +689,6 @@ class MarketplacePageState extends State<MarketplacePage> {
         body: Center(child: CircularProgressIndicator()),
       );
     }
-
-    // Removed unused variable 'currentUser'
 
     // 🔒 Restrict Trainers from Accessing Marketplace
     if (userRole == 'trainer' ||
@@ -688,8 +734,8 @@ class MarketplacePageState extends State<MarketplacePage> {
                 Navigator.pushReplacement(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => const TrainerHomePage(
-                        showProfileCompleteMessage: false),
+                    builder: (_) =>
+                        const TrainerHomePage(showProfileCompleteMessage: false),
                   ),
                 );
               } else {
@@ -716,97 +762,111 @@ class MarketplacePageState extends State<MarketplacePage> {
         ],
       ),
       backgroundColor: Colors.white,
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (_buildActiveFilterChips().isNotEmpty)
-              Wrap(spacing: 8.0, children: _buildActiveFilterChips()),
-            const SizedBox(height: 16),
-            Expanded(
-              child: StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection("trainer_profiles")
-                    .where("completed", isEqualTo: true)
-                    .where("isActive", isEqualTo: true)
-                    .snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.hasError) {
-                    return Center(child: Text("Error: ${snapshot.error}"));
-                  }
-                  if (!snapshot.hasData) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
+      body: RefreshIndicator(
+        onRefresh: () async {
+          await _refreshBlocked(); // refresh block list + rebuild
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_buildActiveFilterChips().isNotEmpty)
+                Wrap(spacing: 8.0, children: _buildActiveFilterChips()),
+              const SizedBox(height: 16),
+              Expanded(
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection("trainer_profiles")
+                      .where("completed", isEqualTo: true)
+                      .where("isActive", isEqualTo: true)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return Center(child: Text("Error: ${snapshot.error}"));
+                    }
+                    if (!snapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
 
-                  final localTrainers = snapshot.data!.docs.map((doc) {
-                    final data = doc.data() as Map<String, dynamic>;
-                    data['uid'] = doc.id;
-                    return data;
-                  }).toList();
+                    final localTrainers = snapshot.data!.docs
+                        .map((doc) {
+                          final data = doc.data() as Map<String, dynamic>;
+                          data['uid'] = doc.id;
+                          return data;
+                        })
+                        .where((t) => !_blocked.contains(t['uid'])) // NEW
+                        .toList();
 
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) setState(() => _allTrainers = localTrainers);
-                  });
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) setState(() => _allTrainers = localTrainers);
+                    });
 
-                  final filtered = _filterTrainers(localTrainers);
+                    final filtered = _filterTrainers(localTrainers);
 
-                  if (filtered.isEmpty) {
-                    return const Center(
-                      child: Text("No trainers found. Try adjusting filters!",
-                          style: TextStyle(fontSize: 16, color: Colors.grey)),
-                    );
-                  }
-
-                  return GridView.builder(
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      crossAxisSpacing: 10.0,
-                      mainAxisSpacing: 10.0,
-                      childAspectRatio: 0.5,
-                    ),
-                    itemCount: filtered.length,
-                    itemBuilder: (context, index) {
-                      final trainer = filtered[index];
-                      return InkWell(
-                        onTap: () async {
-                          if (await _needsSignIn()) {
-                            _showSignUpDialog(context);
-                            return;
-                          }
-
-                          bool isTrainerRole = (userRole == 'trainer' ||
-                              userRole == 'personal trainer' ||
-                              userRole == 'personaltrainer');
-
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => TrainerHomePage(
-                                trainerData: trainer,
-                                viewAsCustomer: !isTrainerRole,
-                              ),
-                            ),
-                          );
-                        },
-                        child: TrainerCard(
-                          name: trainer['name'] ?? trainer['displayName'] ?? '',
-                          specialties:
-                              List<String>.from(trainer['specialties'] ?? []),
-                          location:
-                              trainer['location'] ?? trainer['suburb'] ?? '',
-                          categoryColors: categoryColors,
-                          profileImageUrl: trainer['profileImageUrl'] ?? '',
-                          trainerData: trainer,
-                        ),
+                    if (filtered.isEmpty) {
+                      return const Center(
+                        child: Text("No trainers found. Try adjusting filters!",
+                            style:
+                                TextStyle(fontSize: 16, color: Colors.grey)),
                       );
-                    },
-                  );
-                },
+                    }
+
+                    return GridView.builder(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 2,
+                        crossAxisSpacing: 10.0,
+                        mainAxisSpacing: 10.0,
+                        childAspectRatio: 0.5,
+                      ),
+                      itemCount: filtered.length,
+                      itemBuilder: (context, index) {
+                        final trainer = filtered[index];
+                        return InkWell(
+                          onTap: () async {
+                            if (await _needsSignIn()) {
+                              _showSignUpDialog(context);
+                              return;
+                            }
+
+                            bool isTrainerRole = (userRole == 'trainer' ||
+                                userRole == 'personal trainer' ||
+                                userRole == 'personaltrainer');
+
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => TrainerHomePage(
+                                  trainerData: trainer,
+                                  viewAsCustomer: !isTrainerRole,
+                                ),
+                              ),
+                            );
+                          },
+                          onLongPress: () =>
+                              _showTrainerOptions(context, trainer), // NEW
+                          child: TrainerCard(
+                            name: trainer['name'] ??
+                                trainer['displayName'] ??
+                                '',
+                            specialties: List<String>.from(
+                                trainer['specialties'] ?? []),
+                            location: trainer['location'] ??
+                                trainer['suburb'] ??
+                                '',
+                            categoryColors: categoryColors,
+                            profileImageUrl: trainer['profileImageUrl'] ?? '',
+                            trainerData: trainer,
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
       bottomNavigationBar: Container(
@@ -827,14 +887,13 @@ class TrainerSearchDelegate extends SearchDelegate {
   TrainerSearchDelegate(this.trainers, this.userRole);
 
   @override
-  List<Widget> buildActions(BuildContext context) =>
-      [IconButton(icon: const Icon(Icons.clear), onPressed: () => query = '')];
+  List<Widget> buildActions(BuildContext context) => [
+        IconButton(icon: const Icon(Icons.clear), onPressed: () => query = '')
+      ];
 
   @override
-  Widget buildLeading(BuildContext context) => IconButton(
-        icon: const Icon(Icons.arrow_back),
-        onPressed: () => close(context, null),
-      );
+  Widget buildLeading(BuildContext context) =>
+      IconButton(icon: const Icon(Icons.arrow_back), onPressed: () => close(context, null));
 
   @override
   Widget buildResults(BuildContext context) {

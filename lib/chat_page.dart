@@ -1,10 +1,13 @@
+// ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'dart:async';
 
 import 'marketplace_page.dart';
 import 'trainer_home_page.dart';
+import 'services/block_service.dart';                       // ← NEW
 
 class ChatPage extends StatefulWidget {
   /// Firestore document id you plan to use for this conversation
@@ -35,7 +38,13 @@ class _ChatPageState extends State<ChatPage> {
   bool _isOtherTrainer = false;
   bool _hasListing = false;
 
-  // ────────────────────────────────────────── life-cycle
+  // ───────────────────────────────── block state  ──────────────── NEW
+  bool _iBlockedThem = false;
+  bool _theyBlockedMe = false;
+
+  // ---------------------------------------------------------------------------
+  // LIFE-CYCLE
+  // ---------------------------------------------------------------------------
   @override
   void initState() {
     super.initState();
@@ -43,6 +52,27 @@ class _ChatPageState extends State<ChatPage> {
 
     _loadConversationData();
     _markConversationAsRead();
+    _checkBlockStatus();                                         // NEW
+  }
+
+  // optional live update (comment out if unwanted)  -------------- NEW
+  StreamSubscription<DocumentSnapshot>? _blockSub;                // NEW
+
+  Future<void> _checkBlockStatus() async {                        // NEW
+    _iBlockedThem = await BlockService.instance.iBlocked(_otherUserId);
+    _theyBlockedMe = await BlockService.instance.blockedMe(_otherUserId);
+    // live update: watch if they block/unblock us later
+    _blockSub = FirebaseFirestore.instance
+        .collection('users')
+        .doc(_otherUserId)
+        .collection('blocked')
+        .doc(FirebaseAuth.instance.currentUser!.uid)
+        .snapshots()
+        .listen((doc) {
+      _theyBlockedMe = doc.exists;
+      if (mounted) setState(() {});
+    });
+    if (mounted) setState(() {});
   }
 
   @override
@@ -50,10 +80,11 @@ class _ChatPageState extends State<ChatPage> {
     _maybeDeleteEmptyConversation();
     _messageController.dispose();
     _scrollController.dispose();
+    _blockSub?.cancel();                                         // NEW
     super.dispose();
   }
 
-  // ────────────────────────────────────────── firestore helpers
+  // ───────────────────────────────── firestore helpers
   Future<void> _markConversationAsRead() async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) return;
@@ -93,8 +124,8 @@ class _ChatPageState extends State<ChatPage> {
           .get();
       if (convSnap.exists) {
         final data = convSnap.data() as Map<String, dynamic>;
-        _hasListing = data['listingId'] != null &&
-            (data['listingId'] as String).isNotEmpty;
+        _hasListing =
+            data['listingId'] != null && (data['listingId'] as String).isNotEmpty;
       }
 
       // other user profile
@@ -104,10 +135,8 @@ class _ChatPageState extends State<ChatPage> {
           .get();
       _isOtherTrainer = userDoc.exists;
       if (!userDoc.exists) {
-        userDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(_otherUserId)
-            .get();
+        userDoc =
+            await FirebaseFirestore.instance.collection('users').doc(_otherUserId).get();
       }
 
       if (!userDoc.exists) {
@@ -121,8 +150,7 @@ class _ChatPageState extends State<ChatPage> {
       final userData = userDoc.data() as Map<String, dynamic>;
       setState(() {
         _otherDisplayName = userData['displayName'] ??
-            ('${userData['firstName'] ?? ''} ${userData['lastName'] ?? ''}')
-                .trim();
+            ('${userData['firstName'] ?? ''} ${userData['lastName'] ?? ''}').trim();
         _otherImageUrl = userData['profileImageUrl'] ?? '';
       });
     } catch (e) {
@@ -130,8 +158,20 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  // ────────────────────────────────────────── send message
+  // ───────────────────────────────── send message
   Future<void> _sendMessage() async {
+    // guard if blocked  ------------------------------------------- NEW
+    if (_iBlockedThem) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('You blocked this user')));
+      return;
+    }
+    if (_theyBlockedMe) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('This user has blocked you')));
+      return;
+    }
+
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
 
@@ -139,9 +179,8 @@ class _ChatPageState extends State<ChatPage> {
     if (currentUser == null) return;
 
     final now = FieldValue.serverTimestamp();
-    final convRef = FirebaseFirestore.instance
-        .collection('conversations')
-        .doc(widget.conversationId);
+    final convRef =
+        FirebaseFirestore.instance.collection('conversations').doc(widget.conversationId);
     final msgsRef = convRef.collection('messages');
 
     // 1. add message
@@ -189,7 +228,7 @@ class _ChatPageState extends State<ChatPage> {
     });
   }
 
-  // ────────────────────────────────────────── report dialog
+  // ───────────────────────────────── report dialog
   void _showReportDialog() {
     final reasonCtrl = TextEditingController();
     showDialog(
@@ -202,9 +241,7 @@ class _ChatPageState extends State<ChatPage> {
           decoration: const InputDecoration(hintText: 'Why are you reporting?'),
         ),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
               final reason = reasonCtrl.text.trim();
@@ -229,10 +266,7 @@ class _ChatPageState extends State<ChatPage> {
                   .get();
 
               final targetCol = _isOtherTrainer ? 'trainer_profiles' : 'users';
-              await FirebaseFirestore.instance
-                  .collection(targetCol)
-                  .doc(_otherUserId)
-                  .set({
+              await FirebaseFirestore.instance.collection(targetCol).doc(_otherUserId).set({
                 'reportCount': countSnap.docs.length,
                 if (countSnap.docs.length >= 3) 'flagged': true,
               }, SetOptions(merge: true));
@@ -248,9 +282,89 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  // ────────────────────────────────────────── UI
+  // ───────────────────────────────── build-time helpers  NEW (extracted AppBar)
+  PreferredSizeWidget _buildAppBar() {
+    return PreferredSize(
+      preferredSize: const Size.fromHeight(kToolbarHeight + 8),
+      child: AppBar(
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(colors: [Color(0xFFFFA726), Color(0xFFFFA726)]),
+          ),
+        ),
+        titleSpacing: 0,
+        title: Row(
+          children: [
+            CircleAvatar(
+              radius: 24,
+              backgroundImage: _otherImageUrl.isNotEmpty
+                  ? NetworkImage(_otherImageUrl)
+                  : const AssetImage('assets/default_profile.png') as ImageProvider,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                _otherDisplayName,
+                style: const TextStyle(
+                    color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.flag, color: Colors.white),
+            tooltip: 'Report User',
+            onPressed: _showReportDialog,
+          ),
+          IconButton(
+            icon: const Icon(Icons.account_circle, color: Colors.white),
+            tooltip: 'View profile',
+            onPressed: _navigateToOtherProfile,
+          ),
+          PopupMenuButton<String>(                                   // NEW
+            onSelected: (val) async {
+              if (val == 'block') {
+                await BlockService.instance.block(_otherUserId);
+                _iBlockedThem = true;
+                if (mounted) setState(() {});
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(const SnackBar(content: Text('User blocked')));
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'block', child: Text('Block user')),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ───────────────────────────────── UI
   @override
   Widget build(BuildContext context) {
+    // ---------- blocked states override UI ---------------------- NEW
+    if (_iBlockedThem) {
+      return Scaffold(
+        appBar: _buildAppBar(),
+        body: const Center(child: Text('You blocked this user.')),
+      );
+    }
+    if (_theyBlockedMe) {
+      return Scaffold(
+        appBar: _buildAppBar(),
+        body: const Center(child: Text('Chat unavailable: you have been blocked.')),
+      );
+    }
+
     final msgsQuery = FirebaseFirestore.instance
         .collection('conversations')
         .doc(widget.conversationId)
@@ -260,63 +374,10 @@ class _ChatPageState extends State<ChatPage> {
     return Scaffold(
       resizeToAvoidBottomInset: true,
 
-      // --------------- header ----------------
-      appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(kToolbarHeight + 8),
-        child: AppBar(
-          elevation: 0,
-          backgroundColor: Colors.transparent,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () => Navigator.pop(context),
-          ),
-          flexibleSpace: Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFFFFA726), Color(0xFFFFA726)],
-              ),
-            ),
-          ),
-          titleSpacing: 0,
-          title: Row(
-            children: [
-              CircleAvatar(
-                radius: 24,
-                backgroundImage: _otherImageUrl.isNotEmpty
-                    ? NetworkImage(_otherImageUrl)
-                    : const AssetImage('assets/default_profile.png')
-                        as ImageProvider,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  _otherDisplayName,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.flag, color: Colors.white),
-              tooltip: 'Report User',
-              onPressed: _showReportDialog,
-            ),
-            IconButton(
-              icon: const Icon(Icons.account_circle, color: Colors.white),
-              tooltip: 'View profile',
-              onPressed: _navigateToOtherProfile,
-            ),
-          ],
-        ),
-      ),
+      // header
+      appBar: _buildAppBar(),
 
-      // --------------- body ------------------
+      // body
       body: Column(
         children: [
           // message list
@@ -335,8 +396,7 @@ class _ChatPageState extends State<ChatPage> {
                   return const Center(child: Text('No messages yet.'));
                 }
 
-                WidgetsBinding.instance
-                    .addPostFrameCallback((_) => _scrollToBottom());
+                WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
 
                 return ListView.builder(
                   controller: _scrollController,
@@ -348,12 +408,10 @@ class _ChatPageState extends State<ChatPage> {
                     final isMe =
                         senderId == FirebaseAuth.instance.currentUser?.uid;
                     final ts = data['timestamp'] as Timestamp?;
-                    final timeStr = ts == null
-                        ? ''
-                        : DateFormat('h:mm a').format(ts.toDate());
+                    final timeStr =
+                        ts == null ? '' : DateFormat('h:mm a').format(ts.toDate());
 
-                    return _buildBubble(
-                        message: text, isMe: isMe, time: timeStr);
+                    return _buildBubble(message: text, isMe: isMe, time: timeStr);
                   },
                 );
               },
@@ -362,7 +420,7 @@ class _ChatPageState extends State<ChatPage> {
 
           // input bar – only SafeArea, no extra padding!
           SafeArea(
-            top: false, // just keep away from the bottom gesture bar
+            top: false, // keep away from the bottom gesture bar
             child: _buildInputBar(),
           ),
         ],
@@ -370,7 +428,7 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  // ────────────────────────────────────────── widget helpers
+  // ───────────────────────────────── widget helpers
   Widget _buildBubble(
       {required String message, required bool isMe, required String time}) {
     final radius = BorderRadius.only(
@@ -389,8 +447,8 @@ class _ChatPageState extends State<ChatPage> {
         children: [
           Container(
             padding: const EdgeInsets.all(12),
-            constraints: BoxConstraints(
-                maxWidth: MediaQuery.of(context).size.width * 0.7),
+            constraints:
+                BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.7),
             decoration: BoxDecoration(
               color: isMe ? Colors.blueAccent : Colors.grey[200],
               borderRadius: radius,
@@ -440,7 +498,7 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  // ────────────────────────────────────────── profile nav
+  // ───────────────────────────────── profile nav
   void _navigateToOtherProfile() {
     if (_otherUserId.isEmpty) return;
 

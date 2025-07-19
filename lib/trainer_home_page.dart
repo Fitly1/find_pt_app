@@ -7,6 +7,7 @@ import 'chat_page.dart';
 import 'bottom_navigation_customers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'services/block_service.dart';              // <-- NEW
 
 /// colour chips for specialties
 final Map<String, Color> categoryColors = {
@@ -48,6 +49,7 @@ class TrainerHomePage extends StatefulWidget {
 class TrainerHomePageState extends State<TrainerHomePage> {
   Map<String, dynamic> trainerProfile = {};
   String? currentUserRole; // "trainer" or "customer"
+  List<String> _blocked = [];                                   // <-- NEW
 
   // ---------------------------------------------------------------------------
   // INITIALISATION
@@ -67,6 +69,13 @@ class TrainerHomePageState extends State<TrainerHomePage> {
     }
 
     _fetchCurrentUserRole();
+
+    // fetch blocked IDs once
+    BlockService.instance.blockedIds().then((ids) {               // <-- NEW
+      if (mounted) {
+        setState(() => _blocked = ids);
+      }
+    });
 
     // choose which trainer UID to load
     String? uidToFetch =
@@ -433,6 +442,21 @@ class TrainerHomePageState extends State<TrainerHomePage> {
     }
 
     final trainerUid = trainerProfile['uid'] ?? currentUser.uid;
+
+    // If this trainer is blocked, show a simple “blocked” screen
+    if (_blocked.contains(trainerUid)) {                          // <-- NEW
+      return Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: true,
+          backgroundColor: kBrandOrange,
+          title: const Text('Trainer blocked'),
+        ),
+        body: const Center(
+          child: Text('You have blocked this trainer.'),
+        ),
+      );
+    }
+
     final displayName =
         trainerProfile['displayName'] ?? currentUser.displayName ?? 'Trainer';
     final parsedLoc = _parseLocation(trainerProfile['location']);
@@ -456,6 +480,28 @@ class TrainerHomePageState extends State<TrainerHomePage> {
             icon: const Icon(Icons.flag_outlined, color: Colors.white),
             onPressed: _showReportDialog,
           ),
+          if (trainerUid != currentUser.uid)                      // <-- NEW
+            PopupMenuButton<String>(
+              onSelected: (val) async {
+                if (val == 'block') {
+                  await BlockService.instance.block(trainerUid);
+                  if (!mounted) return;
+                  setState(() {
+                    _blocked.add(trainerUid);
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Trainer blocked')),
+                  );
+                  Navigator.of(context).pop(); // Go back to previous screen
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem<String>(
+                  value: 'block',
+                  child: Text('Block trainer'),
+                ),
+              ],
+            ),
         ],
       ),
       backgroundColor: Colors.white,
