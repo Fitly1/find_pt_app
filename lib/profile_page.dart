@@ -126,13 +126,11 @@ class _SubscriptionSheet extends StatelessWidget {
   final ProductDetails? product;
   final VoidCallback onStart;
   const _SubscriptionSheet({
-    Key? key,
     required this.product,
     required this.onStart,
-  }) : super(key: key);
+  });
 
-  String _priceString() =>
-      product == null ? '—' : '${product!.price} / month';
+  String _priceString() => product == null ? '—' : '${product!.price} / month';
 
   @override
   Widget build(BuildContext context) {
@@ -186,7 +184,7 @@ class _SubscriptionSheet extends StatelessWidget {
                   children: [
                     const Icon(Icons.check, size: 18, color: Colors.green),
                     const SizedBox(width: 6),
-                    Expanded(child: Text(f)),   // also NOT const
+                    Expanded(child: Text(f)), // also NOT const
                   ],
                 ),
               ),
@@ -258,12 +256,60 @@ class _ProfilePageState extends State<ProfilePage> {
   ProductDetails? _membershipProduct;
   InAppPurchaseStoreKitPlatformAddition? _skAddition;
 
+  /// Called once during init to ensure Firestore always has the
+  /// latest Apple receipt (needed by webhook & daily reconciler).
+  Future<void> _syncIosReceiptOnce() async {
+    if (!Platform.isIOS) return;
+
+    // 1) try to read the receipt file from the device
+    final dynamic addition = _skAddition ??
+        InAppPurchase.instance
+            .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
+    if (addition == null) return;
+
+    String? receipt;
+    try {
+      receipt = await addition.appStoreReceipt as String?;
+    } catch (_) {
+      try {
+        receipt = await addition.getReceiptData() as String?;
+      } catch (_) {}
+    }
+    if (receipt == null || receipt.isEmpty) return;
+
+    // 2) look at Firestore; if the field is missing we upload once
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    final doc = await FirebaseFirestore.instance
+        .collection('trainer_profiles')
+        .doc(uid)
+        .get();
+    if (doc.exists &&
+        (doc.data()?['latestIosReceiptData'] ?? '').toString().isNotEmpty) {
+      // already stored – nothing to do
+      return;
+    }
+
+    // 3) send to Cloud Function
+    try {
+      final callable =
+          FirebaseFunctions.instance.httpsCallable('verifyIosReceipt');
+      await callable.call({'receiptData': receipt});
+      logger.i('Uploaded iOS receipt once at launch');
+    } catch (e) {
+      logger.w('syncIosReceiptOnce error: $e');
+    }
+  }
+
   //───────────────── init ──────────────────
   @override
   void initState() {
     super.initState();
     _loadUserRole();
     _initIAP();
+    // run the one-shot sync
+    _syncIosReceiptOnce();
     secureStorage
         .writeData('last_profile_view', DateTime.now().toIso8601String())
         .catchError((e) => logger.e("SecureStorage error: $e"));
@@ -689,10 +735,11 @@ class _ProfilePageState extends State<ProfilePage> {
 
       // ─── delete Firestore docs before removing Auth user ───
       final batch = FirebaseFirestore.instance.batch();
-      batch.delete(
-          FirebaseFirestore.instance.collection('users').doc(user.uid));
-      batch.delete(
-          FirebaseFirestore.instance.collection('trainer_profiles').doc(user.uid));
+      batch
+          .delete(FirebaseFirestore.instance.collection('users').doc(user.uid));
+      batch.delete(FirebaseFirestore.instance
+          .collection('trainer_profiles')
+          .doc(user.uid));
       await batch.commit();
 
       // ─── delete Auth row ───
@@ -707,7 +754,7 @@ class _ProfilePageState extends State<ProfilePage> {
       await secureStorage.deleteData('userToken');
       await secureStorage.deleteData('last_profile_view');
       final prefs = await SharedPreferences.getInstance();
-      await prefs.clear();                         // removes cached role
+      await prefs.clear(); // removes cached role
 
       await showInfoDialog(context,
           title: 'Account Deleted',

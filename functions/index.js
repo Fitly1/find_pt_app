@@ -14,8 +14,7 @@ require("dotenv").config(); // local .env support
 const admin = require("firebase-admin");
 admin.initializeApp({
   credential: admin.credential.applicationDefault(),
-  projectId : "findptapp", 
-
+  projectId: "findptapp",
 });
 
 /* ─── Helper: recompute and store average rating (NEW) ────────*/
@@ -55,7 +54,6 @@ const PROMO_CODE_MAP = {
   // add more codes here e.g. SUMMER25: "coupon_abcd1234"
 };
 
-/* ─── Apple-IAP config (NEW) ────────────────────────────────*/
 /* ─── Apple-IAP config ───────────────────────────────────── */
 const APPLE_SHARED_SECRET = process.env.APPLE_SHARED_SECRET || "";
 const APP_STORE_ENV = (process.env.APP_STORE_ENV || "production").toLowerCase();
@@ -75,6 +73,31 @@ if (!fetchFn)
 function decodeJwtPayload(jwt) {
   const b64 = jwt.split(".")[1];
   return JSON.parse(Buffer.from(b64, "base64").toString("utf8"));
+}
+
+/* ─── Helpers used by iOS reconciliation (NEW) ───────────────*/
+async function verifyReceipt(receiptData) {
+  const url =
+    APP_STORE_ENV === "sandbox"
+      ? "https://sandbox.itunes.apple.com/verifyReceipt"
+      : "https://buy.itunes.apple.com/verifyReceipt";
+
+  const res = await fetchFn(url, {
+    method: "POST",
+    body: JSON.stringify({
+      "receipt-data": receiptData,
+      password: APPLE_SHARED_SECRET,
+      "exclude-old-transactions": true,
+    }),
+  });
+  const json = await res.json();
+  if (json.status !== 0) throw new Error(`Apple status ${json.status}`);
+  return json;
+}
+
+function getLatestExpiry(verifyResponse) {
+  const latest = verifyResponse.latest_receipt_info?.slice(-1)[0];
+  return latest ? Number(latest.expires_date_ms) : 0;
 }
 
 /* ──────────────────────────────────────────────────────────────
@@ -497,7 +520,7 @@ exports.createTrainerCustomer = onDocumentCreated(
 );
 
 /* ──────────────────────────────────────────────────────────────
-   🍏  A P P L E   I N ‑A P P   P U R C H A S E S   (NEW)
+   🍏  A P P L E   I N -A P P   P U R C H A S E S
 ───────────────────────────────────────────────────────────────*/
 
 /* 8) Callable: verifyIosReceipt */
@@ -514,33 +537,17 @@ exports.verifyIosReceipt = onCall(async (req) => {
   if (!receiptData)
     throw new HttpsError("invalid-argument", "Missing receiptData");
 
-  const url =
-    APP_STORE_ENV === "sandbox"
-      ? "https://sandbox.itunes.apple.com/verifyReceipt"
-      : "https://buy.itunes.apple.com/verifyReceipt";
-
-  const response = await fetchFn(url, {
-    method: "POST",
-    body: JSON.stringify({
-      "receipt-data": receiptData,
-      password: APPLE_SHARED_SECRET,
-      "exclude-old-transactions": true,
-    }),
-  });
-  const json = await response.json();
-
-  if (json.status !== 0)
-    throw new HttpsError("data-loss", `Apple returned status ${json.status}`);
-
-  const latest = json.latest_receipt_info?.slice(-1)[0];
-  const expiresMs = latest ? Number(latest.expires_date_ms) : 0;
-  const isActive = Date.now() < expiresMs;
+  const verifyRes = await verifyReceipt(receiptData);
+  const expiresMs = getLatestExpiry(verifyRes);
+  const isActive = expiresMs > Date.now();
 
   await admin.firestore().doc(`trainer_profiles/${auth.uid}`).set(
     {
       isActive: isActive,
       iosExpiry: expiresMs,
-      iosOriginalTxId: latest?.original_transaction_id || null,
+      iosOriginalTxId: verifyRes.latest_receipt_info?.slice(-1)[0]
+        ?.original_transaction_id || null,
+      latestIosReceiptData: receiptData,
     },
     { merge: true }
   );
@@ -549,7 +556,7 @@ exports.verifyIosReceipt = onCall(async (req) => {
   return { active: isActive, expiresMs };
 });
 
-/* 9) Apple Server Notifications v2  (HTTP endpoint) */
+/* 9) Apple Server Notifications v2 (HTTP endpoint) */
 const appleApp = express();
 appleApp.use(express.json({ limit: "5mb" }));
 
@@ -597,11 +604,43 @@ appleApp.post("/", async (req, res) => {
 
 exports.handleAppleServerNotification = onRequest(appleApp);
 
-/* 10) Optional daily reconciliation (lightweight placeholder) */
+/* 10) DAILY iOS RECONCILIATION – REPLACED WITH REQUESTED LOGIC */
 exports.reconcileIosSubscriptions = onSchedule("every 24 hours", async () => {
-  if (!APPLE_SHARED_SECRET) return;
-  console.log("🍏 iOS reconciliation pass – (placeholder)");
-  // You could iterate trainer_profiles and call verifyReceipt again here
+  if (!APPLE_SHARED_SECRET) {
+    console.warn("🍏 Skipping iOS reconciliation — no shared secret");
+    return;
+  }
+
+  const firestore = admin.firestore();
+  const trainersRef = firestore.collection("trainer_profiles");
+  const snapshot = await trainersRef
+    .where("latestIosReceiptData", ">", "")
+    .get();
+
+  console.log(`🔍 Checking ${snapshot.size} trainers for iOS reconciliation`);
+
+  for (const doc of snapshot.docs) {
+    const trainer = doc.data();
+    const receiptData = trainer.latestIosReceiptData;
+
+    try {
+      const response = await verifyReceipt(receiptData);
+      const latestExpiryMillis = getLatestExpiry(response);
+      const isActive = latestExpiryMillis > Date.now();
+
+      await doc.ref.update({
+        isActive,
+        iosExpiry: latestExpiryMillis,
+        subscriptionStatus: isActive ? "active" : "expired",
+      });
+
+      console.log(`✅ ${doc.id} updated. Active: ${isActive}`);
+    } catch (err) {
+      console.error(`❌ Error for ${doc.id}:`, err);
+    }
+  }
+
+  console.log("🍏 iOS reconciliation completed.");
 });
 
 /* 11) Firestore Trigger – Validate trainer_profiles on write */
@@ -648,14 +687,13 @@ exports.updateTrainerAvgRating = onDocumentWritten(
   }
 );
 
-
 /* ──────────────────────────────────────────────────────────────
    FIRESTORE TRIGGER → SEND PUSH NOTIFICATION (NEW BLOCK)
 ───────────────────────────────────────────────────────────────*/
 exports.pushOnNewNotification = onDocumentCreated(
   "users/{userId}/notifications/{notifId}",
   async (event) => {
-    const data = event.data.data();          // what the client wrote
+    const data = event.data.data(); // what the client wrote
     const userId = event.params.userId;
 
     // 1) Fetch this user’s device tokens
@@ -675,10 +713,10 @@ exports.pushOnNewNotification = onDocumentCreated(
     const payload = {
       notification: {
         title: data.title ?? "Fitly",
-        body:  data.body  ?? "",
+        body: data.body ?? "",
       },
       data: {
-        route: data.route ?? "",            // used by _handleNavigationFromMessage
+        route: data.route ?? "", // used by _handleNavigationFromMessage
       },
     };
 
@@ -693,7 +731,7 @@ exports.pushOnNewNotification = onDocumentCreated(
       if (
         err &&
         (err.code === "messaging/invalid-registration-token" ||
-         err.code === "messaging/registration-token-not-registered")
+          err.code === "messaging/registration-token-not-registered")
       ) {
         batch.delete(
           admin
@@ -707,12 +745,11 @@ exports.pushOnNewNotification = onDocumentCreated(
     });
     await batch.commit();
 
-    console.log(
-      `🕊️  Sent push to ${tokens.length} tokens for user ${userId}`
-    );
+    console.log(`🕊️  Sent push to ${tokens.length} tokens for user ${userId}`);
     return null;
   }
 );
+
 /* ──────────────────────────────────────────────────────────────
    CHAT  →  PUSH NOTIFICATION   (v1 API version)
 ───────────────────────────────────────────────────────────────*/
@@ -722,7 +759,7 @@ exports.notifyOnNewMessage = onDocumentCreated(
     const msg = event.data.data();
     if (!msg) return null;
 
-    const toUid   = msg.recipientId;
+    const toUid = msg.recipientId;
     const fromUid = msg.senderId;
     if (!toUid || !fromUid || toUid === fromUid) return null;
 
