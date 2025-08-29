@@ -345,7 +345,7 @@ exports.createBillingPortalSession = onCall(async (data, context) => {
 });
 
 /* ──────────────────────────────────────────────────────────────
-   5) STRIPE WEBHOOK HTTP FUNCTION (original)
+   5) STRIPE WEBHOOK HTTP FUNCTION  (idempotent + fall-backs)
 ───────────────────────────────────────────────────────────────*/
 const bodyParser = require("body-parser");
 const webhookApp = express();
@@ -354,7 +354,7 @@ webhookApp.use(
   bodyParser.raw({
     type: "application/json",
     verify: (req, res, buf) => {
-      req.rawBody = buf;
+      req.rawBody = buf;           // save raw body for Stripe signature check
     },
   })
 );
@@ -363,70 +363,181 @@ webhookApp.post("/", async (req, res) => {
   let event;
   const sig = req.headers["stripe-signature"];
 
+  /* ---------- 1. verify signature ---------- */
   try {
     event = stripe.webhooks.constructEvent(req.rawBody, sig, WEBHOOK_SECRET);
   } catch (err) {
-    console.error("❌ Webhook signature verification failed:", err.message);
+    console.error("❌  Webhook signature verification failed:", err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  /* ---------- 2. idempotency: skip if done ---------- */
+  const eventRef = admin
+    .firestore()
+    .collection("stripe_webhook_events")
+    .doc(event.id);
+
+  const alreadyDone = await eventRef.get();
+  if (alreadyDone.exists) {
+    return res.status(200).send("Already processed");
   }
 
   const data = event.data.object;
 
-  switch (event.type) {
-    /* INITIAL SUBSCRIPTION */
-    case "checkout.session.completed": {
-      if (data.mode === "subscription") {
-        const trainerId = data.metadata?.trainerId;
+  /* ---------- 3. handle event types ---------- */
+  try {
+    switch (event.type) {
+      /* 3-a  checkout.session.completed  (first time only) */
+      case "checkout.session.completed": {
+        if (data.mode === "subscription") {
+          const trainerId  = data.metadata?.trainerId;
+          const customerId = data.customer;
+
+          if (trainerId && customerId) {
+            await admin
+              .firestore()
+              .doc(`trainer_profiles/${trainerId}`)
+              .set(
+                {
+                  isActive: true,               // refined soon by sub events
+                  stripeId: customerId,
+                  subscriptionStatus: "active",
+                },
+                { merge: true }
+              );
+            console.log(`✅  Trainer ${trainerId} is now ACTIVE (checkout)`);
+          } else {
+            console.warn(
+              "⚠️  checkout.session.completed without trainerId or customerId"
+            );
+          }
+        }
+        break;
+      }
+
+      /* 3-b  subscription created/updated */
+      case "customer.subscription.created":
+      case "customer.subscription.updated": {
+        const status     = data.status;               // active, trialing, …
         const customerId = data.customer;
-        await admin
-          .firestore()
-          .doc(`trainer_profiles/${trainerId}`)
-          .set(
-            { isActive: true, stripeId: customerId, subscriptionStatus: "active" },
-            { merge: true }
+        let   trainerId  = data.metadata?.trainerId;
+
+        if (!trainerId && customerId) {
+          const snap = await admin
+            .firestore()
+            .collection("trainer_profiles")
+            .where("stripeId", "==", customerId)
+            .limit(1)
+            .get();
+          if (!snap.empty) trainerId = snap.docs[0].id;
+        }
+
+        if (trainerId) {
+          const isActiveLike = status === "active" || status === "trialing";
+          await admin
+            .firestore()
+            .doc(`trainer_profiles/${trainerId}`)
+            .set(
+              {
+                isActive: isActiveLike,
+                subscriptionStatus: status,
+                stripeId: customerId,
+              },
+              { merge: true }
+            );
+          console.log(`🔄  Trainer ${trainerId} status → ${status}`);
+        } else {
+          console.warn(
+            `⚠️  No trainer profile found for subscription ${data.id}`
           );
-        console.log(`✅ Trainer ${trainerId} is now ACTIVE`);
+        }
+        break;
       }
-      break;
+
+      /* 3-c  subscription deleted / cancelled */
+      case "customer.subscription.deleted": {
+        const customerId = data.customer;
+        let   trainerId  = data.metadata?.trainerId;
+
+        if (!trainerId && customerId) {
+          const snap = await admin
+            .firestore()
+            .collection("trainer_profiles")
+            .where("stripeId", "==", customerId)
+            .limit(1)
+            .get();
+          if (!snap.empty) trainerId = snap.docs[0].id;
+        }
+
+        if (trainerId) {
+          await admin
+            .firestore()
+            .doc(`trainer_profiles/${trainerId}`)
+            .set(
+              { isActive: false, subscriptionStatus: "canceled" },
+              { merge: true }
+            );
+          console.log(`❌  Trainer ${trainerId} canceled`);
+        } else {
+          console.warn(
+            `⚠️  Subscription deleted but no trainer found (customer ${customerId})`
+          );
+        }
+        break;
+      }
+
+      /* 3-d  payment failure */
+      case "invoice.payment_failed": {
+        const subId           = data.subscription;
+        const invoiceCustomer = data.customer;
+        if (!subId) break;
+
+        const sub      = await stripe.subscriptions.retrieve(subId);
+        let   trainerId = sub.metadata?.trainerId;
+
+        if (!trainerId && sub.customer) {
+          const snap = await admin
+            .firestore()
+            .collection("trainer_profiles")
+            .where("stripeId", "==", sub.customer)
+            .limit(1)
+            .get();
+          if (!snap.empty) trainerId = snap.docs[0].id;
+        }
+
+        if (trainerId) {
+          await admin
+            .firestore()
+            .doc(`trainer_profiles/${trainerId}`)
+            .set(
+              { isActive: false, subscriptionStatus: sub.status || "past_due" },
+              { merge: true }
+            );
+          console.log(`⚠️  Trainer ${trainerId} payment failed → ${sub.status}`);
+        } else {
+          console.warn(
+            `⚠️  Payment failed but no trainer found (sub ${subId}, cust ${invoiceCustomer})`
+          );
+        }
+        break;
+      }
+
+      /* ignore everything else */
+      default:
+        break;
     }
 
-    /* ANY SUBSCRIPTION STATUS CHANGE */
-    case "customer.subscription.updated":
-    case "customer.subscription.deleted": {
-      const trainerId = data.metadata?.trainerId;
-      if (trainerId) {
-        await admin
-          .firestore()
-          .doc(`trainer_profiles/${trainerId}`)
-          .set(
-            { isActive: data.status === "active", subscriptionStatus: data.status },
-            { merge: true }
-          );
-        console.log(`🔄 Trainer ${trainerId} status → ${data.status}`);
-      }
-      break;
-    }
+    /* ---------- 4. mark the event as processed ---------- */
+    await eventRef.set({
+      type: event.type,
+      processedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
 
-    /* FAILED PAYMENT */
-    case "invoice.payment_failed": {
-      const subId = data.subscription;
-      const sub = await stripe.subscriptions.retrieve(subId);
-      const trainerId = sub.metadata?.trainerId;
-      if (trainerId) {
-        await admin
-          .firestore()
-          .doc(`trainer_profiles/${trainerId}`)
-          .set(
-            { isActive: false, subscriptionStatus: sub.status },
-            { merge: true }
-          );
-        console.log(`⚠️  Trainer ${trainerId} payment failed → ${sub.status}`);
-      }
-      break;
-    }
+    return res.json({ received: true });
+  } catch (err) {
+    console.error("Webhook handler error:", err);
+    return res.status(500).send("Webhook handler error");
   }
-
-  res.json({ received: true });
 });
 
 exports.handleStripeWebhook = onRequest(webhookApp);
