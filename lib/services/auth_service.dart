@@ -1,4 +1,5 @@
 // lib/services/auth_service.dart   (Dart-2/3 compatible)
+
 import 'dart:convert';
 import 'dart:math';
 import 'dart:io' show Platform;
@@ -57,6 +58,7 @@ class AuthService {
   }
 
   /* ───────── APPLE ───────── */
+  // ignore: unused_field
   static const String _appleClientId = 'com.fitly.findptapp';
 
   static String _genNonce([int len = 32]) {
@@ -117,6 +119,7 @@ class AuthService {
       if (e.code == 'account-exists-with-different-credential' ||
           e.code == 'credential-already-in-use') {
         final email = e.email!;
+        // ignore: deprecated_member_use
         final methods = await _auth.fetchSignInMethodsForEmail(email);
 
         if (_auth.currentUser != null) {
@@ -172,9 +175,7 @@ class AuthService {
       UserCredential cred, AuthorizationCredentialAppleID apple) async {
     final user = cred.user!;
     if (apple.email != null && (user.email?.isEmpty ?? true)) {
-      try {
-        await user.updateEmail(apple.email!);
-      } catch (_) {}
+      await user.verifyBeforeUpdateEmail(apple.email!);
     }
     if (apple.givenName != null && apple.familyName != null) {
       await user.updateDisplayName('${apple.givenName} ${apple.familyName}');
@@ -208,11 +209,9 @@ class AuthService {
     };
 
     if (role != null) {
-      // caller explicitly wants to set / change role
-      data['role'] = role;
+      data['role'] = role; // override
     } else if (!snap.exists) {
-      // first ever login → default role
-      data['role'] = 'customer';
+      data['role'] = 'customer'; // default first-login role
     }
 
     await doc.set(data, SetOptions(merge: true));

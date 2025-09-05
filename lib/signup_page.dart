@@ -42,7 +42,12 @@ String prettyAuthError(dynamic error) {
 
 /* ───────────────────────────────────────────────────────────── */
 class SignupPage extends StatefulWidget {
-  const SignupPage({super.key});
+  /// If supplied ('trainer' | 'customer') the role dropdown is hidden
+  /// and the form is locked to this role.
+  final String? preselectedRole;
+
+  const SignupPage({super.key, this.preselectedRole});
+
   @override
   SignupPageState createState() => SignupPageState();
 }
@@ -63,7 +68,8 @@ class SignupPageState extends State<SignupPage> {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final SecureStorageService secureStorage = SecureStorageService();
 
-  String? _selectedRole;                    // customer / trainer
+  late String? _selectedRole; // trainer / customer
+  late bool _hideRoleDropdown; // for UI
   bool _isLoading = false;
   bool _agreedToTnC = false;
 
@@ -74,6 +80,13 @@ class SignupPageState extends State<SignupPage> {
   void _toggleAgreed(bool? v) => setState(() => _agreedToTnC = v ?? false);
   String _cap(String s) =>
       s.isEmpty ? s : s[0].toUpperCase() + s.substring(1).toLowerCase();
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedRole = widget.preselectedRole; // may be null
+    _hideRoleDropdown = widget.preselectedRole != null;
+  }
 
   /* ───────── social sign-in handler ───────── */
   Future<void> _handleSocialSignIn(
@@ -96,8 +109,8 @@ class SignupPageState extends State<SignupPage> {
           .setString('userRole', _selectedRole!.toLowerCase());
 
       /* social users skip e-mail verification */
-      final isSocial = cred.user!.providerData.any((p) =>
-          p.providerId == 'apple.com' || p.providerId == 'google.com');
+      final isSocial = cred.user!.providerData.any(
+          (p) => p.providerId == 'apple.com' || p.providerId == 'google.com');
       final needVerify = !isSocial && !(cred.user?.emailVerified ?? false);
 
       if (!mounted) return;
@@ -146,32 +159,32 @@ class SignupPageState extends State<SignupPage> {
     _setLoading(true);
     try {
       final cred = await _auth.createUserWithEmailAndPassword(
-        email:    _emailController.text.trim(),
+        email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
       await cred.user?.sendEmailVerification();
 
       final first = _cap(_firstNameController.text.trim());
-      final last  = _cap(_lastNameController.text.trim());
+      final last = _cap(_lastNameController.text.trim());
       final display = '$first $last';
 
       await FirebaseFirestore.instance
           .collection('users')
           .doc(cred.user!.uid)
           .set({
-        'firstName'           : first,
-        'firstName_lowerCase' : first.toLowerCase(),
-        'lastName'            : last,
-        'lastName_lowerCase'  : last.toLowerCase(),
-        'displayName'         : display,
+        'firstName': first,
+        'firstName_lowerCase': first.toLowerCase(),
+        'lastName': last,
+        'lastName_lowerCase': last.toLowerCase(),
+        'displayName': display,
         'displayName_lowerCase': display.toLowerCase(),
-        'dob'   : _dobController.text.trim(),
-        'email' : _emailController.text.trim(),
-        'phone' : _phoneController.text.trim(),
-        'role'  : _selectedRole,           // trainer / customer
-        'emailVerified' : false,
+        'dob': _dobController.text.trim(),
+        'email': _emailController.text.trim(),
+        'phone': _phoneController.text.trim(),
+        'role': _selectedRole, // trainer / customer
+        'emailVerified': false,
         'hasAgreedToTnC': true,
-        'createdAt'     : FieldValue.serverTimestamp(),
+        'createdAt': FieldValue.serverTimestamp(),
       });
 
       (await SharedPreferences.getInstance())
@@ -200,8 +213,8 @@ class SignupPageState extends State<SignupPage> {
       lastDate: DateTime.now(),
     );
     if (picked != null) {
-      setState(() =>
-          _dobController.text = picked.toIso8601String().split('T')[0]);
+      setState(
+          () => _dobController.text = picked.toIso8601String().split('T')[0]);
     }
   }
 
@@ -267,34 +280,35 @@ class SignupPageState extends State<SignupPage> {
                     const SizedBox(height: 24),
 
                     /* role dropdown + social buttons */
-                    const Text('I want to sign up as',
-                        style: TextStyle(fontSize: 16)),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      value: _selectedRole,
-                      decoration:
-                          const InputDecoration(border: OutlineInputBorder()),
-                      items: const [
-                        DropdownMenuItem(
-                            value: 'customer', child: Text('Customer')),
-                        DropdownMenuItem(
-                            value: 'trainer', child: Text('Personal trainer')),
-                      ],
-                      validator: (v) => v == null ? 'Required' : null,
-                      onChanged: (v) => setState(() => _selectedRole = v),
-                    ),
-                    const SizedBox(height: 24),
+                    if (!_hideRoleDropdown) ...[
+                      const Text('I want to sign up as',
+                          style: TextStyle(fontSize: 16)),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        value: _selectedRole,
+                        decoration:
+                            const InputDecoration(border: OutlineInputBorder()),
+                        items: const [
+                          DropdownMenuItem(
+                              value: 'customer', child: Text('Customer')),
+                          DropdownMenuItem(
+                              value: 'trainer',
+                              child: Text('Personal trainer')),
+                        ],
+                        validator: (v) => v == null ? 'Required' : null,
+                        onChanged: (v) => setState(() => _selectedRole = v),
+                      ),
+                      const SizedBox(height: 24),
+                    ],
                     SocialSignInButtons(
                       loading: _isLoading,
                       onGooglePressed: _socialEnabled
-                          ? () => _handleSocialSignIn(
-                                () => AuthService.googleOneTap(
-                                      role: _selectedRole))
+                          ? () => _handleSocialSignIn(() =>
+                              AuthService.googleOneTap(role: _selectedRole))
                           : null,
                       onApplePressed: _socialEnabled
-                          ? () => _handleSocialSignIn(
-                                () => AuthService.appleOneTap(
-                                      role: _selectedRole))
+                          ? () => _handleSocialSignIn(() =>
+                              AuthService.appleOneTap(role: _selectedRole))
                           : null,
                     ),
                     if (!_socialEnabled)
@@ -324,8 +338,7 @@ class SignupPageState extends State<SignupPage> {
                     TextFormField(
                       controller: _lastNameController,
                       decoration: const InputDecoration(
-                          labelText: 'Last name',
-                          border: OutlineInputBorder()),
+                          labelText: 'Last name', border: OutlineInputBorder()),
                       validator: (v) =>
                           v == null || v.trim().isEmpty ? 'Required' : null,
                     ),
@@ -347,8 +360,7 @@ class SignupPageState extends State<SignupPage> {
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
                       decoration: const InputDecoration(
-                          labelText: 'E-mail',
-                          border: OutlineInputBorder()),
+                          labelText: 'E-mail', border: OutlineInputBorder()),
                       validator: (v) {
                         if (v == null || v.trim().isEmpty) return 'Required';
                         final r = RegExp(
@@ -369,8 +381,7 @@ class SignupPageState extends State<SignupPage> {
                       controller: _passwordController,
                       obscureText: true,
                       decoration: const InputDecoration(
-                          labelText: 'Password',
-                          border: OutlineInputBorder()),
+                          labelText: 'Password', border: OutlineInputBorder()),
                       validator: (v) {
                         if (v == null || v.trim().isEmpty) return 'Required';
                         if (v.trim().length < 6) return 'Min 6 characters';
@@ -393,7 +404,6 @@ class SignupPageState extends State<SignupPage> {
                       },
                     ),
                     const SizedBox(height: 16),
-
                     Row(
                       children: [
                         Checkbox(value: _agreedToTnC, onChanged: _toggleAgreed),
@@ -402,7 +412,8 @@ class SignupPageState extends State<SignupPage> {
                             onTap: () => Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                    builder: (_) => const LegalAgreementPage())),
+                                    builder: (_) =>
+                                        const LegalAgreementPage())),
                             child: const Text(
                               'I agree to the Terms & Conditions',
                               style: TextStyle(
@@ -414,7 +425,6 @@ class SignupPageState extends State<SignupPage> {
                       ],
                     ),
                     const SizedBox(height: 24),
-
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
@@ -430,8 +440,8 @@ class SignupPageState extends State<SignupPage> {
                                 width: 20,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
-                                  valueColor:
-                                      AlwaysStoppedAnimation<Color>(Colors.white),
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white),
                                 ),
                               )
                             : const Text('Sign up',

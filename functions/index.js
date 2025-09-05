@@ -48,6 +48,9 @@ if (!WEBHOOK_SECRET) console.error("❌ Missing Stripe Webhook Secret!");
 
 const stripe = require("stripe")(STRIPE_SECRET_KEY);
 
+/* ─── Feature-flags ───────────────────── */
+const TRAINER_PAYMENTS_ENABLED = false;   // flip to true when you re-enable
+
 /* ─── Promo-code map (NEW) ─────────────────────────────────── */
 const PROMO_CODE_MAP = {
   FITLY3FREE: "fitly3free", // user types  FITLY3FREE  →  coupon id fitly3free
@@ -241,6 +244,12 @@ exports.createPaymentRequest = onDocumentCreated(
 exports.createSubscriptionCheckoutSession = onCall(async (req) => {
   const { data, auth } = req;
   if (!auth) throw new Error("User must be authenticated");
+
+  /* ── Feature-flag guard ─────────────── */
+  if (!TRAINER_PAYMENTS_ENABLED) {
+    console.log("⚠️  Trainer payments currently disabled – skipping.");
+    return { disabled: true };
+  }
 
   const trainerId = auth.uid;
   const priceId = "price_1QxLgJIwC3BBH5MDFZO28ndV"; // LIVE price

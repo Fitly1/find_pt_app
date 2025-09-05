@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'login_page.dart'; // For sign in/up prompt
+import 'feature_flags.dart';
 
 class ManageSubscriptionPage extends StatefulWidget {
   final String trainerUid; // Passed in from your route definition
@@ -47,7 +48,8 @@ class _ManageSubscriptionPageState extends State<ManageSubscriptionPage> {
       }
 
       final data = doc.data()!;
-      final bool isActive = data['isActive'] ?? false;
+      bool isActive = data['isActive'] ?? false;
+      if (!isTrainerPaymentsEnabled) isActive = true;
 
       setState(() {
         _isActive = isActive;

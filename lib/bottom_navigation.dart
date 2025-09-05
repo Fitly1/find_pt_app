@@ -2,12 +2,14 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import 'trainer_dashboard_page.dart';
 import 'messages_page.dart';
 import 'listings_page.dart';
 import 'trainer_home_page.dart';
 import 'profile_page.dart' as profile;
-import 'welcome_page.dart';
+import 'splashpage.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'notification_provider.dart';
 
@@ -33,13 +35,12 @@ class BottomNavigation extends ConsumerWidget {
     if (user == null || user.isAnonymous) return true;
 
     // password users must verify e-mail
-    final isPassword =
-        user.providerData.any((p) => p.providerId == 'password');
+    final isPassword = user.providerData.any((p) => p.providerId == 'password');
     if (isPassword && !user.emailVerified) return true;
 
     // optional: role check (trainer bar should only be for trainers)
     final prefs = await SharedPreferences.getInstance();
-    final role  = prefs.getString('userRole') ?? '';
+    final role = prefs.getString('userRole') ?? '';
     if (!(role == 'trainer' || role == 'personal trainer')) return true;
 
     return false; // all good
@@ -50,22 +51,38 @@ class BottomNavigation extends ConsumerWidget {
     if (index == currentIndex) return; // already on that tab
 
     if (await _needsSignIn(index)) {
+      if (!context.mounted) return;
       _showAuthDialog(context);
       return;
     }
 
+    if (!context.mounted) return;
+
     late final Widget nextPage;
     switch (index) {
-      case 0: nextPage = const TrainerDashboardPage(); break;
-      case 1: nextPage = const MessagesPage(); break;
-      case 2: nextPage = const ListingsPage(); break;
-      case 3: nextPage = const TrainerHomePage(showProfileCompleteMessage: false); break;
-      case 4: nextPage = const profile.ProfilePage(); break;
-      default: nextPage = const TrainerDashboardPage();
+      case 0:
+        nextPage = const TrainerDashboardPage();
+        break;
+      case 1:
+        nextPage = const MessagesPage();
+        break;
+      case 2:
+        nextPage = const ListingsPage();
+        break;
+      case 3:
+        nextPage = const TrainerHomePage(showProfileCompleteMessage: false);
+        break;
+      case 4:
+        nextPage = const profile.ProfilePage();
+        break;
+      default:
+        nextPage = const TrainerDashboardPage();
     }
 
     Navigator.pushReplacement(
-        context, MaterialPageRoute(builder: (_) => nextPage));
+      context,
+      MaterialPageRoute(builder: (_) => nextPage),
+    );
   }
 
   /* ───────── UI ───────── */
@@ -76,9 +93,14 @@ class BottomNavigation extends ConsumerWidget {
     Widget redDot() => Positioned(
           right: -4,
           top: -4,
-          child: Container(width: 10, height: 10,
-              decoration: const BoxDecoration(
-                  color: Colors.red, shape: BoxShape.circle)));
+          child: Container(
+            width: 10,
+            height: 10,
+            decoration:
+                const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+          ),
+        );
+
     return BottomNavigationBar(
       currentIndex: currentIndex,
       selectedItemColor: Colors.blueAccent,
@@ -88,19 +110,25 @@ class BottomNavigation extends ConsumerWidget {
         const BottomNavigationBarItem(
             icon: Icon(Icons.dashboard), label: 'Dashboard'),
         BottomNavigationBarItem(
-          icon: Stack(clipBehavior: Clip.none, children: [
-            const Icon(Icons.message),
-            if (notes.unreadMessages > 0) redDot(),
-          ]),
+          icon: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              const Icon(Icons.message),
+              if (notes.unreadMessages > 0) redDot(),
+            ],
+          ),
           label: 'Messages',
         ),
         const BottomNavigationBarItem(
             icon: Icon(Icons.list), label: 'Listings'),
         BottomNavigationBarItem(
-          icon: Stack(clipBehavior: Clip.none, children: [
-            const Icon(Icons.home),
-            if (notes.newReviews > 0) redDot(),
-          ]),
+          icon: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              const Icon(Icons.home),
+              if (notes.newReviews > 0) redDot(),
+            ],
+          ),
           label: 'Trainer Home',
         ),
         const BottomNavigationBarItem(
@@ -116,11 +144,11 @@ class BottomNavigation extends ConsumerWidget {
       barrierDismissible: false,
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Sign Up',
+        title: const Text('Sign Up Required',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
         content: const Text(
-          'Please create an account or sign in to access features.',
+          'Please create an account or sign in to access this feature.',
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 18),
         ),
@@ -128,13 +156,12 @@ class BottomNavigation extends ConsumerWidget {
         actions: [
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             ),
             onPressed: () {
               Navigator.of(ctx).pop();
-              Navigator.pushReplacement(ctx,
-                  MaterialPageRoute(builder: (_) => const WelcomePage()));
+              Navigator.pushReplacement(
+                  ctx, MaterialPageRoute(builder: (_) => const SplashPage()));
             },
             child: const Text('OK', style: TextStyle(fontSize: 18)),
           ),

@@ -7,7 +7,9 @@ import 'chat_page.dart';
 import 'bottom_navigation_customers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'services/block_service.dart';              // <-- NEW
+import 'services/block_service.dart'; // <-- NEW
+import 'signup_page.dart';
+import 'login_page.dart';
 
 /// colour chips for specialties
 final Map<String, Color> categoryColors = {
@@ -49,7 +51,8 @@ class TrainerHomePage extends StatefulWidget {
 class TrainerHomePageState extends State<TrainerHomePage> {
   Map<String, dynamic> trainerProfile = {};
   String? currentUserRole; // "trainer" or "customer"
-  List<String> _blocked = [];                                   // <-- NEW
+  List<String> _blocked = []; // <-- NEW
+  late String viewerRole;
 
   // ---------------------------------------------------------------------------
   // INITIALISATION
@@ -71,11 +74,18 @@ class TrainerHomePageState extends State<TrainerHomePage> {
     _fetchCurrentUserRole();
 
     // fetch blocked IDs once
-    BlockService.instance.blockedIds().then((ids) {               // <-- NEW
+    BlockService.instance.blockedIds().then((ids) {
+      // <-- NEW
       if (mounted) {
         setState(() => _blocked = ids);
       }
     });
+
+    // ───── NEW: use data passed from Marketplace straight away ─────
+    if (widget.trainerData != null && widget.trainerData!.isNotEmpty) {
+      trainerProfile = Map<String, dynamic>.from(widget.trainerData!);
+    }
+    // ───────────────────────────────────────────────────────────────
 
     // choose which trainer UID to load
     String? uidToFetch =
@@ -272,14 +282,15 @@ class TrainerHomePageState extends State<TrainerHomePage> {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // REPORT DIALOG
-  // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// REPORT DIALOG
+// ---------------------------------------------------------------------------
   void _showReportDialog() {
     final reasonController = TextEditingController();
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (ctx) => AlertDialog(
+        // <-- use ctx instead of _
         title: const Text('Report Trainer'),
         content: TextField(
           controller: reasonController,
@@ -289,22 +300,22 @@ class TrainerHomePageState extends State<TrainerHomePage> {
         actions: [
           TextButton(
             onPressed: () {
-              Navigator.pop(context);
+              Navigator.pop(ctx);
             },
             child: const Text('Cancel'),
           ),
           ElevatedButton(
             onPressed: () async {
               final reason = reasonController.text.trim();
-              if (reason.isEmpty) {
-                return;
-              }
-              Navigator.pop(context);
+              if (reason.isEmpty) return;
+
+              Navigator.pop(ctx);
+
               final user = FirebaseAuth.instance.currentUser;
-              if (user == null) {
-                return;
-              }
+              if (user == null) return;
+
               final tid = trainerProfile['uid'];
+
               await FirebaseFirestore.instance.collection('reports').add({
                 'reportedBy': user.uid,
                 'reportedItemId': tid,
@@ -312,6 +323,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                 'reason': reason,
                 'timestamp': FieldValue.serverTimestamp(),
               });
+
               // update report counter
               final count = (await FirebaseFirestore.instance
                       .collection('reports')
@@ -320,6 +332,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                       .get())
                   .docs
                   .length;
+
               await FirebaseFirestore.instance
                   .collection('trainer_profiles')
                   .doc(tid)
@@ -327,11 +340,11 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                 'reportCount': count,
                 if (count >= 3) 'flagged': true,
               }, SetOptions(merge: true));
-              if (!mounted) {
-                return;
-              }
-              ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Trainer reported.')));
+
+              if (!ctx.mounted) return; // guard dialog context
+              ScaffoldMessenger.of(ctx).showSnackBar(
+                const SnackBar(content: Text('Trainer reported.')),
+              );
             },
             child: const Text('Submit'),
           ),
@@ -414,10 +427,8 @@ class TrainerHomePageState extends State<TrainerHomePage> {
   // BOTTOM NAVIGATION PICKER
   // ---------------------------------------------------------------------------
   Widget _buildBottomNavigation() {
-    if (widget.viewAsCustomer) {
-      return const SizedBox.shrink();
-    }
-    return (currentUserRole == 'trainer')
+    if (widget.viewAsCustomer) return const SizedBox.shrink();
+    return (viewerRole == 'trainer')
         ? const BottomNavigation(currentIndex: 3)
         : const BottomNavigationCustomers(currentIndex: 3);
   }
@@ -427,24 +438,21 @@ class TrainerHomePageState extends State<TrainerHomePage> {
   // ---------------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
-    final User? currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    if (trainerProfile.isEmpty) {
       return const Scaffold(
-          body: Center(
-        child: Text('No user found'),
-      ));
-    }
-    if (currentUserRole == null) {
-      return const Scaffold(
-          body: Center(
-        child: CircularProgressIndicator(),
-      ));
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
 
-    final trainerUid = trainerProfile['uid'] ?? currentUser.uid;
+    viewerRole = currentUserRole ?? 'customer';
+
+    final trainerUid = trainerProfile['uid'] ?? currentUser?.uid;
 
     // If this trainer is blocked, show a simple “blocked” screen
-    if (_blocked.contains(trainerUid)) {                          // <-- NEW
+    if (_blocked.contains(trainerUid)) {
+      // <-- NEW
       return Scaffold(
         appBar: AppBar(
           automaticallyImplyLeading: true,
@@ -458,7 +466,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
     }
 
     final displayName =
-        trainerProfile['displayName'] ?? currentUser.displayName ?? 'Trainer';
+        trainerProfile['displayName'] ?? currentUser?.displayName ?? 'Trainer';
     final parsedLoc = _parseLocation(trainerProfile['location']);
     final suburb = parsedLoc['suburb']!,
         state = parsedLoc['state']!,
@@ -467,7 +475,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading:
-            !(currentUserRole == 'trainer' && !widget.viewAsCustomer),
+            !(viewerRole == 'trainer' && !widget.viewAsCustomer),
         iconTheme: const IconThemeData(color: Colors.white),
         title: Text(
           displayName,
@@ -480,19 +488,24 @@ class TrainerHomePageState extends State<TrainerHomePage> {
             icon: const Icon(Icons.flag_outlined, color: Colors.white),
             onPressed: _showReportDialog,
           ),
-          if (trainerUid != currentUser.uid)                      // <-- NEW
+          if (trainerUid != currentUser?.uid) // <-- NEW
             PopupMenuButton<String>(
               onSelected: (val) async {
                 if (val == 'block') {
+                  // async work
                   await BlockService.instance.block(trainerUid);
+
+                  // First guard (State context—needed before setState)
                   if (!mounted) return;
-                  setState(() {
-                    _blocked.add(trainerUid);
-                  });
+                  setState(() => _blocked.add(trainerUid));
+
+                  // Second guard (same BuildContext you’ll use next)
+                  if (!context.mounted) return;
+
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Trainer blocked')),
                   );
-                  Navigator.of(context).pop(); // Go back to previous screen
+                  Navigator.of(context).pop(); // go back to previous screen
                 }
               },
               itemBuilder: (_) => const [
@@ -510,7 +523,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (currentUserRole == 'trainer')
+            if (viewerRole == 'trainer')
               _buildReviewNotificationBanner(trainerUid),
 
             // ----------------------------------------------------------------
@@ -776,12 +789,12 @@ class TrainerHomePageState extends State<TrainerHomePage> {
               ),
             ),
 
-            // ----------------------------------------------------------------
-            // MESSAGE TRAINER BUTTON  (only when viewing as customer)
-            // ----------------------------------------------------------------
+// ----------------------------------------------------------------
+// MESSAGE TRAINER BUTTON  (only when viewing as customer/guest)
+// ----------------------------------------------------------------
             if (trainerProfile['uid'] != null &&
-                trainerProfile['uid'] != currentUser.uid &&
-                currentUserRole == 'customer')
+                trainerProfile['uid'] != currentUser?.uid &&
+                viewerRole == 'customer')
               Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -799,6 +812,21 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                         borderRadius: BorderRadius.circular(8)),
                   ),
                   onPressed: () {
+                    final user = FirebaseAuth.instance.currentUser;
+
+                    // Not signed-in → send to sign-up (customer role locked)
+                    if (user == null) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              const SignupPage(preselectedRole: 'customer'),
+                        ),
+                      );
+                      return;
+                    }
+
+                    // Signed-in customer → open / create chat
                     _messageTrainer(trainerProfile['uid']);
                   },
                 ),
@@ -811,7 +839,8 @@ class TrainerHomePageState extends State<TrainerHomePage> {
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: TrainerReviewsSection(
                 trainerUid: trainerUid,
-                allowReview: FirebaseAuth.instance.currentUser!.emailVerified,
+                allowReview:
+                    FirebaseAuth.instance.currentUser?.emailVerified ?? false,
               ),
             ),
 
@@ -819,7 +848,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
             // REVIEW FORM (only when user is looking as customer)
             // ----------------------------------------------------------------
             if (widget.viewAsCustomer)
-              FirebaseAuth.instance.currentUser!.emailVerified
+              (FirebaseAuth.instance.currentUser?.emailVerified ?? false)
                   ? Padding(
                       padding: const EdgeInsets.all(22),
                       child: ReviewForm(
@@ -846,9 +875,42 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                     )
                   : Padding(
                       padding: const EdgeInsets.all(16),
-                      child: Text(
-                        'Please verify your email to leave a review.',
-                        style: TextStyle(color: Colors.red[700], fontSize: 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Text(
+                            'Sign up or Log in to leave a review.',
+                            style: TextStyle(color: Colors.red, fontSize: 16),
+                          ),
+                          const SizedBox(height: 8),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: kBrandOrange),
+                            onPressed: () async {
+                              final user = FirebaseAuth.instance.currentUser;
+                              if (user == null) {
+                                // guest → ask to log in
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) => const LoginPage()),
+                                );
+                                return;
+                              }
+                              await user.sendEmailVerification();
+
+                              // guard the SAME BuildContext that will be used
+                              if (!context.mounted) return;
+
+                              ScaffoldMessenger.of(context)
+                                  .showSnackBar(const SnackBar(
+                                content: Text(
+                                    'Verification e-mail sent. Check your inbox.'),
+                              ));
+                            },
+                            child: const Text('Sign Up / Log In'),
+                          ),
+                        ],
                       ),
                     ),
           ],

@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'marketplace_page.dart';
 import 'trainer_profile_setup_page.dart';
-import 'welcome_page.dart';
+import 'splashpage.dart';
 
 class EmailVerificationPage extends StatefulWidget {
   const EmailVerificationPage({super.key});
@@ -119,7 +119,7 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
       // fallback: unknown role, return to welcome page or error
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const WelcomePage()),
+        MaterialPageRoute(builder: (_) => const SplashPage()),
       );
     }
   }

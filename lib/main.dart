@@ -14,7 +14,7 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'package:device_info_plus/device_info_plus.dart';      // <── NEW
+import 'package:device_info_plus/device_info_plus.dart'; // <── NEW
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:app_links/app_links.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -25,7 +25,7 @@ import 'package:logger/logger.dart';
 import 'firebase_options.dart';
 import 'package:find_pt_app/services/push_notification_service.dart';
 
-import 'welcome_page.dart';
+import 'splashpage.dart';
 import 'marketplace_page.dart';
 import 'signup_page.dart';
 import 'trainer_profile_setup_page.dart';
@@ -150,8 +150,9 @@ Future<void> main() async {
       );
 
       await FirebaseAppCheck.instance.activate(
-        androidProvider:
-            kReleaseMode ? AndroidProvider.playIntegrity : AndroidProvider.debug,
+        androidProvider: kReleaseMode
+            ? AndroidProvider.playIntegrity
+            : AndroidProvider.debug,
         appleProvider:
             kReleaseMode ? AppleProvider.deviceCheck : AppleProvider.debug,
       );
@@ -159,7 +160,8 @@ Future<void> main() async {
       FirebaseMessaging.onBackgroundMessage(
           _firebaseMessagingBackgroundHandler);
 
-      await PushNotificationService.initialize(); // full init (incl. local notif)
+      await PushNotificationService
+          .initialize(); // full init (incl. local notif)
 
       Stripe.publishableKey = dotenv.env['STRIPE_PUBLISHABLE_KEY'] ?? "";
 
@@ -191,7 +193,7 @@ class RootGate extends StatelessWidget {
           return Scaffold(body: Center(child: CircularProgressIndicator()));
         }
         final user = snap.data;
-        if (user == null || user.isAnonymous) return const WelcomePage();
+        if (user == null || user.isAnonymous) return const SplashPage();
         return const RoleRedirect();
       },
     );
@@ -290,13 +292,12 @@ class _FindPTAppState extends State<FindPTApp> {
       debugShowCheckedModeBanner: false,
       home: const RootGate(),
       routes: {
-        '/welcome': (context) => const WelcomePage(),
+        '/splash': (context) => const SplashPage(),
         '/marketplace': (context) => const MarketplacePage(),
         '/signup': (context) => const SignupPage(),
         '/login': (context) => const LoginPage(),
         '/forgot_password': (context) => const ForgotPasswordPage(),
-        '/trainer_profile_setup': (context) =>
-            const TrainerProfileSetupPage(),
+        '/trainer_profile_setup': (context) => const TrainerProfileSetupPage(),
         '/role_redirect': (context) => const RoleRedirect(),
         '/listings': (context) => const ListingsPage(),
         '/trainer_home': (context) => const TrainerHomePage(),

@@ -4,7 +4,7 @@
 
 import 'package:flutter/material.dart';
 import 'dart:async';
-import 'welcome_page.dart'; // Ensure this file exists and defines WelcomePage
+import 'splashpage.dart'; // Ensure this file exists and defines splashpage
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -17,10 +17,10 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    // Navigate to WelcomePage after 3 seconds
+    // Navigate to splashPage after 3 seconds
     Timer(const Duration(seconds: 3), () {
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (context) => const WelcomePage()),
+        MaterialPageRoute(builder: (context) => const SplashPage()),
       );
     });
   }

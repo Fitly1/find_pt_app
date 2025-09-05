@@ -4,46 +4,44 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'welcome_page.dart';
+import 'splashpage.dart';
 import 'login_page.dart';
 import 'email_verification_page.dart';
-import 'profile_page.dart' as profile;
 import 'trainer_profile_setup_page.dart';
 import 'marketplace_page.dart';
-import 'secure_storage_service.dart';
 import 'trainer_home_page.dart';
+import 'secure_storage_service.dart';
 
 class RoleRedirect extends StatefulWidget {
   const RoleRedirect({super.key});
 
   @override
-  RoleRedirectState createState() => RoleRedirectState();
+  State<RoleRedirect> createState() => _RoleRedirectState();
 }
 
-class RoleRedirectState extends State<RoleRedirect> {
+class _RoleRedirectState extends State<RoleRedirect> {
   final SecureStorageService secureStorage = SecureStorageService();
-
-  /* ───────── helpers ───────── */
-  bool _isSocial(User u) => u.providerData.any(
-        (p) => p.providerId == 'apple.com' || p.providerId == 'google.com',
-      );
 
   @override
   void initState() {
     super.initState();
-    debugPrint('🏁 RoleRedirect START');
-    _markFirstLaunch().then((_) => _checkUserRole());
+    _markFirstLaunch().then((_) => _decideNextPage());
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // First-launch helper
+  // ─────────────────────────────────────────────────────────────
   Future<void> _markFirstLaunch() async {
     final prefs = await SharedPreferences.getInstance();
     if (!(prefs.getBool('hasRunBefore') ?? false)) {
-      debugPrint('🆕 First launch detected');
       await prefs.setBool('hasRunBefore', true);
     }
   }
 
-  Future<User?> _getCurrentUserWithGracePeriod() async {
+  // ─────────────────────────────────────────────────────────────
+  // Wait up to 5 s for auth
+  // ─────────────────────────────────────────────────────────────
+  Future<User?> _currentUserWithGrace() async {
     User? user = FirebaseAuth.instance.currentUser;
     if (user != null) return user;
 
@@ -56,108 +54,104 @@ class RoleRedirectState extends State<RoleRedirect> {
     return user;
   }
 
-  /* ───────── main decision tree ───────── */
-  Future<void> _checkUserRole() async {
-    debugPrint("🔍 Checking user authentication status…");
-    Widget nextPage = const WelcomePage();               // default fallback
+  // ─────────────────────────────────────────────────────────────
+  // Main decision tree
+  // ─────────────────────────────────────────────────────────────
+  Future<void> _decideNextPage() async {
+    Widget nextPage = const SplashPage(); // default
 
     try {
-      final User? initial = await _getCurrentUserWithGracePeriod();
-      if (initial == null) {
-        debugPrint("❌ No user after grace period → WelcomePage");
-        _navigateTo(nextPage);
+      // ─── auth wait ────────────────────────────────
+      final user = await _currentUserWithGrace();
+      if (user == null) {
+        _go(nextPage);
         return;
       }
 
-      await initial.reload();                                // refresh
-      final User user = FirebaseAuth.instance.currentUser!;  // refreshed data
-      debugPrint("✅ User is logged in: ${user.email}");
+      await user.reload(); // refresh auth fields
 
-      /* ─── provider-aware e-mail verification ─── */
-      final bool isPasswordUser =
+      // ─── email verification (password provider only) ──
+      final usesPassword =
           user.providerData.any((p) => p.providerId == 'password');
-
-      if (isPasswordUser && !user.emailVerified) {
-        debugPrint("⚠️ Password user & e-mail NOT verified → EmailVerificationPage");
-        _navigateTo(const EmailVerificationPage());
+      if (usesPassword && !user.emailVerified) {
+        _go(const EmailVerificationPage());
         return;
       }
-      /* ────────────────────────────────────────── */
 
+      // ─── read Firestore user doc ────────────────────
       final snap = await FirebaseFirestore.instance
-          .collection("users")
+          .collection('users')
           .doc(user.uid)
           .get();
 
-      if (!snap.exists || snap.data() == null) {
-        debugPrint("❌ User doc missing → WelcomePage");
-        _navigateTo(nextPage);
+      final data = snap.data();
+      if (data == null || data['role'] == null) {
+        _go(nextPage);
         return;
       }
 
-      final String role =
-          (snap.data()!['role'] ?? '').toString().trim().toLowerCase();
+      String role = data['role'].toString().toLowerCase().trim();
 
-      if (role.isEmpty) {
-        debugPrint("❌ role field empty → WelcomePage");
-        _navigateTo(nextPage);
-        return;
+      // normalise legacy values
+      if (role == 'personal trainer' || role == 'personaltrainer') {
+        role = 'trainer';
       }
 
-      debugPrint("🚀 Role from Firestore: $role");
-      await (await SharedPreferences.getInstance()).setString("userRole", role);
+      (await SharedPreferences.getInstance()).setString('userRole', role);
 
+      // ─── role routing ───────────────────────────────
       if (role == 'customer') {
         nextPage = const MarketplacePage();
-      } else if (role == 'trainer' ||
-          role == 'personal trainer' ||
-          role == 'personaltrainer') {
-        nextPage = await _getTrainerLandingPage(user);
+      } else if (role == 'trainer') {
+        nextPage = await _trainerLanding(user.uid);
       } else {
-        debugPrint("❌ Unknown role '$role' → LoginPage");
         nextPage = const LoginPage();
       }
     } catch (e) {
-      debugPrint("❌ Error during role checking: $e");
-      nextPage = const WelcomePage();
+      debugPrint('RoleRedirect error: $e');
     }
 
+    // record last run (optional analytics)
     await secureStorage.writeData(
       'last_role_redirect',
       DateTime.now().toIso8601String(),
     );
 
-    _navigateTo(nextPage);
+    _go(nextPage);
   }
 
-  /* ───────── trainer helper ───────── */
-  Future<Widget> _getTrainerLandingPage(User user) async {
+  // ─────────────────────────────────────────────────────────────
+  // Trainer landing helper
+  // ─────────────────────────────────────────────────────────────
+  Future<Widget> _trainerLanding(String uid) async {
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection("trainer_profiles")
-          .doc(user.uid)
+      final snap = await FirebaseFirestore.instance
+          .collection('trainer_profiles')
+          .doc(uid)
           .get();
 
-      if (doc.exists && doc.data() != null) {
-        final data = doc.data()!;
-        final completed = (data["completed"] ?? false) == true;
-        final paymentCompleted = (data["paymentCompleted"] ?? false) == true;
-
-        if (!completed) return const TrainerProfileSetupPage();
-        if (!paymentCompleted) return const profile.ProfilePage();
-        return const TrainerHomePage();
+      if (!snap.exists || snap.data() == null) {
+        return const TrainerProfileSetupPage();
       }
-      return const TrainerProfileSetupPage();
+
+      final data = snap.data()!;
+      final completed = (data['completed'] ?? false) == true;
+
+      if (!completed) return const TrainerProfileSetupPage();
+
+      // Pay-wall disabled → always land on dashboard once profile done
+      return const TrainerHomePage();
     } catch (e) {
-      debugPrint("❌ Error fetching trainer profile: $e");
+      debugPrint('trainerLanding error: $e');
       return const LoginPage();
     }
   }
 
-  /* ───────── navigation helper ───────── */
-  void _navigateTo(Widget page) {
+  // ─────────────────────────────────────────────────────────────
+  // Navigation helper
+  // ─────────────────────────────────────────────────────────────
+  void _go(Widget page) {
     if (!mounted) return;
-    debugPrint("🔥 NAVIGATING to $page");
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => page),
@@ -165,9 +159,6 @@ class RoleRedirectState extends State<RoleRedirect> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(child: CircularProgressIndicator()),
-    );
-  }
+  Widget build(BuildContext context) =>
+      const Scaffold(body: Center(child: CircularProgressIndicator()));
 }

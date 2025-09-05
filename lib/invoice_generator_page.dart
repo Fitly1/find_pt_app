@@ -3,7 +3,6 @@
 // Generates, previews and prints a PDF invoice for an active trainer.
 
 import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -12,6 +11,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'feature_flags.dart';
 
 class InvoiceGeneratorPage extends StatefulWidget {
   final String trainerId;
@@ -28,24 +28,24 @@ class _InvoiceGeneratorPageState extends State<InvoiceGeneratorPage> {
   bool _isActive = false;
   String? _error;
 
-  String?   _logoUrl;      // Firebase Storage URL
-  Uint8List? _logoBytes;   // cached bytes so we download once
+  String? _logoUrl; // Firebase Storage URL
+  Uint8List? _logoBytes; // cached bytes so we download once
 
   final _formKey = GlobalKey<FormState>();
 
   // Business controllers
   final _bizNameCtrl = TextEditingController();
-  final _abnCtrl     = TextEditingController();
-  final _addrCtrl    = TextEditingController();
-  final _emailCtrl   = TextEditingController();
-  final _bankCtrl    = TextEditingController();
+  final _abnCtrl = TextEditingController();
+  final _addrCtrl = TextEditingController();
+  final _emailCtrl = TextEditingController();
+  final _bankCtrl = TextEditingController();
 
   // Invoice controllers
-  final _clientCtrl  = TextEditingController();
+  final _clientCtrl = TextEditingController();
   final _serviceCtrl = TextEditingController();
-  final _hoursCtrl   = TextEditingController();
-  final _rateCtrl    = TextEditingController();
-  final _notesCtrl   = TextEditingController();
+  final _hoursCtrl = TextEditingController();
+  final _rateCtrl = TextEditingController();
+  final _notesCtrl = TextEditingController();
 
   DateTime _invoiceDate = DateTime.now();
 
@@ -92,6 +92,9 @@ class _InvoiceGeneratorPageState extends State<InvoiceGeneratorPage> {
 
       final data = snap.data()!;
       _isActive = (data['isActive'] ?? false) == true;
+      if (!isTrainerPaymentsEnabled) {
+        _isActive = true;
+      }
 
       if (_isActive) {
         final inv = data['invoiceSettings'] is Map
@@ -99,11 +102,11 @@ class _InvoiceGeneratorPageState extends State<InvoiceGeneratorPage> {
             : <String, dynamic>{};
 
         _bizNameCtrl.text = inv['businessName'] ?? '';
-        _abnCtrl.text     = inv['abn'] ?? '';
-        _addrCtrl.text    = inv['address'] ?? '';
-        _emailCtrl.text   = inv['email'] ?? '';
-        _bankCtrl.text    = inv['bankDetails'] ?? '';
-        _logoUrl          = inv['logoUrl'] as String?;
+        _abnCtrl.text = inv['abn'] ?? '';
+        _addrCtrl.text = inv['address'] ?? '';
+        _emailCtrl.text = inv['email'] ?? '';
+        _bankCtrl.text = inv['bankDetails'] ?? '';
+        _logoUrl = inv['logoUrl'] as String?;
       }
     } catch (e) {
       _error = 'Failed to load data: $e';
@@ -135,9 +138,13 @@ class _InvoiceGeneratorPageState extends State<InvoiceGeneratorPage> {
 /* ───────────────────────  PDF GENERATION  ───────────────────── */
 
   Future<Uint8List?> _getLogoBytes() async {
-    if (_logoBytes != null || _logoUrl == null || _logoUrl!.isEmpty) return _logoBytes;
+    if (_logoBytes != null || _logoUrl == null || _logoUrl!.isEmpty) {
+      return _logoBytes;
+    }
+
     try {
-      _logoBytes = await FirebaseStorage.instance.refFromURL(_logoUrl!).getData();
+      _logoBytes =
+          await FirebaseStorage.instance.refFromURL(_logoUrl!).getData();
     } catch (e) {
       debugPrint('Error downloading logo: $e');
     }
@@ -147,23 +154,23 @@ class _InvoiceGeneratorPageState extends State<InvoiceGeneratorPage> {
   Future<void> _generateInvoice() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final biz     = _bizNameCtrl.text.trim();
-    final abn     = _abnCtrl.text.trim();
-    final addr    = _addrCtrl.text.trim();
-    final email   = _emailCtrl.text.trim();
-    final bank    = _bankCtrl.text.trim();
+    final biz = _bizNameCtrl.text.trim();
+    final abn = _abnCtrl.text.trim();
+    final addr = _addrCtrl.text.trim();
+    final email = _emailCtrl.text.trim();
+    final bank = _bankCtrl.text.trim();
 
-    final client  = _clientCtrl.text.trim();
-    final desc    = _serviceCtrl.text.trim();
-    final hours   = double.tryParse(_hoursCtrl.text.trim()) ?? 0;
-    final rate    = double.tryParse(_rateCtrl.text.trim()) ?? 0;
-    final total   = hours * rate;
-    final notes   = _notesCtrl.text.trim();
+    final client = _clientCtrl.text.trim();
+    final desc = _serviceCtrl.text.trim();
+    final hours = double.tryParse(_hoursCtrl.text.trim()) ?? 0;
+    final rate = double.tryParse(_rateCtrl.text.trim()) ?? 0;
+    final total = hours * rate;
+    final notes = _notesCtrl.text.trim();
     final dateStr = DateFormat('dd/MM/yyyy').format(_invoiceDate);
 
     final Uint8List? logoBytes = await _getLogoBytes();
 
-    final ByteData robotoBD     =
+    final ByteData robotoBD =
         await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
     final ByteData robotoBoldBD =
         await rootBundle.load('assets/fonts/Roboto-Bold.ttf');
@@ -183,8 +190,8 @@ class _InvoiceGeneratorPageState extends State<InvoiceGeneratorPage> {
                   style: pw.TextStyle(
                       font: bold ? boldFont : baseFont, fontSize: size));
 
-          pw.Widget header(String s) =>
-              pw.Padding(padding: const pw.EdgeInsets.all(6), child: txt(s, bold: true));
+          pw.Widget header(String s) => pw.Padding(
+              padding: const pw.EdgeInsets.all(6), child: txt(s, bold: true));
           pw.Widget cell(String s) =>
               pw.Padding(padding: const pw.EdgeInsets.all(6), child: txt(s));
 
@@ -221,12 +228,13 @@ class _InvoiceGeneratorPageState extends State<InvoiceGeneratorPage> {
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
               if (logoBytes != null)
-                pw.Center(child: pw.Image(pw.MemoryImage(logoBytes), height: 60)),
+                pw.Center(
+                    child: pw.Image(pw.MemoryImage(logoBytes), height: 60)),
               if (logoBytes != null) pw.SizedBox(height: 12),
               txt(biz, bold: true, size: 18),
-              if (abn.isNotEmpty)  txt('ABN: $abn'),
+              if (abn.isNotEmpty) txt('ABN: $abn'),
               if (addr.isNotEmpty) txt(addr),
-              if (email.isNotEmpty)txt('Email: $email'),
+              if (email.isNotEmpty) txt('Email: $email'),
               if (bank.isNotEmpty) txt('Bank: $bank'),
               pw.SizedBox(height: 24),
               pw.Divider(),
@@ -298,7 +306,7 @@ class _InvoiceGeneratorPageState extends State<InvoiceGeneratorPage> {
                   v == null || v.trim().isEmpty ? 'Required' : null,
             ),
             const SizedBox(height: 12),
-            TextFormField(controller: _abnCtrl,  decoration: _dec('ABN')),
+            TextFormField(controller: _abnCtrl, decoration: _dec('ABN')),
             const SizedBox(height: 12),
             TextFormField(controller: _addrCtrl, decoration: _dec('Address')),
             const SizedBox(height: 12),

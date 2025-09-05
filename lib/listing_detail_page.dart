@@ -4,6 +4,7 @@ import 'package:intl/intl.dart'; // For date formatting
 import 'package:firebase_auth/firebase_auth.dart';
 import 'chat_page.dart' as chat; // Make sure the path is correct
 import 'profile_page.dart'; // Update path if needed
+import 'feature_flags.dart';
 
 /// This color corresponds to (255, 255, 167, 38) in ARGB/Hex (#FFA726).
 const kAppBarColor = Color(0xFFFFA726);
@@ -108,7 +109,9 @@ class _ListingDetailPageState extends State<ListingDetailPage> {
       }
 
       final data = doc.data();
-      final bool active = data?['isActive'] ?? false;
+      bool active = data?['isActive'] ?? false;
+      if (!isTrainerPaymentsEnabled) active = true;
+
       setState(() => _isTrainerActive = active);
     } catch (e) {
       debugPrint("Error fetching trainer active status: $e");

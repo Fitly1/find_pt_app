@@ -2,7 +2,6 @@
 // ignore_for_file: use_build_context_synchronously
 import 'dart:async';
 import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -15,7 +14,6 @@ import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
-
 import 'secure_storage_service.dart';
 import 'edit_profile_page.dart';
 import 'marketplace_page.dart';
@@ -24,13 +22,14 @@ import 'contact_us_page.dart';
 import 'refund_policy_page.dart';
 import 'bottom_navigation.dart';
 import 'bottom_navigation_customers.dart';
-import 'welcome_page.dart';
+import 'splashpage.dart';
 import 'terms_conditions_page.dart';
 import 'privacy_policy_page.dart';
 import 'legal_documents_page.dart';
 import 'manage_subscription.dart';
 import 'login_page.dart';
 import 'trainer_dashboard_page.dart';
+import 'feature_flags.dart';
 
 /// ─────────────────────────────────────────────────────────────
 final Logger logger = Logger();
@@ -763,7 +762,7 @@ class _ProfilePageState extends State<ProfilePage> {
       // back to welcome
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const WelcomePage()),
+        MaterialPageRoute(builder: (_) => const SplashPage()),
         (_) => false,
       );
     } on FirebaseAuthException catch (e) {
@@ -960,7 +959,8 @@ class _ProfilePageState extends State<ProfilePage> {
                   }
                   final data = snap.data!.data() as Map<String, dynamic>? ?? {};
                   final img = data['profileImageUrl'] ?? '';
-                  final isActive = data['isActive'] ?? false;
+                  bool isActive = data['isActive'] ?? false;
+                  if (!isTrainerPaymentsEnabled) isActive = true;
                   final status = isActive ? "Active" : "Inactive";
                   String displayName = data['displayName'] ?? '';
                   if (displayName.isEmpty) {
@@ -1004,90 +1004,92 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
           const SizedBox(height: 16),
-          //──────────────── SUBSCRIPTION TILE ────────────────────
-          StreamBuilder<DocumentSnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection("trainer_profiles")
-                .doc(user?.uid)
-                .snapshots(),
-            builder: (ctx, snap) {
-              if (!snap.hasData) return const SizedBox();
-              final d = snap.data!.data() as Map<String, dynamic>? ?? {};
-              final active = d['isActive'] ?? false;
-              final stripeId = d['stripeId'] ?? '';
+//──────────────── SUBSCRIPTION TILE ────────────────────
+          if (isTrainerPaymentsEnabled)
+            StreamBuilder<DocumentSnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection("trainer_profiles")
+                  .doc(user?.uid)
+                  .snapshots(),
+              builder: (ctx, snap) {
+                if (!snap.hasData) return const SizedBox();
+                final d = snap.data!.data() as Map<String, dynamic>? ?? {};
+                final active = d['isActive'] ?? false;
+                final stripeId = d['stripeId'] ?? '';
 
-              if (active) {
+                if (active) {
+                  return Card(
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                    child: ListTile(
+                      leading: const Icon(Icons.manage_accounts),
+                      title: const Text('Manage Subscription'),
+                      trailing: const Icon(Icons.arrow_forward_ios),
+                      onTap: () async {
+                        if (Platform.isIOS) {
+                          await _openIOSManage();
+                        } else {
+                          if (stripeId.isNotEmpty) {
+                            Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => ManageSubscriptionPage(
+                                        trainerUid: user!.uid)));
+                          } else if (d['iosOriginalTxId'] != null) {
+                            const url =
+                                'https://apps.apple.com/account/subscriptions';
+                            await launchUrl(Uri.parse(url),
+                                mode: LaunchMode.externalApplication);
+                          } else {
+                            _showSignUpPrompt();
+                          }
+                        }
+                      },
+                      onLongPress: () async {
+                        if (Platform.isIOS) await _askRefund();
+                      },
+                    ),
+                  );
+                }
+
+                // --------------  NOT active  -----------------
                 return Card(
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16)),
-                  child: ListTile(
-                    leading: const Icon(Icons.manage_accounts),
-                    title: const Text('Manage Subscription'),
-                    trailing: const Icon(Icons.arrow_forward_ios),
-                    onTap: () async {
-                      if (Platform.isIOS) {
-                        await _openIOSManage();
-                      } else {
-                        if (stripeId.isNotEmpty) {
-                          Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (_) => ManageSubscriptionPage(
-                                      trainerUid: user!.uid)));
-                        } else if (d['iosOriginalTxId'] != null) {
-                          const url =
-                              'https://apps.apple.com/account/subscriptions';
-                          await launchUrl(Uri.parse(url),
-                              mode: LaunchMode.externalApplication);
-                        } else {
-                          _showSignUpPrompt();
-                        }
-                      }
-                    },
-                    onLongPress: () async {
-                      if (Platform.isIOS) await _askRefund();
-                    },
-                  ),
-                );
-              }
-
-              return Card(
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16)),
-                color: const Color(0xFFF6EFFC),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    ListTile(
-                      leading: const Icon(Icons.payment),
-                      title: Text('Activate Membership',
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.orange.shade900)),
-                      trailing: const Icon(Icons.arrow_forward_ios),
-                      onTap: _openSubscriptionSheet, // changed
-                    ),
-                    if (!Platform.isIOS) // promo code hidden on iOS
-                      Padding(
-                        padding: const EdgeInsets.only(
-                            left: 72.0, right: 16.0, bottom: 12.0),
-                        child: GestureDetector(
-                          onTap: _showPromoDialog,
-                          child: const Text(
-                            'Have a promo code?',
+                  color: const Color(0xFFF6EFFC),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.payment),
+                        title: Text('Activate Membership',
                             style: TextStyle(
-                              color: Color(0xFF2196F3),
-                              decoration: TextDecoration.underline,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.orange.shade900)),
+                        trailing: const Icon(Icons.arrow_forward_ios),
+                        onTap: _openSubscriptionSheet,
+                      ),
+                      if (!Platform.isIOS) // promo code hidden on iOS
+                        Padding(
+                          padding: const EdgeInsets.only(
+                              left: 72.0, right: 16.0, bottom: 12.0),
+                          child: GestureDetector(
+                            onTap: _showPromoDialog,
+                            child: const Text(
+                              'Have a promo code?',
+                              style: TextStyle(
+                                color: Color(0xFF2196F3),
+                                decoration: TextDecoration.underline,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                  ],
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 16),
+                    ],
+                  ),
+                );
+              },
+            ),
+          if (isTrainerPaymentsEnabled) const SizedBox(height: 16),
           //──────────────── OTHER TILES ──────────────────────────
           _simpleTile(
               icon: Icons.edit,
@@ -1133,7 +1135,7 @@ class _ProfilePageState extends State<ProfilePage> {
               SchedulerBinding.instance.addPostFrameCallback((_) {
                 Navigator.pushReplacement(
                   context,
-                  MaterialPageRoute(builder: (_) => const WelcomePage()),
+                  MaterialPageRoute(builder: (_) => const SplashPage()),
                 );
               });
             },

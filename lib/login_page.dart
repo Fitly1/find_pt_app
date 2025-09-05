@@ -60,16 +60,18 @@ class _LoginPageState extends State<LoginPage> {
   bool _isLoading = false;
 
   /* ───── styled dialog ───── */
-  Future<void> _showInfoDialog(
-      {required String title,
-      required String message,
-      bool error = false,
-      String buttonText = 'OK'}) async {
+  Future<void> _showInfoDialog({
+    required String title,
+    required String message,
+    bool error = false,
+    String buttonText = 'OK',
+  }) async {
     if (!mounted) return;
     await showDialog(
       context: context,
       barrierDismissible: true,
-      builder: (_) => Dialog(
+      builder: (ctx) => Dialog(
+        // ← ctx, not _
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
         child: Padding(
@@ -79,7 +81,9 @@ class _LoginPageState extends State<LoginPage> {
               radius: 32,
               backgroundColor: error ? Colors.red : _brandColor,
               child: Icon(
-                error ? Icons.error_outline_rounded : Icons.info_outline_rounded,
+                error
+                    ? Icons.error_outline_rounded
+                    : Icons.info_outline_rounded,
                 color: Colors.white,
                 size: 38,
               ),
@@ -102,9 +106,8 @@ class _LoginPageState extends State<LoginPage> {
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12))),
-                onPressed: () => Navigator.of(_).pop(),
-                child:
-                    Text(buttonText, style: const TextStyle(fontSize: 16)),
+                onPressed: () => Navigator.of(ctx).pop(), // ← uses ctx
+                child: Text(buttonText, style: const TextStyle(fontSize: 16)),
               ),
             ),
           ]),
@@ -143,7 +146,9 @@ class _LoginPageState extends State<LoginPage> {
 
       /* fresh token */
       final token = await cred.user!.getIdToken();
-      if (token != null) unawaited(secureStorage.writeData('auth_token', token));
+      if (token != null) {
+        unawaited(secureStorage.writeData('auth_token', token));
+      }
 
       /* navigation decision */
       final isPassword =
@@ -153,8 +158,9 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
-              builder: (_) =>
-                  needVerify ? const EmailVerificationPage() : const RoleRedirect()),
+              builder: (_) => needVerify
+                  ? const EmailVerificationPage()
+                  : const RoleRedirect()),
           (_) => false);
     } catch (e, s) {
       logger.e('Social sign-in failed', error: e, stackTrace: s);
@@ -192,13 +198,15 @@ class _LoginPageState extends State<LoginPage> {
       }
 
       final token = await user.getIdToken();
-      if (token != null) unawaited(secureStorage.writeData('auth_token', token));
-
+      if (token != null) {
+        unawaited(secureStorage.writeData('auth_token', token));
+      }
       (await SharedPreferences.getInstance()).remove('userRole');
 
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const RoleRedirect()), (_) => false);
+          MaterialPageRoute(builder: (_) => const RoleRedirect()),
+          (_) => false);
     } catch (e, s) {
       logger.e('Login failed', error: e, stackTrace: s);
       await _showInfoDialog(
@@ -262,8 +270,9 @@ class _LoginPageState extends State<LoginPage> {
                             border: OutlineInputBorder(),
                             prefixIcon: Icon(Icons.lock)),
                         obscureText: true,
-                        validator: (v) =>
-                            v == null || v.isEmpty ? 'Enter your password' : null,
+                        validator: (v) => v == null || v.isEmpty
+                            ? 'Enter your password'
+                            : null,
                       ),
                       const SizedBox(height: 24),
                       SizedBox(
@@ -274,7 +283,8 @@ class _LoginPageState extends State<LoginPage> {
                                 onPressed: _login,
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.black,
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 16),
                                   shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(12)),
                                 ),

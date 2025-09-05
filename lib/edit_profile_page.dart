@@ -16,9 +16,9 @@ import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import 'package:http/http.dart' as http;
-
 import 'crop_page.dart';
 import 'secure_storage_service.dart';
+import 'feature_flags.dart';
 
 const Map<String, Color> specialtiesMap = {
   'Strength Training': Colors.blue,
@@ -441,6 +441,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
         .doc(user.uid)
         .get();
     bool isActive = (doc.data() as Map<String, dynamic>)["isActive"] ?? false;
+    if (!isTrainerPaymentsEnabled) isActive = true;
 
     setState(() => _isSaving = false);
 

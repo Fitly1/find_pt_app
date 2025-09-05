@@ -1,13 +1,14 @@
 // lib/bottom_navigation_customers.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
 import 'marketplace_page.dart';
 import 'messages_page.dart';
 import 'listings_page.dart';
 import 'edit_listings_page.dart';
 import 'customer_profile_page.dart';
-import 'welcome_page.dart';
+import 'splashpage.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'notification_provider.dart';
 
@@ -33,8 +34,7 @@ class BottomNavigationCustomers extends ConsumerWidget {
     if (user == null || user.isAnonymous) return true;
 
     // e-mail verified check (password users only)
-    final isPassword =
-        user.providerData.any((p) => p.providerId == 'password');
+    final isPassword = user.providerData.any((p) => p.providerId == 'password');
     if (isPassword && !user.emailVerified) return true;
 
     // good to go
@@ -46,9 +46,12 @@ class BottomNavigationCustomers extends ConsumerWidget {
     if (index == currentIndex) return; // same tab
 
     if (await _needsSignIn(index)) {
+      if (!context.mounted) return;
       _showSignUpDialog(context);
       return;
     }
+
+    if (!context.mounted) return;
 
     Widget nextPage;
     switch (index) {
@@ -72,7 +75,9 @@ class BottomNavigationCustomers extends ConsumerWidget {
     }
 
     Navigator.pushReplacement(
-        context, MaterialPageRoute(builder: (_) => nextPage));
+      context,
+      MaterialPageRoute(builder: (_) => nextPage),
+    );
   }
 
   /* ---------- dialog ---------- */
@@ -94,13 +99,12 @@ class BottomNavigationCustomers extends ConsumerWidget {
         actions: [
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             ),
             onPressed: () {
               Navigator.of(ctx).pop(); // Close dialog
               Navigator.pushReplacement(
-                  ctx, MaterialPageRoute(builder: (_) => const WelcomePage()));
+                  ctx, MaterialPageRoute(builder: (_) => const SplashPage()));
             },
             child: const Text('OK', style: TextStyle(fontSize: 18)),
           ),
@@ -120,8 +124,8 @@ class BottomNavigationCustomers extends ConsumerWidget {
           child: Container(
             width: 10,
             height: 10,
-            decoration: const BoxDecoration(
-                color: Colors.red, shape: BoxShape.circle),
+            decoration:
+                const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
           ),
         );
 
@@ -143,7 +147,8 @@ class BottomNavigationCustomers extends ConsumerWidget {
           ),
           label: 'Messages',
         ),
-        const BottomNavigationBarItem(icon: Icon(Icons.list), label: 'Listings'),
+        const BottomNavigationBarItem(
+            icon: Icon(Icons.list), label: 'Listings'),
         const BottomNavigationBarItem(
             icon: Icon(Icons.edit), label: 'Edit Listings'),
         const BottomNavigationBarItem(

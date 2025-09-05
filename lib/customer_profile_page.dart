@@ -10,7 +10,7 @@ import 'edit_profile_page_customers.dart';
 import 'faq_page.dart';
 import 'contact_us_page.dart';
 import 'bottom_navigation_customers.dart';
-import 'welcome_page.dart';
+import 'splashpage.dart';
 import 'marketplace_page.dart';
 import 'terms_conditions_page.dart';
 import 'privacy_policy_page.dart';
@@ -67,7 +67,7 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
       if (userRole != 'customer' && mounted) {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const WelcomePage()),
+          MaterialPageRoute(builder: (_) => const SplashPage()),
         );
       }
     });
@@ -261,14 +261,14 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
   Future<void> _logout() async {
     await FirebaseAuth.instance.signOut();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('userRole');                 // ← CHANGED
+    await prefs.remove('userRole'); // ← CHANGED
     await secureStorage.deleteData('userToken');
     await secureStorage.deleteData('last_customer_profile_view');
 
     if (!mounted) return;
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => const WelcomePage()),
+      MaterialPageRoute(builder: (_) => const SplashPage()),
     );
   }
 
@@ -309,7 +309,7 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
       await secureStorage.deleteData('userToken');
       await secureStorage.deleteData('last_customer_profile_view');
       final prefs = await SharedPreferences.getInstance();
-      await prefs.clear();                            // ← clears userRole too
+      await prefs.clear(); // ← clears userRole too
 
       await _showInfoDialog(
         title: 'Account deleted',
@@ -321,7 +321,7 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
 
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const WelcomePage()),
+        MaterialPageRoute(builder: (_) => const SplashPage()),
         (_) => false,
       );
     } catch (e) {
