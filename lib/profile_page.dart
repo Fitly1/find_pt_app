@@ -1,43 +1,44 @@
 // lib/profile_page.dart
-// ignore_for_file: use_build_context_synchronously
+// ignore_for_file: depend_on_referenced_packages, use_build_context_synchronously
+
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:logger/logger.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:logger/logger.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
-import 'secure_storage_service.dart';
-import 'edit_profile_page.dart';
-import 'marketplace_page.dart';
-import 'faq_page.dart';
-import 'contact_us_page.dart';
-import 'refund_policy_page.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 import 'bottom_navigation.dart';
 import 'bottom_navigation_customers.dart';
+import 'contact_us_page.dart';
+import 'edit_profile_page.dart';
+import 'faq_page.dart';
+import 'feature_flags.dart';
+import 'legal_documents_page.dart';
+import 'login_page.dart';
+import 'manage_subscription.dart';
+import 'marketplace_page.dart';
+import 'privacy_policy_page.dart';
+import 'refund_policy_page.dart';
+import 'secure_storage_service.dart';
 import 'splashpage.dart';
 import 'terms_conditions_page.dart';
-import 'privacy_policy_page.dart';
-import 'legal_documents_page.dart';
-import 'manage_subscription.dart';
-import 'login_page.dart';
 import 'trainer_dashboard_page.dart';
-import 'feature_flags.dart';
 
-/// ─────────────────────────────────────────────────────────────
 final Logger logger = Logger();
 const Set<String> _kProductIds = <String>{'fitly.membership.1'};
 const Color _brandColor = Color(0xFFFFA726);
 
-/// ─────────────────────────────────────────────────────────────
-/// 1) Map FirebaseAuthException → short, friendly copy
+/* ───────────────── Friendly auth error text ───────────────── */
 String prettyAuthError(dynamic error) {
   if (error is FirebaseAuthException) {
     switch (error.code) {
@@ -59,7 +60,7 @@ String prettyAuthError(dynamic error) {
   return 'Something went wrong. Please try again.';
 }
 
-/// 2) Re-usable dialog (colour + rounded look is on-brand)
+/* ───────────────── Re-usable info dialog ───────────────── */
 Future<void> showInfoDialog(
   BuildContext ctx, {
   required String title,
@@ -109,7 +110,8 @@ Future<void> showInfoDialog(
                       borderRadius: BorderRadius.circular(12)),
                 ),
                 onPressed: () => Navigator.of(ctx).pop(),
-                child: Text(buttonText, style: const TextStyle(fontSize: 16)),
+                child: Text(buttonText,
+                    style: const TextStyle(fontSize: 16, color: Colors.white)),
               ),
             ),
           ],
@@ -119,15 +121,11 @@ Future<void> showInfoDialog(
   );
 }
 
-/// ─────────────────────────────────────────────────────────────
-/// Subscription disclosure bottom sheet
+/* ───────────────── Subscription disclosure sheet ───────────────── */
 class _SubscriptionSheet extends StatelessWidget {
   final ProductDetails? product;
   final VoidCallback onStart;
-  const _SubscriptionSheet({
-    required this.product,
-    required this.onStart,
-  });
+  const _SubscriptionSheet({required this.product, required this.onStart});
 
   String _priceString() => product == null ? '—' : '${product!.price} / month';
 
@@ -162,17 +160,11 @@ class _SubscriptionSheet extends StatelessWidget {
             const Text('Fitly PRO Membership',
                 style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
             const SizedBox(height: 12),
-            const Text(
-              'Length: Auto-renewing monthly subscription',
-              style: TextStyle(fontSize: 16),
-            ),
+            const Text('Length: Auto-renewing monthly subscription',
+                style: TextStyle(fontSize: 16)),
             const SizedBox(height: 6),
-
-            // --------------  NOT const  -----------------
-            Text(
-              'Price: ${_priceString()} after a 3-month free trial',
-              style: const TextStyle(fontSize: 16),
-            ),
+            Text('Price: ${_priceString()} after a 3-month free trial',
+                style: const TextStyle(fontSize: 16)),
             const SizedBox(height: 18),
 
             // feature bullets
@@ -183,14 +175,15 @@ class _SubscriptionSheet extends StatelessWidget {
                   children: [
                     const Icon(Icons.check, size: 18, color: Colors.green),
                     const SizedBox(width: 6),
-                    Expanded(child: Text(f)), // also NOT const
+                    Expanded(child: Text(f)),
                   ],
                 ),
               ),
             ),
 
             const SizedBox(height: 16),
-            Row(
+            Wrap(
+              spacing: 12,
               children: [
                 TextButton(
                   child: const Text('Privacy Policy'),
@@ -200,7 +193,6 @@ class _SubscriptionSheet extends StatelessWidget {
                         builder: (_) => const PrivacyPolicyPage()),
                   ),
                 ),
-                const SizedBox(width: 12),
                 TextButton(
                   child: const Text('Terms of Use'),
                   onPressed: () => Navigator.push(
@@ -211,7 +203,7 @@ class _SubscriptionSheet extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
@@ -234,8 +226,7 @@ class _SubscriptionSheet extends StatelessWidget {
   }
 }
 
-/// ─────────────────────────────────────────────────────────────
-
+/* ───────────────── Profile Page ───────────────── */
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
   @override
@@ -243,7 +234,6 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  //───────────────── State ─────────────────
   String userRole = 'trainer';
   final SecureStorageService secureStorage = SecureStorageService();
 
@@ -255,12 +245,21 @@ class _ProfilePageState extends State<ProfilePage> {
   ProductDetails? _membershipProduct;
   InAppPurchaseStoreKitPlatformAddition? _skAddition;
 
-  /// Called once during init to ensure Firestore always has the
-  /// latest Apple receipt (needed by webhook & daily reconciler).
+  @override
+  void initState() {
+    super.initState();
+    _loadUserRole();
+    _initIAP();
+    _syncIosReceiptOnce();
+    secureStorage
+        .writeData('last_profile_view', DateTime.now().toIso8601String())
+        .catchError((e) => logger.e("SecureStorage error: $e"));
+  }
+
+  /* ───────── iOS receipt sync (one-shot) ───────── */
   Future<void> _syncIosReceiptOnce() async {
     if (!Platform.isIOS) return;
 
-    // 1) try to read the receipt file from the device
     final dynamic addition = _skAddition ??
         InAppPurchase.instance
             .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
@@ -276,7 +275,6 @@ class _ProfilePageState extends State<ProfilePage> {
     }
     if (receipt == null || receipt.isEmpty) return;
 
-    // 2) look at Firestore; if the field is missing we upload once
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
 
@@ -286,11 +284,9 @@ class _ProfilePageState extends State<ProfilePage> {
         .get();
     if (doc.exists &&
         (doc.data()?['latestIosReceiptData'] ?? '').toString().isNotEmpty) {
-      // already stored – nothing to do
       return;
     }
 
-    // 3) send to Cloud Function
     try {
       final callable =
           FirebaseFunctions.instance.httpsCallable('verifyIosReceipt');
@@ -301,39 +297,14 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  //───────────────── init ──────────────────
-  @override
-  void initState() {
-    super.initState();
-    _loadUserRole();
-    _initIAP();
-    // run the one-shot sync
-    _syncIosReceiptOnce();
-    secureStorage
-        .writeData('last_profile_view', DateTime.now().toIso8601String())
-        .catchError((e) => logger.e("SecureStorage error: $e"));
-  }
-
-  //───────────────── Snack helper ─────────────────────────────
-  void _showSnack(String message, {bool error = false}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: error ? Colors.red : Colors.green,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  //───────────────── Promo-code dialog ─────────────────────────
+  /* ───────── Promo-code dialog (no overflow) ───────── */
   void _showPromoDialog() {
     showDialog(
       context: context,
       builder: (_) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
-        child: Padding(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 28, 24, 18),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -357,11 +328,11 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
               const SizedBox(height: 12),
               const Text(
-                'Your card is used only for verification.\nCancel any time.',
+                'Your card is used only for verification. Cancel any time.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
-              const SizedBox(height: 26),
+              const SizedBox(height: 22),
               Row(
                 children: [
                   Expanded(
@@ -370,7 +341,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       onPressed: () => Navigator.pop(context),
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
@@ -396,7 +367,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  //───────────────── IAP bootstrap ─────────
+  /* ───────── IAP bootstrap ───────── */
   Future<void> _initIAP() async {
     if (!Platform.isIOS) return;
     if (!await InAppPurchase.instance.isAvailable()) {
@@ -422,7 +393,6 @@ class _ProfilePageState extends State<ProfilePage> {
         .getPlatformAddition<InAppPurchaseStoreKitPlatformAddition>();
   }
 
-  //──────────────── handle transactions ────
   Future<void> _onPurchaseUpdate(List<PurchaseDetails> purchases) async {
     for (final p in purchases) {
       switch (p.status) {
@@ -468,7 +438,7 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  //──────────────── iOS helpers ────────────
+  /* ───────── iOS helpers ───────── */
   Future<void> _openIOSManage() async {
     if (!Platform.isIOS) return;
     try {
@@ -506,7 +476,6 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  //──────────────── load role ──────────────
   Future<void> _loadUserRole() async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
@@ -515,30 +484,37 @@ class _ProfilePageState extends State<ProfilePage> {
     });
   }
 
-  //──────────────── start subscription ────
+  /* ───────── Start subscription (no context-after-await) ───────── */
   Future<void> _activateSubscription() async {
+    final messenger = ScaffoldMessenger.of(context);
     if (Platform.isIOS) {
       if (_membershipProduct == null) {
-        _showSnack('Product not ready. Try again.', error: true);
+        messenger.showSnackBar(const SnackBar(
+          content: Text('Product not ready. Try again.'),
+          backgroundColor: Colors.red,
+        ));
         return;
       }
       final param = PurchaseParam(
         productDetails: _membershipProduct!,
-        applicationUserName: FirebaseAuth.instance.currentUser!.uid,
+        applicationUserName: FirebaseAuth.instance.currentUser?.uid,
       );
       InAppPurchase.instance.buyNonConsumable(purchaseParam: param);
       return;
     }
 
     try {
-      _showSnack('Loading…');
+      messenger.showSnackBar(const SnackBar(content: Text('Loading…')));
       final callable = FirebaseFunctions.instance
           .httpsCallable('createSubscriptionCheckoutSession');
       final result =
           await callable.call({'promoCode': _promoCodeController.text.trim()});
       final sessionUrl = result.data['sessionUrl'];
       if (sessionUrl == null) {
-        _showSnack('Failed to get checkout URL.', error: true);
+        messenger.showSnackBar(const SnackBar(
+          content: Text('Failed to get checkout URL.'),
+          backgroundColor: Colors.red,
+        ));
         return;
       }
       await launchUrl(Uri.parse(sessionUrl),
@@ -556,7 +532,6 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  //──────────────── open bottom sheet ──────
   void _openSubscriptionSheet() {
     showModalBottomSheet(
       context: context,
@@ -571,7 +546,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  //──────────────── Account-deletion helpers ──────────────────
+  /* ───────── Account deletion (captures nav BEFORE awaits) ───────── */
   Future<bool> _confirmDeletion() async {
     final res = await showDialog<bool>(
       context: context,
@@ -630,7 +605,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<String?> _askForPassword() async {
     final TextEditingController pwController = TextEditingController();
-    return await showDialog<String>(
+    final ok = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (_) => Dialog(
@@ -665,7 +640,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   Expanded(
                     child: OutlinedButton(
                       child: const Text('Cancel'),
-                      onPressed: () => Navigator.pop(context, null),
+                      onPressed: () => Navigator.pop(context, false),
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -676,8 +651,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           padding: const EdgeInsets.symmetric(vertical: 14)),
                       child: const Text('Continue',
                           style: TextStyle(color: Colors.white)),
-                      onPressed: () =>
-                          Navigator.pop(context, pwController.text.trim()),
+                      onPressed: () => Navigator.pop(context, true),
                     ),
                   ),
                 ],
@@ -687,9 +661,11 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
       ),
     );
+    final value = (ok == true) ? pwController.text.trim() : null;
+    pwController.dispose();
+    return (value == null || value.isEmpty) ? null : value;
   }
 
-  //──────── re-auth helpers ─────
   Future<void> _reauthGoogle() async {
     final googleUser = await GoogleSignIn().signIn();
     if (googleUser == null) throw FirebaseAuthException(code: 'cancelled');
@@ -719,10 +695,12 @@ class _ProfilePageState extends State<ProfilePage> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
+    final nav = Navigator.of(context); // capture BEFORE awaits
+
     if (!await _confirmDeletion()) return;
 
     try {
-      // ─── re-authenticate ───
+      // re-authenticate
       final providers = user.providerData.map((e) => e.providerId).toList();
       if (providers.contains('google.com')) {
         await _reauthGoogle();
@@ -732,7 +710,7 @@ class _ProfilePageState extends State<ProfilePage> {
         await _reauthEmail(user.email ?? '');
       }
 
-      // ─── delete Firestore docs before removing Auth user ───
+      // delete firestore docs then auth user
       final batch = FirebaseFirestore.instance.batch();
       batch
           .delete(FirebaseFirestore.instance.collection('users').doc(user.uid));
@@ -741,44 +719,47 @@ class _ProfilePageState extends State<ProfilePage> {
           .doc(user.uid));
       await batch.commit();
 
-      // ─── delete Auth row ───
       await user.delete();
-
-      // Google: disconnect so chooser appears next time
       if (providers.contains('google.com')) {
         await GoogleSignIn().disconnect();
       }
 
-      // ─── local cleanup ───
+      // local cleanup
       await secureStorage.deleteData('userToken');
       await secureStorage.deleteData('last_profile_view');
       final prefs = await SharedPreferences.getInstance();
-      await prefs.clear(); // removes cached role
+      await prefs.clear();
 
-      await showInfoDialog(context,
-          title: 'Account Deleted',
-          message: 'Your account has been deleted successfully.');
+      if (mounted) {
+        await showInfoDialog(context,
+            title: 'Account Deleted',
+            message: 'Your account has been deleted successfully.');
+      }
 
-      // back to welcome
-      if (!mounted) return;
-      Navigator.of(context).pushAndRemoveUntil(
+      // use captured navigator (no context after awaits)
+      nav.pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const SplashPage()),
         (_) => false,
       );
     } on FirebaseAuthException catch (e) {
       if (e.code == 'cancelled') return;
-      await showInfoDialog(context,
-          title: 'Error', message: prettyAuthError(e), error: true);
+      if (mounted) {
+        await showInfoDialog(context,
+            title: 'Error', message: prettyAuthError(e), error: true);
+      }
     } catch (e) {
       logger.e('Delete account error: $e');
-      await showInfoDialog(context,
+      if (mounted) {
+        await showInfoDialog(
+          context,
           title: 'Error',
           message: 'Something went wrong. Please try again.',
-          error: true);
+          error: true,
+        );
+      }
     }
   }
 
-  //──────────────── dispose ───────────────
   @override
   void dispose() {
     _purchaseSub?.cancel();
@@ -786,7 +767,7 @@ class _ProfilePageState extends State<ProfilePage> {
     super.dispose();
   }
 
-  //──────────────── helpers ───────────────
+  /* ───────── Bottom nav ───────── */
   Widget _buildBottomNavigation() {
     final isTrainer =
         ['trainer', 'personal trainer', 'personaltrainer'].contains(userRole);
@@ -908,10 +889,12 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  //──────────────── UI ────────────────────
+  /* ───────── UI ───────── */
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
+    final nav = Navigator.of(context); // used later in logout
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Profile', style: TextStyle(color: Colors.white)),
@@ -921,8 +904,7 @@ class _ProfilePageState extends State<ProfilePage> {
           onPressed: () {
             final isTrainer = ['trainer', 'personal trainer', 'personaltrainer']
                 .contains(userRole);
-            Navigator.pushReplacement(
-              context,
+            nav.pushReplacement(
               MaterialPageRoute(
                 builder: (_) => isTrainer
                     ? const TrainerDashboardPage()
@@ -941,70 +923,178 @@ class _ProfilePageState extends State<ProfilePage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          //──────────────── PROFILE CARD ────────────────────────
-          Card(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            elevation: 4,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-              child: StreamBuilder<DocumentSnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection("trainer_profiles")
-                    .doc(user?.uid)
-                    .snapshots(),
-                builder: (ctx, snap) {
-                  if (!snap.hasData) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  final data = snap.data!.data() as Map<String, dynamic>? ?? {};
-                  final img = data['profileImageUrl'] ?? '';
-                  bool isActive = data['isActive'] ?? false;
-                  if (!isTrainerPaymentsEnabled) isActive = true;
-                  final status = isActive ? "Active" : "Inactive";
-                  String displayName = data['displayName'] ?? '';
-                  if (displayName.isEmpty) {
-                    displayName = user?.displayName ?? 'No Name';
-                  }
-                  return Column(
+          // ───────── HEADER (overflow-proof) ─────────
+          StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection("trainer_profiles")
+                .doc(user?.uid)
+                .snapshots(),
+            builder: (ctx, snap) {
+              if (!snap.hasData) {
+                return const SizedBox(
+                  height: 260,
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final data = snap.data!.data() as Map<String, dynamic>? ?? {};
+              final img = (data['profileImageUrl'] ?? '').toString();
+              bool isActive = data['isActive'] ?? false;
+              if (!isTrainerPaymentsEnabled) isActive = true;
+
+              String displayName = (data['displayName'] ?? '').toString();
+              if (displayName.isEmpty) {
+                displayName = user?.displayName ?? 'No Name';
+              }
+
+              return Column(
+                children: [
+                  // banner with avatar, name, chips
+                  Stack(
+                    clipBehavior: Clip.none,
                     children: [
-                      Stack(
-                        alignment: Alignment.bottomRight,
-                        children: [
-                          CircleAvatar(
-                            radius: 50,
-                            backgroundImage: img.isNotEmpty
-                                ? NetworkImage(img)
-                                : const AssetImage('assets/default_profile.png')
-                                    as ImageProvider,
-                          ),
-                          IconButton(
-                              icon: const Icon(Icons.camera_alt,
-                                  color: Colors.white),
-                              onPressed: () => Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (_) => const EditProfilePage())))
-                        ],
+                      SizedBox(
+                        height: 220,
+                        width: double.infinity,
+                        child: img.isNotEmpty
+                            ? Image.network(img, fit: BoxFit.cover)
+                            : Image.asset('assets/default_profile.png',
+                                fit: BoxFit.cover),
                       ),
-                      const SizedBox(height: 8),
-                      Text("Membership Status: $status",
-                          style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                              color: isActive ? Colors.green : Colors.red)),
-                      const SizedBox(height: 8),
-                      Text(displayName,
-                          style: const TextStyle(
-                              fontSize: 22, fontWeight: FontWeight.bold)),
+                      // gradient for legibility
+                      Positioned.fill(
+                        child: DecoratedBox(
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Color.fromRGBO(0, 0, 0, 0.00),
+                                Color.fromRGBO(0, 0, 0, 0.45),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: 16,
+                        right: 16,
+                        bottom: -44,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(64),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Color.fromRGBO(0, 0, 0, 0.25),
+                                    blurRadius: 8,
+                                    offset: Offset(0, 4),
+                                  )
+                                ],
+                              ),
+                              child: CircleAvatar(
+                                radius: 44,
+                                backgroundImage: img.isNotEmpty
+                                    ? NetworkImage(img)
+                                    : const AssetImage(
+                                            'assets/default_profile.png')
+                                        as ImageProvider,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    displayName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 6,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    children: [
+                                      // membership chip
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Container(
+                                              width: 8,
+                                              height: 8,
+                                              decoration: BoxDecoration(
+                                                color: isActive
+                                                    ? const Color(0xFF2E7D32)
+                                                    : const Color(0xFFC62828),
+                                                shape: BoxShape.circle,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              isActive
+                                                  ? 'Membership: Active'
+                                                  : 'Membership: Inactive',
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                  fontWeight: FontWeight.w600),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      // edit button
+                                      OutlinedButton.icon(
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: Colors.white,
+                                          side: const BorderSide(
+                                              color: Colors.white),
+                                          visualDensity: VisualDensity.compact,
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10, vertical: 8),
+                                        ),
+                                        icon: const Icon(Icons.edit, size: 16),
+                                        label: const Text('Edit'),
+                                        onPressed: () => Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                const EditProfilePage(),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
-                  );
-                },
-              ),
-            ),
+                  ),
+                  const SizedBox(height: 64),
+                ],
+              );
+            },
           ),
-          const SizedBox(height: 16),
-//──────────────── SUBSCRIPTION TILE ────────────────────
+
+          // ───────── SUBSCRIPTION TILE ─────────
           if (isTrainerPaymentsEnabled)
             StreamBuilder<DocumentSnapshot>(
               stream: FirebaseFirestore.instance
@@ -1015,7 +1105,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 if (!snap.hasData) return const SizedBox();
                 final d = snap.data!.data() as Map<String, dynamic>? ?? {};
                 final active = d['isActive'] ?? false;
-                final stripeId = d['stripeId'] ?? '';
+                final stripeId = (d['stripeId'] ?? '').toString();
 
                 if (active) {
                   return Card(
@@ -1052,7 +1142,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   );
                 }
 
-                // --------------  NOT active  -----------------
+                // not active → activation card + promo link (no overflow)
                 return Card(
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16)),
@@ -1069,17 +1159,22 @@ class _ProfilePageState extends State<ProfilePage> {
                         trailing: const Icon(Icons.arrow_forward_ios),
                         onTap: _openSubscriptionSheet,
                       ),
-                      if (!Platform.isIOS) // promo code hidden on iOS
+                      if (!Platform.isIOS)
                         Padding(
                           padding: const EdgeInsets.only(
                               left: 72.0, right: 16.0, bottom: 12.0),
-                          child: GestureDetector(
-                            onTap: _showPromoDialog,
-                            child: const Text(
-                              'Have a promo code?',
-                              style: TextStyle(
-                                color: Color(0xFF2196F3),
-                                decoration: TextDecoration.underline,
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: GestureDetector(
+                              onTap: _showPromoDialog,
+                              child: const Text(
+                                'Have a promo code?',
+                                softWrap: true,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Color(0xFF2196F3),
+                                  decoration: TextDecoration.underline,
+                                ),
                               ),
                             ),
                           ),
@@ -1090,51 +1185,63 @@ class _ProfilePageState extends State<ProfilePage> {
               },
             ),
           if (isTrainerPaymentsEnabled) const SizedBox(height: 16),
-          //──────────────── OTHER TILES ──────────────────────────
+
+          // ───────── Other tiles ─────────
           _simpleTile(
-              icon: Icons.edit,
-              label: 'Edit Profile',
-              page: const EditProfilePage()),
+            icon: Icons.edit,
+            label: 'Edit Profile',
+            page: const EditProfilePage(),
+          ),
           _simpleTile(
-              icon: Icons.help_outline,
-              label: 'FAQ / Help',
-              page: const FAQPage()),
+            icon: Icons.help_outline,
+            label: 'FAQ / Help',
+            page: const FAQPage(),
+          ),
           _simpleTile(
-              icon: Icons.contact_mail,
-              label: 'Contact Us / Support',
-              page: const ContactUsPage()),
+            icon: Icons.contact_mail,
+            label: 'Contact Us / Support',
+            page: const ContactUsPage(),
+          ),
           _simpleTile(
-              icon: Icons.receipt_long,
-              label: 'Refund Policy',
-              page: const RefundPolicyPage()),
+            icon: Icons.receipt_long,
+            label: 'Refund Policy',
+            page: const RefundPolicyPage(),
+          ),
           _termsTile(),
           _simpleTile(
-              icon: Icons.privacy_tip,
-              label: 'Privacy Policy',
-              page: const PrivacyPolicyPage()),
+            icon: Icons.privacy_tip,
+            label: 'Privacy Policy',
+            page: const PrivacyPolicyPage(),
+          ),
           _simpleTile(
-              icon: Icons.library_books,
-              label: 'Legal Documents',
-              page: const LegalDocumentsPage()),
+            icon: Icons.library_books,
+            label: 'Legal Documents',
+            page: const LegalDocumentsPage(),
+          ),
           _deleteTile(),
           const SizedBox(height: 16),
-          //──────────────── LOG-OUT BUTTON ───────────────────────
+
+          // ───────── Log out (captures nav BEFORE awaits) ─────────
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                padding: const EdgeInsets.symmetric(vertical: 14)),
+              backgroundColor: Colors.red,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
             child: const Text('Log Out',
                 style: TextStyle(color: Colors.white, fontSize: 18)),
             onPressed: () async {
-              await FirebaseAuth.instance.signOut();
               final prefs = await SharedPreferences.getInstance();
+              // capture navigator first
+              final navigator = Navigator.of(context);
+
+              await FirebaseAuth.instance.signOut();
               await prefs.remove('userRole');
               await secureStorage.deleteData('userToken');
               await secureStorage.deleteData('last_profile_view');
-              if (!mounted) return;
+
+              // navigate using captured navigator to avoid context-after-await
               SchedulerBinding.instance.addPostFrameCallback((_) {
-                Navigator.pushReplacement(
-                  context,
+                navigator.pushReplacement(
                   MaterialPageRoute(builder: (_) => const SplashPage()),
                 );
               });
@@ -1145,11 +1252,12 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  //──────────────── helper tile builders ───────────────────────
-  Widget _simpleTile(
-          {required IconData icon,
-          required String label,
-          required Widget page}) =>
+  /* ───────── helper tile builders (no context-after-await) ───────── */
+  Widget _simpleTile({
+    required IconData icon,
+    required String label,
+    required Widget page,
+  }) =>
       Padding(
         padding: const EdgeInsets.only(bottom: 16),
         child: Card(
@@ -1159,8 +1267,12 @@ class _ProfilePageState extends State<ProfilePage> {
             leading: Icon(icon, color: Colors.black),
             title: Text(label),
             trailing: const Icon(Icons.arrow_forward_ios, color: Colors.black),
-            onTap: () => Navigator.push(
-                context, MaterialPageRoute(builder: (_) => page)),
+            onTap: () {
+              final navigator = Navigator.of(context);
+              SchedulerBinding.instance.addPostFrameCallback((_) {
+                navigator.push(MaterialPageRoute(builder: (_) => page));
+              });
+            },
           ),
         ),
       );
@@ -1199,10 +1311,16 @@ class _ProfilePageState extends State<ProfilePage> {
                 TextButton(
                   child: const Text('View Terms & Conditions',
                       style: TextStyle(decoration: TextDecoration.underline)),
-                  onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const TermsConditionsPage())),
+                  onPressed: () {
+                    final navigator = Navigator.of(context);
+                    SchedulerBinding.instance.addPostFrameCallback((_) {
+                      navigator.push(
+                        MaterialPageRoute(
+                          builder: (_) => const TermsConditionsPage(),
+                        ),
+                      );
+                    });
+                  },
                 )
               ],
             ),

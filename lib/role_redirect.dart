@@ -3,14 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
-import 'splashpage.dart';
 import 'login_page.dart';
 import 'email_verification_page.dart';
 import 'trainer_profile_setup_page.dart';
 import 'marketplace_page.dart';
 import 'trainer_home_page.dart';
 import 'secure_storage_service.dart';
+import 'chat_page.dart'; // for resuming pending chat after auth
 
 class RoleRedirect extends StatefulWidget {
   const RoleRedirect({super.key});
@@ -58,7 +57,7 @@ class _RoleRedirectState extends State<RoleRedirect> {
   // Main decision tree
   // ─────────────────────────────────────────────────────────────
   Future<void> _decideNextPage() async {
-    Widget nextPage = const SplashPage(); // default
+    Widget nextPage = const MarketplacePage(); // default
 
     try {
       // ─── auth wait ────────────────────────────────
@@ -91,7 +90,6 @@ class _RoleRedirectState extends State<RoleRedirect> {
       }
 
       String role = data['role'].toString().toLowerCase().trim();
-
       // normalise legacy values
       if (role == 'personal trainer' || role == 'personaltrainer') {
         role = 'trainer';
@@ -107,6 +105,39 @@ class _RoleRedirectState extends State<RoleRedirect> {
       } else {
         nextPage = const LoginPage();
       }
+
+      // ─────────────────────────────────────────────────────────
+      // Resume pending Concierge / trainer chat after auth
+      // Only auto-jump if they're a CUSTOMER.
+      // ─────────────────────────────────────────────────────────
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final pendingUid = prefs.getString('pendingChatPeerUid');
+        // final pendingName = prefs.getString('pendingChatPeerName'); // optional
+
+        if (pendingUid != null && role == 'customer') {
+          await prefs.remove('pendingChatPeerUid');
+          await prefs.remove('pendingChatPeerName');
+
+          final me = FirebaseAuth.instance.currentUser;
+          if (me != null) {
+            final myUid = me.uid;
+            final convoId = (myUid.compareTo(pendingUid) < 0)
+                ? '${myUid}_$pendingUid'
+                : '${pendingUid}_$myUid';
+
+            _go(ChatPage(
+              conversationId: convoId,
+              otherUserId: pendingUid,
+              // otherUserName: pendingName, // if ChatPage supports it
+            ));
+            return; // stop normal navigation
+          }
+        }
+      } catch (_) {
+        // ignore and fall through to normal navigation
+      }
+      // ─────────────────────────────────────────────────────────
     } catch (e) {
       debugPrint('RoleRedirect error: $e');
     }

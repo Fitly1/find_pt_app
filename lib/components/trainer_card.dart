@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cached_network_image/cached_network_image.dart'; // Import Cached Network Image
-import 'package:firebase_crashlytics/firebase_crashlytics.dart'; // Import Crashlytics for error logging
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 
 class TrainerCard extends StatefulWidget {
   final String name;
@@ -9,8 +9,8 @@ class TrainerCard extends StatefulWidget {
   final String location;
   final Map<String, Color> categoryColors;
   final String? profileImageUrl;
-  final Map<String, dynamic> trainerData; // Must include "uid"
-  final VoidCallback? onTap; // Delegate tap handling
+  final Map<String, dynamic> trainerData; // must include "uid" ideally
+  final VoidCallback? onTap;
 
   const TrainerCard({
     required this.name,
@@ -27,63 +27,118 @@ class TrainerCard extends StatefulWidget {
   State<TrainerCard> createState() => _TrainerCardState();
 }
 
+class _Rating {
+  final double? avg; // null => no ratings yet
+  final int count;
+  const _Rating(this.avg, this.count);
+}
+
 class _TrainerCardState extends State<TrainerCard> {
-  late Future<double> _averageRatingFuture;
+  // Make it nullable and initialize lazily to avoid LateInitializationError.
+  Future<_Rating>? _ratingFuture;
 
   @override
   void initState() {
     super.initState();
-    _averageRatingFuture = _fetchAverageRating(widget.trainerData["uid"]);
+    _primeRatingFuture();
   }
 
-  /// Fetch the average rating from the trainer's "reviews" subcollection.
-  Future<double> _fetchAverageRating(String trainerUid) async {
+  @override
+  void didUpdateWidget(covariant TrainerCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Recompute when the trainer changes.
+    final oldUid = oldWidget.trainerData['uid']?.toString();
+    final newUid = widget.trainerData['uid']?.toString();
+    if (oldUid != newUid) {
+      _primeRatingFuture();
+    }
+  }
+
+  void _primeRatingFuture() {
+    _ratingFuture = _resolveRating(widget.trainerData);
+  }
+
+  // -------------------- Helpers --------------------
+  double? _toDouble(dynamic v) {
+    if (v == null) return null;
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v);
+    return null;
+  }
+
+  int _toInt(dynamic v) {
+    if (v == null) return 0;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v) ?? 0;
+    return 0;
+  }
+
+  Future<_Rating> _resolveRating(Map<String, dynamic> t) async {
+    // Prefer embedded values (fast path).
+    final embeddedAvg = _toDouble(t['avgRating'] ?? t['rating']);
+    final embeddedCount =
+        _toInt(t['ratingCount'] ?? t['reviewsCount'] ?? t['numReviews']);
+    if (embeddedAvg != null && embeddedCount > 0) {
+      return _Rating(embeddedAvg, embeddedCount);
+    }
+
+    // Fallback to subcollection only if we have a uid.
+    final uid = t['uid']?.toString();
+    if (uid == null || uid.isEmpty) {
+      return const _Rating(null, 0);
+    }
+    return _fetchRatingFromReviews(uid);
+  }
+
+  Future<_Rating> _fetchRatingFromReviews(String trainerUid) async {
     try {
-      QuerySnapshot<Map<String, dynamic>> snapshot = await FirebaseFirestore
-          .instance
+      final snap = await FirebaseFirestore.instance
           .collection("trainer_profiles")
           .doc(trainerUid)
           .collection("reviews")
           .get();
 
-      if (snapshot.docs.isEmpty) return 0.0;
+      final count = snap.docs.length;
+      if (count == 0) return const _Rating(null, 0);
 
       double total = 0.0;
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        total += (data["rating"] as num?)?.toDouble() ?? 0.0;
+      for (final doc in snap.docs) {
+        total += (_toDouble(doc.data()["rating"]) ?? 0.0);
       }
-      return total / snapshot.docs.length;
-    } catch (e) {
+      return _Rating(total / count, count);
+    } catch (e, st) {
       debugPrint("Error fetching average rating: $e");
-      return 0.0;
+      FirebaseCrashlytics.instance.recordError(
+        e,
+        st,
+        reason: 'Fetch reviews for rating failed',
+      );
+      // Safe fallback to "New"
+      return const _Rating(null, 0);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // Combine firstName and lastName if available; otherwise use the provided name.
+    // Prefer first/last name if present
     String displayName = (widget.trainerData["firstName"] ?? '') +
-        (widget.trainerData["lastName"] != null &&
-                widget.trainerData["lastName"].toString().trim().isNotEmpty
+        ((widget.trainerData["lastName"] != null &&
+                widget.trainerData["lastName"].toString().trim().isNotEmpty)
             ? " ${widget.trainerData["lastName"]}"
             : "");
-
-    if (displayName.isEmpty) {
+    if (displayName.trim().isEmpty) {
       displayName = widget.name.isNotEmpty ? widget.name : "Trainer";
     }
 
     return GestureDetector(
       onTap: widget.onTap,
       child: Card(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         elevation: 5,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Image section takes most of the card.
+            // Image
             Expanded(
               flex: 2,
               child: ClipRRect(
@@ -115,24 +170,24 @@ class _TrainerCardState extends State<TrainerCard> {
                       ),
               ),
             ),
-            // Information section with minimal vertical spacing.
+
+            // Info
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Trainer Name
+                  // Name
                   Text(
                     displayName,
                     style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
+                        fontWeight: FontWeight.bold, fontSize: 16),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
-                  // Specialties using Wrap.
+
+                  // Specialties
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4.0),
                     child: Wrap(
@@ -154,20 +209,21 @@ class _TrainerCardState extends State<TrainerCard> {
                             ),
                         if (widget.specialties.length > 2)
                           const Chip(
-                            label: Text(
-                              '...',
-                              style:
-                                  TextStyle(color: Colors.white, fontSize: 12),
-                            ),
+                            label: Text('...',
+                                style: TextStyle(
+                                    color: Colors.white, fontSize: 12)),
                             backgroundColor: Colors.grey,
                           ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 4),
-                  // Average Rating using stored Future with larger star and text.
-                  FutureBuilder<double>(
-                    future: _averageRatingFuture,
+
+                  // Rating
+                  FutureBuilder<_Rating>(
+                    // Lazily initialize if somehow not yet primed.
+                    future: _ratingFuture ??=
+                        _resolveRating(widget.trainerData),
                     builder: (context, snapshot) {
                       if (snapshot.connectionState == ConnectionState.waiting) {
                         return const SizedBox(
@@ -175,28 +231,44 @@ class _TrainerCardState extends State<TrainerCard> {
                           width: 20,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         );
-                      } else if (snapshot.hasError) {
-                        return const Text("Error",
+                      }
+                      if (snapshot.hasError) {
+                        return const Text("New",
                             style: TextStyle(fontSize: 14));
-                      } else {
-                        final avgRating = snapshot.data ?? 0.0;
-                        return Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                      }
+
+                      final rating = snapshot.data ?? const _Rating(null, 0);
+                      final hasRatings = rating.avg != null && rating.count > 0;
+
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.surface,
+                          borderRadius: BorderRadius.circular(12),
+                          border:
+                              Border.all(color: Theme.of(context).dividerColor),
+                        ),
+                        child: Row(
                           mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.star,
-                                color: Colors.amber, size: 16),
+                            const Icon(Icons.star_rounded,
+                                size: 16, color: Colors.amber),
                             const SizedBox(width: 4),
                             Text(
-                              avgRating.toStringAsFixed(1),
+                              hasRatings
+                                  ? '${rating.avg!.toStringAsFixed(1)} (${rating.count})'
+                                  : 'New',
                               style: const TextStyle(fontSize: 14),
                             ),
                           ],
-                        );
-                      }
+                        ),
+                      );
                     },
                   ),
                   const SizedBox(height: 4),
+
                   // Location
                   Text(
                     widget.location,

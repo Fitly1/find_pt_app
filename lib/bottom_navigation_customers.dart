@@ -2,12 +2,13 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'signup_page.dart';
+import 'login_page.dart';
 import 'marketplace_page.dart';
 import 'messages_page.dart';
 import 'listings_page.dart';
 import 'edit_listings_page.dart';
 import 'customer_profile_page.dart';
-import 'splashpage.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'notification_provider.dart';
@@ -16,38 +17,168 @@ class BottomNavigationCustomers extends ConsumerWidget {
   final int currentIndex;
   const BottomNavigationCustomers({super.key, required this.currentIndex});
 
-  /* ---------- helper that waits for auth & prefs ----------- */
+  // ---------- Auth gate (fast) ----------
   Future<bool> _needsSignIn(int tabIndex) async {
-    // tabs that require auth / verification
+    // Tabs that require auth: Messages(1), Edit Listings(3), Profile(4)
     if (![1, 3, 4].contains(tabIndex)) return false;
 
-    // wait (≤3 s) for FirebaseAuth
-    User? user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      try {
-        user = await FirebaseAuth.instance
-            .authStateChanges()
-            .firstWhere((u) => u != null)
-            .timeout(const Duration(seconds: 3));
-      } catch (_) {}
+    final auth = FirebaseAuth.instance;
+    final u = auth.currentUser;
+
+    // If we already have a user, decide immediately
+    if (u != null) {
+      final isPassword = u.providerData.any((p) => p.providerId == 'password');
+      if (u.isAnonymous) return true;
+      if (isPassword && !u.emailVerified) return true;
+      return false;
     }
-    if (user == null || user.isAnonymous) return true;
 
-    // e-mail verified check (password users only)
-    final isPassword = user.providerData.any((p) => p.providerId == 'password');
-    if (isPassword && !user.emailVerified) return true;
-
-    // good to go
-    return false;
+    // Firebase might still be initializing; wait briefly
+    try {
+      final next = await auth
+          .authStateChanges()
+          .first
+          .timeout(const Duration(milliseconds: 250));
+      if (next == null || next.isAnonymous) return true;
+      final isPassword =
+          next.providerData.any((p) => p.providerId == 'password');
+      if (isPassword && !next.emailVerified) return true;
+      return false;
+    } catch (_) {
+      // On timeout or error, treat as guest so we show the prompt immediately
+      return true;
+    }
   }
 
-  /* ---------- navigation ---------- */
+  // ---------- Bottom sheet: clear role choice & deep links ----------
+  Future<void> _showSignUpSheet(BuildContext ctx) async {
+    if (!ctx.mounted) return;
+
+    await showModalBottomSheet(
+      context: ctx,
+      isScrollControlled: true,
+      showDragHandle: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        final bottomPad = MediaQuery.of(sheetCtx).viewInsets.bottom;
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPad + 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.message_outlined, size: 36),
+                const SizedBox(height: 8),
+                const Text(
+                  'Sign up or log in to continue',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Create an account to use Messages, Edit Listings, and Profile.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.black54),
+                ),
+                const SizedBox(height: 16),
+
+                // Primary: Customer signup (most common for this entry point)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.person_outline),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onPressed: () {
+                      Navigator.pop(sheetCtx); // close sheet
+                      if (!ctx.mounted) return;
+                      Navigator.pushReplacement(
+                        ctx,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              const SignupPage(preselectedRole: 'customer'),
+                        ),
+                      );
+                    },
+                    label: const Text(
+                      'Sign up as Customer',
+                      style: TextStyle(fontSize: 16),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // Secondary: Trainer signup
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.fitness_center),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      side: const BorderSide(color: Colors.black12),
+                    ),
+                    onPressed: () {
+                      Navigator.pop(sheetCtx);
+                      if (!ctx.mounted) return;
+                      Navigator.pushReplacement(
+                        ctx,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              const SignupPage(preselectedRole: 'trainer'),
+                        ),
+                      );
+                    },
+                    label: const Text(
+                      'Sign up as Trainer',
+                      style: TextStyle(fontSize: 16),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // Existing account
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(sheetCtx);
+                    if (!ctx.mounted) return;
+                    Navigator.pushReplacement(
+                      ctx,
+                      MaterialPageRoute(builder: (_) => const LoginPage()),
+                    );
+                  },
+                  child: const Text('I already have an account'),
+                ),
+
+                // Dismiss
+                TextButton(
+                  onPressed: () => Navigator.pop(sheetCtx),
+                  child: const Text('Not now'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // ---------- Navigation ----------
   Future<void> _onItemTapped(BuildContext context, int index) async {
     if (index == currentIndex) return; // same tab
 
+    // Gate tabs that need auth
     if (await _needsSignIn(index)) {
       if (!context.mounted) return;
-      _showSignUpDialog(context);
+      await _showSignUpSheet(context);
       return;
     }
 
@@ -80,40 +211,7 @@ class BottomNavigationCustomers extends ConsumerWidget {
     );
   }
 
-  /* ---------- dialog ---------- */
-  void _showSignUpDialog(BuildContext ctx) {
-    showDialog(
-      context: ctx,
-      barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Sign Up Required',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-        content: const Text(
-          'Please create an account or sign in to access this feature.',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 18),
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            ),
-            onPressed: () {
-              Navigator.of(ctx).pop(); // Close dialog
-              Navigator.pushReplacement(
-                  ctx, MaterialPageRoute(builder: (_) => const SplashPage()));
-            },
-            child: const Text('OK', style: TextStyle(fontSize: 18)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /* ---------- build ---------- */
+  // ---------- Build ----------
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final notifications = ref.watch(notificationProvider);
@@ -124,8 +222,10 @@ class BottomNavigationCustomers extends ConsumerWidget {
           child: Container(
             width: 10,
             height: 10,
-            decoration:
-                const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+            decoration: const BoxDecoration(
+              color: Colors.red,
+              shape: BoxShape.circle,
+            ),
           ),
         );
 
@@ -136,7 +236,9 @@ class BottomNavigationCustomers extends ConsumerWidget {
       onTap: (i) => _onItemTapped(context, i),
       items: [
         const BottomNavigationBarItem(
-            icon: Icon(Icons.store), label: 'Marketplace'),
+          icon: Icon(Icons.store),
+          label: 'Marketplace',
+        ),
         BottomNavigationBarItem(
           icon: Stack(
             clipBehavior: Clip.none,
@@ -148,11 +250,17 @@ class BottomNavigationCustomers extends ConsumerWidget {
           label: 'Messages',
         ),
         const BottomNavigationBarItem(
-            icon: Icon(Icons.list), label: 'Listings'),
+          icon: Icon(Icons.list),
+          label: 'Listings',
+        ),
         const BottomNavigationBarItem(
-            icon: Icon(Icons.edit), label: 'Edit Listings'),
+          icon: Icon(Icons.edit),
+          label: 'Edit Listings',
+        ),
         const BottomNavigationBarItem(
-            icon: Icon(Icons.person), label: 'Profile'),
+          icon: Icon(Icons.person),
+          label: 'Profile',
+        ),
       ],
     );
   }

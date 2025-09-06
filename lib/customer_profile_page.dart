@@ -20,7 +20,6 @@ import 'secure_storage_service.dart';
 /* ───────────────── Brand colour & helpers ───────────────── */
 const Color _brandColor = Color(0xFFFFA726);
 
-/* Same mapping function you used on the login page */
 String prettyAuthError(dynamic error) {
   if (error is FirebaseAuthException) {
     switch (error.code) {
@@ -54,7 +53,7 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
   String _displayName = 'Customer Name';
   String _email = 'customer@example.com';
   String? _profileImageUrl;
-  String userRole = 'customer'; // default
+  String userRole = 'customer';
   final SecureStorageService secureStorage = SecureStorageService();
 
   /* ───────────── init ───────────── */
@@ -63,12 +62,12 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
     super.initState();
     _loadUserData();
 
-    _loadUserRole().then((_) {
+    _loadUserRole().then((_) async {
       if (userRole != 'customer' && mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const SplashPage()),
-        );
+        final nav = Navigator.of(context);
+        await Future<void>.delayed(Duration.zero);
+        nav.pushReplacement(
+            MaterialPageRoute(builder: (_) => const SplashPage()));
       }
     });
 
@@ -107,13 +106,12 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
 
   Future<void> _loadUserRole() async {
     final prefs = await SharedPreferences.getInstance();
-    if (mounted) {
-      setState(() {
-        userRole = prefs.getString('userRole')?.toLowerCase() ?? 'customer';
-      });
-    } else {
-      userRole = prefs.getString('userRole')?.toLowerCase() ?? 'customer';
+    final role = prefs.getString('userRole')?.toLowerCase() ?? 'customer';
+    if (!mounted) {
+      userRole = role;
+      return;
     }
+    setState(() => userRole = role);
   }
 
   /* ───────────── styled info / error / confirm dialogs ───────────── */
@@ -127,59 +125,77 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
     await showDialog(
       context: context,
       barrierDismissible: true,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 28, 24, 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircleAvatar(
-                radius: 32,
-                backgroundColor: error ? Colors.red : _brandColor,
-                child: Icon(
-                  error
-                      ? Icons.error_outline_rounded
-                      : Icons.info_outline_rounded,
-                  color: Colors.white,
-                  size: 38,
-                ),
-              ),
-              const SizedBox(height: 22),
-              Text(
-                title,
-                textAlign: TextAlign.center,
-                style:
-                    const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 15, height: 1.45),
-              ),
-              const SizedBox(height: 30),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+      builder: (ctx) {
+        final insets = MediaQuery.of(ctx).viewInsets;
+        return AnimatedPadding(
+          padding:
+              insets + const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Material(
+                color: Colors.transparent,
+                child: Dialog(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20)),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(24, 28, 24, 18),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircleAvatar(
+                          radius: 32,
+                          backgroundColor: error ? Colors.red : _brandColor,
+                          child: Icon(
+                            error
+                                ? Icons.error_outline_rounded
+                                : Icons.info_outline_rounded,
+                            color: Colors.white,
+                            size: 38,
+                          ),
+                        ),
+                        const SizedBox(height: 22),
+                        Text(
+                          title,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          message,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 15, height: 1.45),
+                        ),
+                        const SizedBox(height: 30),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12)),
+                            ),
+                            onPressed: () => Navigator.of(ctx).pop(),
+                            child: Text(
+                              buttonText,
+                              style: const TextStyle(
+                                  fontSize: 16, color: Colors.white),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  child: Text(buttonText,
-                      style:
-                          const TextStyle(fontSize: 16, color: Colors.white)),
                 ),
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -193,134 +209,253 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
     return await showDialog<bool>(
       context: context,
       barrierDismissible: true,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 28, 24, 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircleAvatar(
-                radius: 32,
-                backgroundColor: confirmColor,
-                child: const Icon(Icons.warning_amber_rounded,
-                    color: Colors.white, size: 38),
-              ),
-              const SizedBox(height: 22),
-              Text(title,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 14),
-              Text(message,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 15, height: 1.45)),
-              const SizedBox(height: 30),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        side: const BorderSide(color: Colors.black),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: () => Navigator.of(ctx).pop(false),
-                      child: const Text('Cancel',
-                          style: TextStyle(fontSize: 16, color: Colors.black)),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: confirmColor,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
+      builder: (ctx) {
+        final insets = MediaQuery.of(ctx).viewInsets;
+        return AnimatedPadding(
+          padding:
+              insets + const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Material(
+                color: Colors.transparent,
+                child: Dialog(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20)),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(24, 28, 24, 18),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircleAvatar(
+                          radius: 32,
+                          backgroundColor: confirmColor,
+                          child: const Icon(Icons.warning_amber_rounded,
+                              color: Colors.white, size: 38),
                         ),
-                      ),
-                      onPressed: () => Navigator.of(ctx).pop(true),
-                      child: Text(confirmText,
+                        const SizedBox(height: 22),
+                        Text(
+                          title,
+                          textAlign: TextAlign.center,
                           style: const TextStyle(
-                              fontSize: 16, color: Colors.white)),
+                              fontSize: 20, fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          message,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 15, height: 1.45),
+                        ),
+                        const SizedBox(height: 30),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                style: OutlinedButton.styleFrom(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 14),
+                                  side: const BorderSide(color: Colors.black),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                onPressed: () => Navigator.of(ctx).pop(false),
+                                child: const Text(
+                                  'Cancel',
+                                  style: TextStyle(
+                                      fontSize: 16, color: Colors.black),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: confirmColor,
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                onPressed: () => Navigator.of(ctx).pop(true),
+                                child: Text(
+                                  confirmText,
+                                  style: const TextStyle(
+                                      fontSize: 16, color: Colors.white),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
-                ],
+                ),
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     ).then((v) => v ?? false);
+  }
+
+  /* Email users: ask for password (keyboard-safe) */
+  Future<String?> _askForPassword() async {
+    final controller = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        final insets = MediaQuery.of(ctx).viewInsets;
+        return AnimatedPadding(
+          padding:
+              insets + const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Material(
+                color: Colors.transparent,
+                child: Dialog(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20)),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(24, 28, 24, 18),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircleAvatar(
+                          radius: 32,
+                          backgroundColor: _brandColor,
+                          child: const Icon(Icons.lock_outline,
+                              color: Colors.white, size: 38),
+                        ),
+                        const SizedBox(height: 22),
+                        const Text(
+                          'Confirm password',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 14),
+                        const Text(
+                          'Please re-enter your password to continue.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 15, height: 1.45),
+                        ),
+                        const SizedBox(height: 20),
+                        TextField(
+                          controller: controller,
+                          obscureText: true,
+                          textInputAction: TextInputAction.done,
+                          decoration: const InputDecoration(
+                            labelText: 'Password',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 30),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12)),
+                            ),
+                            onPressed: () => Navigator.of(ctx).pop(true),
+                            child: const Text(
+                              'Continue',
+                              style:
+                                  TextStyle(fontSize: 16, color: Colors.white),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    final value = (ok == true) ? controller.text.trim() : null;
+    controller.dispose();
+    return (value == null || value.isEmpty) ? null : value;
   }
 
   /* ───────────── Auth helpers ───────────── */
   Future<void> _logout() async {
+    final nav = Navigator.of(context); // capture before awaits
     await FirebaseAuth.instance.signOut();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('userRole'); // ← CHANGED
+    await prefs.remove('userRole');
     await secureStorage.deleteData('userToken');
     await secureStorage.deleteData('last_customer_profile_view');
 
     if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const SplashPage()),
-    );
+    nav.pushReplacement(MaterialPageRoute(builder: (_) => const SplashPage()));
   }
 
   Future<void> _deleteAccount() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    /* 1️⃣  final confirmation */
+    final nav = Navigator.of(context); // capture before awaits
+
+    /* 1️⃣ confirm */
     final sure = await _showConfirmDialog(
       title: 'Delete your account?',
-      message: 'This will permanently remove your account and data. ',
+      message: 'This will permanently remove your account and data.',
       confirmText: 'Delete',
       confirmColor: Colors.red,
     );
     if (!sure) return;
 
-    /* 2️⃣  obtain fresh credential depending on provider */
+    /* 2️⃣ obtain fresh credential */
+    final String provider = (user.providerData.isNotEmpty
+        ? user.providerData.first.providerId
+        : 'password');
     final AuthCredential? credential =
-        await _obtainFreshCredentialFor(user.providerData.first.providerId);
-    if (credential == null) return; // user aborted
+        await _obtainFreshCredentialFor(provider);
+    if (credential == null) return; // aborted
 
     try {
       await user.reauthenticateWithCredential(credential);
 
-      /* 3️⃣  delete in Firestore → FirebaseAuth */
+      /* 3️⃣ Firestore → Auth */
       await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .delete();
       await user.delete();
 
-      // for Google: disconnect so account picker appears again
       if (credential.providerId == 'google.com') {
         await GoogleSignIn().disconnect();
       }
 
-      /* 4️⃣  local cleanup & goodbye */
+      /* 4️⃣ local cleanup */
       await secureStorage.deleteData('userToken');
       await secureStorage.deleteData('last_customer_profile_view');
       final prefs = await SharedPreferences.getInstance();
-      await prefs.clear(); // ← clears userRole too
+      await prefs.clear();
 
       await _showInfoDialog(
         title: 'Account deleted',
-        message: 'Your account has been removed successfully. '
-            'We hope to see you again!',
+        message:
+            'Your account has been removed successfully. We hope to see you again!',
         error: false,
         buttonText: 'Close',
       );
 
       if (!mounted) return;
-      Navigator.of(context).pushAndRemoveUntil(
+      nav.pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const SplashPage()),
         (_) => false,
       );
@@ -334,16 +469,12 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
     }
   }
 
-  /* ───────────── obtain credential ───────────── */
   Future<AuthCredential?> _obtainFreshCredentialFor(String providerId) async {
     if (providerId == 'password') {
       final pass = await _askForPassword();
       if (pass == null) return null;
       final user = FirebaseAuth.instance.currentUser!;
-      return EmailAuthProvider.credential(
-        email: user.email!,
-        password: pass,
-      );
+      return EmailAuthProvider.credential(email: user.email!, password: pass);
     } else if (providerId == 'google.com') {
       final googleUser = await GoogleSignIn().signIn();
       if (googleUser == null) return null;
@@ -363,76 +494,12 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
     } else {
       await _showInfoDialog(
         title: 'Unsupported sign-in method',
-        message: 'We currently do not support deleting accounts '
-            'signed in with this method.',
+        message:
+            'We currently do not support deleting accounts signed in with this method.',
         error: true,
       );
       return null;
     }
-  }
-
-  /* Email users: ask for password in the same brand style */
-  Future<String?> _askForPassword() async {
-    final controller = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 28, 24, 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircleAvatar(
-                radius: 32,
-                backgroundColor: _brandColor,
-                child: const Icon(Icons.lock_outline,
-                    color: Colors.white, size: 38),
-              ),
-              const SizedBox(height: 22),
-              const Text('Confirm password',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 14),
-              const Text(
-                'Please re-enter your password to continue.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 15, height: 1.45),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: controller,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'Password',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 30),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  onPressed: () => Navigator.of(ctx).pop(true),
-                  child: const Text('Continue',
-                      style: TextStyle(fontSize: 16, color: Colors.white)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    final value = (ok == true) ? controller.text.trim() : null;
-    controller.dispose();
-    return (value == null || value.isEmpty) ? null : value;
   }
 
   /* ───────────── Bottom nav ───────────── */
@@ -442,187 +509,245 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
   /* ───────────── UI ───────────── */
   @override
   Widget build(BuildContext context) {
-    const double kHeaderNameSize = 22;
-    const double kHeaderEmailSize = 17;
-    const double kMenuFontSize = 20;
-    const double kTileGap = 10;
-    const EdgeInsets kTilePadding =
-        EdgeInsets.symmetric(horizontal: 4, vertical: 6);
-
     final avatar = (_profileImageUrl != null && _profileImageUrl!.isNotEmpty)
         ? NetworkImage(_profileImageUrl!)
         : const AssetImage('assets/default_profile.png') as ImageProvider;
 
-    final List<Widget> menuItems = [
-      /* header */
-      Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        color: const Color.fromRGBO(255, 167, 38, 0.25),
-        child: Row(
-          children: [
-            const SizedBox(width: 16),
-            CircleAvatar(radius: 40, backgroundImage: avatar),
-            const SizedBox(width: 16),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(_displayName,
-                    style: const TextStyle(
-                        fontSize: kHeaderNameSize,
-                        fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                Text(_email,
-                    style: const TextStyle(fontSize: kHeaderEmailSize)),
-              ],
-            ),
-          ],
-        ),
-      ),
-      /* edit profile */
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: _editProfileButton(),
-      ),
-      /* menu options */
-      _menuTile(
-        Icons.help,
-        'FAQ / Help',
-        () => Navigator.push(
-            context, MaterialPageRoute(builder: (_) => const FAQPage())),
-        fontSize: kMenuFontSize,
-        padding: kTilePadding,
-      ),
-      _menuTile(
-        Icons.support_agent,
-        'Contact Us / Support',
-        () => Navigator.push(
-            context, MaterialPageRoute(builder: (_) => const ContactUsPage())),
-        fontSize: kMenuFontSize,
-        padding: kTilePadding,
-      ),
-      _menuTile(
-        Icons.description,
-        'Terms & Conditions',
-        () => Navigator.push(context,
-            MaterialPageRoute(builder: (_) => const TermsConditionsPage())),
-        subtitle: 'View Terms & Conditions',
-        fontSize: kMenuFontSize,
-        padding: kTilePadding,
-      ),
-      _menuTile(
-        Icons.lock,
-        'Privacy Policy',
-        () => Navigator.push(context,
-            MaterialPageRoute(builder: (_) => const PrivacyPolicyPage())),
-        fontSize: kMenuFontSize,
-        padding: kTilePadding,
-      ),
-      _menuTile(
-        Icons.library_books,
-        'Legal Documents',
-        () => Navigator.push(context,
-            MaterialPageRoute(builder: (_) => const LegalDocumentsPage())),
-        fontSize: kMenuFontSize,
-        padding: kTilePadding,
-      ),
-      ListTile(
-        contentPadding: kTilePadding,
-        leading: const Icon(Icons.delete_forever, color: Colors.red, size: 26),
-        horizontalTitleGap: 16,
-        title: Text('Delete Account',
-            style: TextStyle(
-                color: Colors.red,
-                fontSize: kMenuFontSize,
-                fontWeight: FontWeight.w500)),
-        onTap: _deleteAccount,
-      ),
-      ListTile(
-        contentPadding: kTilePadding,
-        leading: const Icon(Icons.logout, size: 26),
-        horizontalTitleGap: 16,
-        title: Text('Log Out',
-            style: TextStyle(
-                fontSize: kMenuFontSize, fontWeight: FontWeight.w500)),
-        onTap: _logout,
-      ),
-    ];
-
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const MarketplacePage()),
-          ),
+          onPressed: () {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const MarketplacePage()),
+            );
+          },
         ),
         title: const Text('My Profile', style: TextStyle(color: Colors.white)),
         backgroundColor: _brandColor,
       ),
       backgroundColor: Colors.white,
-      body: ListView.separated(
-        padding: const EdgeInsets.symmetric(vertical: 20),
-        itemCount: menuItems.length,
-        itemBuilder: (_, i) => menuItems[i],
-        separatorBuilder: (_, __) => const SizedBox(height: kTileGap),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        children: [
+          // Header card with gradient + avatar
+          Container(
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFFFFE0B2), _brandColor],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
+            child: Row(
+              children: [
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(
+                      width: 84,
+                      height: 84,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withValues(alpha: 0.35),
+                      ),
+                    ),
+                    CircleAvatar(radius: 36, backgroundImage: avatar),
+                  ],
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(_displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 22, fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 4),
+                      Text(_email,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontSize: 16, color: Colors.black87)),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        height: 44,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            if (userRole == 'customer') {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      const EditProfilePageCustomers(),
+                                ),
+                              ).then((_) => _loadUserData());
+                            } else {
+                              _showInfoDialog(
+                                title: 'Access denied',
+                                message:
+                                    'Only customers can edit their profile.',
+                                error: true,
+                              );
+                            }
+                          },
+                          icon: const Icon(Icons.edit, color: Colors.white),
+                          label: const Text(
+                            'Edit Profile',
+                            style: TextStyle(
+                                fontSize: 16,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.black,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 18),
+
+          // Quick actions / Menu cards
+          _SectionCard(
+            title: 'Support',
+            children: [
+              _menuTile(
+                Icons.help_outline,
+                'FAQ / Help',
+                () => Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const FAQPage())),
+              ),
+              _menuTile(
+                Icons.support_agent,
+                'Contact Us / Support',
+                () => Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const ContactUsPage())),
+              ),
+            ],
+          ),
+
+          _SectionCard(
+            title: 'Legal',
+            children: [
+              _menuTile(
+                Icons.description_outlined,
+                'Terms & Conditions',
+                () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const TermsConditionsPage())),
+                subtitle: 'View Terms & Conditions',
+              ),
+              _menuTile(
+                Icons.lock_outline,
+                'Privacy Policy',
+                () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const PrivacyPolicyPage())),
+              ),
+              _menuTile(
+                Icons.library_books_outlined,
+                'Legal Documents',
+                () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const LegalDocumentsPage())),
+              ),
+            ],
+          ),
+
+          _SectionCard(
+            title: 'Account',
+            children: [
+              ListTile(
+                leading: const Icon(Icons.delete_forever, color: Colors.red),
+                title: const Text(
+                  'Delete Account',
+                  style:
+                      TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
+                ),
+                onTap: _deleteAccount,
+                trailing: const Icon(Icons.chevron_right),
+              ),
+              ListTile(
+                leading: const Icon(Icons.logout),
+                title: const Text('Log Out',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+                onTap: _logout,
+                trailing: const Icon(Icons.chevron_right),
+              ),
+            ],
+          ),
+        ],
       ),
       bottomNavigationBar: _buildBottomNavigation(),
     );
   }
 
   /* ───────────── widgets ───────────── */
-  Widget _editProfileButton() {
-    return ElevatedButton.icon(
-      onPressed: () {
-        if (userRole == 'customer') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const EditProfilePageCustomers()),
-          ).then((_) => _loadUserData());
-        } else {
-          _showInfoDialog(
-            title: 'Access denied',
-            message: 'Only customers can edit their profile.',
-            error: true,
-          );
-        }
-      },
-      icon: const Icon(Icons.edit, color: Colors.white, size: 20),
-      label: const Text('Edit Profile',
-          style: TextStyle(
-              fontSize: 18, color: Colors.white, fontWeight: FontWeight.w600)),
-      style: ElevatedButton.styleFrom(
-        minimumSize: const Size(double.infinity, 55),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-      ),
+
+  Widget _menuTile(IconData icon, String title, VoidCallback onTap,
+      {String? subtitle}) {
+    return ListTile(
+      leading: Icon(icon),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: (subtitle != null)
+          ? Text(subtitle, style: const TextStyle(color: Colors.black54))
+          : null,
+      trailing: const Icon(Icons.chevron_right),
+      onTap: onTap,
     );
   }
+}
 
-  Widget _menuTile(
-    IconData icon,
-    String title,
-    VoidCallback onTap, {
-    String? subtitle,
-    required double fontSize,
-    required EdgeInsets padding,
-  }) {
-    return ListTile(
-      contentPadding: padding,
-      horizontalTitleGap: 16,
-      leading: Icon(icon, size: 26),
-      title: Text(title,
-          style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w500)),
-      subtitle: subtitle != null
-          ? Padding(
-              padding: const EdgeInsets.only(top: 3),
-              child: Text(subtitle,
-                  style: TextStyle(
-                      fontSize: fontSize - 3, color: Colors.grey[700])),
-            )
-          : null,
-      onTap: onTap,
+/* Small section card wrapper for pretty grouping */
+class _SectionCard extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+  const _SectionCard({required this.title, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 14),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 6, 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 6, bottom: 4),
+              child: Text(
+                title,
+                style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black54),
+              ),
+            ),
+            const Divider(height: 6),
+            ...children,
+          ],
+        ),
+      ),
     );
   }
 }

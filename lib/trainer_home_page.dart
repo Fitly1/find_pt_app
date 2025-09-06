@@ -1,13 +1,15 @@
+// lib/trainer_home_page.dart
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'bottom_navigation.dart';
+import 'bottom_navigation_customers.dart';
 import 'trainer_reviews_section.dart';
 import 'chat_page.dart';
-import 'bottom_navigation_customers.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'services/block_service.dart'; // <-- NEW
+import 'services/block_service.dart';
 import 'signup_page.dart';
 import 'login_page.dart';
 
@@ -32,6 +34,13 @@ final Map<String, Color> categoryColors = {
 
 const kBrandOrange = Color(0xFFFFA726);
 
+/// Top-level helper class for rating (kept outside any widget class)
+class _RatingInfo {
+  final double? avg; // null => no ratings yet
+  final int count;
+  const _RatingInfo(this.avg, this.count);
+}
+
 class TrainerHomePage extends StatefulWidget {
   final bool showProfileCompleteMessage;
   final Map<String, dynamic>? trainerData;
@@ -49,62 +58,110 @@ class TrainerHomePage extends StatefulWidget {
 }
 
 class TrainerHomePageState extends State<TrainerHomePage> {
-  Map<String, dynamic> trainerProfile = {};
-  String? currentUserRole; // "trainer" or "customer"
-  List<String> _blocked = []; // <-- NEW
-  late String viewerRole;
+  Map<String, dynamic> _trainerProfile = {};
+  String? _currentUserRole; // "trainer" or "customer"
+  List<String> _blocked = [];
+
+  // ---------------- Rating helpers ----------------
+  double? _toDouble(dynamic v) {
+    if (v == null) return null;
+    if (v is num) return v.toDouble();
+    if (v is String) return double.tryParse(v);
+    return null;
+  }
+
+  int _toInt(dynamic v) {
+    if (v == null) return 0;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v) ?? 0;
+    return 0;
+  }
+
+  Future<_RatingInfo> _fetchRatingFromReviews(String trainerUid) async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('trainer_profiles')
+          .doc(trainerUid)
+          .collection('reviews')
+          .get();
+
+      final count = snap.docs.length;
+      if (count == 0) return const _RatingInfo(null, 0);
+
+      double total = 0.0;
+      for (final d in snap.docs) {
+        total += (_toDouble(d.data()['rating']) ?? 0.0);
+      }
+      return _RatingInfo(total / count, count);
+    } catch (e, st) {
+      FirebaseCrashlytics.instance
+          .recordError(e, st, reason: 'trainer_home: fetch reviews failed');
+      return const _RatingInfo(null, 0);
+    }
+  }
+
+  Future<_RatingInfo> _resolveRating(Map<String, dynamic> p) async {
+    // Prefer embedded values if present
+    final embeddedAvg = _toDouble(p['avgRating'] ?? p['rating']);
+    final embeddedCount =
+        _toInt(p['ratingCount'] ?? p['reviewsCount'] ?? p['numReviews']);
+    if (embeddedAvg != null && embeddedCount > 0) {
+      return _RatingInfo(embeddedAvg, embeddedCount);
+    }
+    final uid = p['uid']?.toString();
+    if (uid == null || uid.isEmpty) return const _RatingInfo(null, 0);
+    return _fetchRatingFromReviews(uid);
+  }
 
   // ---------------------------------------------------------------------------
-  // INITIALISATION
+  // INIT
   // ---------------------------------------------------------------------------
   @override
   void initState() {
     super.initState();
 
     if (widget.showProfileCompleteMessage) {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Your profile is complete!')),
-          );
-        },
-      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Your profile is complete!')),
+        );
+      });
     }
 
     _fetchCurrentUserRole();
 
-    // fetch blocked IDs once
     BlockService.instance.blockedIds().then((ids) {
-      // <-- NEW
-      if (mounted) {
-        setState(() => _blocked = ids);
-      }
+      if (mounted) setState(() => _blocked = ids);
     });
 
-    // ───── NEW: use data passed from Marketplace straight away ─────
+    // Use passed-in data immediately if present
     if (widget.trainerData != null && widget.trainerData!.isNotEmpty) {
-      trainerProfile = Map<String, dynamic>.from(widget.trainerData!);
+      _trainerProfile = Map<String, dynamic>.from(widget.trainerData!);
     }
-    // ───────────────────────────────────────────────────────────────
 
-    // choose which trainer UID to load
-    String? uidToFetch =
-        widget.trainerData?['uid'] ?? FirebaseAuth.instance.currentUser?.uid;
+    // Decide which uid to fetch
+    String? uidToFetch = widget.trainerData?['uid']?.toString() ??
+        FirebaseAuth.instance.currentUser?.uid;
 
-    if (uidToFetch != null) {
+    if (uidToFetch != null && uidToFetch.isNotEmpty) {
       _fetchTrainerProfileFromUid(uidToFetch);
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // HELPER / FETCHERS
-  // ---------------------------------------------------------------------------
-  String formatRate(dynamic rate) {
-    if (rate == null || (rate is num && rate <= 0)) {
-      return 'Rate not set';
+  Future<void> _fetchCurrentUserRole() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      final role = (doc.data()?['role'] as String?)?.toLowerCase();
+      if (mounted) setState(() => _currentUserRole = role);
+    } catch (e) {
+      debugPrint('Error fetching user role: $e');
     }
-    final rateStr = rate.toString();
-    return rateStr.startsWith('\$') ? '$rateStr/hr' : '\$$rateStr/hr';
   }
 
   Future<void> _fetchTrainerProfileFromUid(String uid) async {
@@ -114,89 +171,57 @@ class TrainerHomePageState extends State<TrainerHomePage> {
           .doc(uid)
           .get();
       if (snapshot.exists) {
-        setState(() {
-          trainerProfile = {
-            ...snapshot.data() as Map<String, dynamic>,
-            'uid': snapshot.id,
-          };
-        });
+        final data = snapshot.data() as Map<String, dynamic>;
+        if (mounted) {
+          setState(() {
+            _trainerProfile = {...data, 'uid': snapshot.id};
+          });
+        }
       }
     } catch (e) {
       debugPrint('Error fetching trainer profile: $e');
     }
   }
 
-  Future<void> _fetchCurrentUserRole() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      return;
-    }
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
-      if (doc.exists && (doc.data()?['role'] is String)) {
-        setState(() {
-          currentUserRole = doc.data()!['role'].toString().toLowerCase();
-        });
-      }
-    } catch (e) {
-      debugPrint('Error fetching user role: $e');
-    }
-  }
-
-  Future<double> _fetchAverageRating(String trainerUid) async {
-    final snap = await FirebaseFirestore.instance
-        .collection('trainer_profiles')
-        .doc(trainerUid)
-        .collection('reviews')
-        .get();
-    if (snap.docs.isEmpty) {
-      return 0.0;
-    }
-    double total = 0;
-    for (final d in snap.docs) {
-      total += (d.data()['rating'] as num).toDouble();
-    }
-    return total / snap.docs.length;
+  // ---------------------------------------------------------------------------
+  // Utilities
+  // ---------------------------------------------------------------------------
+  String formatRate(dynamic rate) {
+    if (rate == null) return 'Rate not set';
+    final n = _toDouble(rate);
+    if (n == null || n <= 0) return 'Rate not set';
+    final s = n.toStringAsFixed(n % 1 == 0 ? 0 : 2);
+    return '\$$s/hr';
   }
 
   Future<void> _messageTrainer(String trainerUid) async {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) {
-      return;
-    }
-    final customerUid = currentUser.uid;
+    final me = FirebaseAuth.instance.currentUser;
+    if (me == null) return;
 
     final convCol = FirebaseFirestore.instance.collection('conversations');
-
     try {
-      QuerySnapshot query =
-          await convCol.where('participants', arrayContains: customerUid).get();
+      final q =
+          await convCol.where('participants', arrayContains: me.uid).get();
 
       String? conversationId;
-      for (var doc in query.docs) {
+      for (var doc in q.docs) {
         final parts =
-            (doc.data() as Map<String, dynamic>)['participants'] ?? [];
-        if (parts.contains(trainerUid) && parts.contains(customerUid)) {
+            (doc.data()['participants'] as List?)?.cast<String>() ?? [];
+        if (parts.contains(trainerUid) && parts.contains(me.uid)) {
           conversationId = doc.id;
           break;
         }
       }
 
-      // create new conversation if needed
       conversationId ??= (await convCol.add({
-        'participants': [customerUid, trainerUid],
+        'participants': [me.uid, trainerUid],
         'lastMessage': '',
         'timestamp': FieldValue.serverTimestamp(),
         'unreadBy': [trainerUid],
       }))
           .id;
 
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -211,38 +236,30 @@ class TrainerHomePageState extends State<TrainerHomePage> {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // SUBMIT REVIEW  (contains the NEW average-rating code)
-  // ---------------------------------------------------------------------------
+  // Submit review
   Future<void> _submitReview({
     required int rating,
     required String comment,
   }) async {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null || !currentUser.emailVerified) {
-      return;
-    }
+    final me = FirebaseAuth.instance.currentUser;
+    if (me == null || !(me.emailVerified)) return;
 
-    final trainerUid = trainerProfile['uid'];
-    if (trainerUid == null) {
-      return;
-    }
+    final trainerUid = _trainerProfile['uid']?.toString();
+    if (trainerUid == null || trainerUid.isEmpty) return;
 
-    // reviewer name
     String reviewerName = 'Anonymous';
     try {
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
-          .doc(currentUser.uid)
+          .doc(me.uid)
           .get();
       final data = userDoc.data();
-      if (data != null && data.containsKey('displayName')) {
-        reviewerName = data['displayName'];
-      }
+      final dn = data?['displayName'] as String?;
+      if (dn != null && dn.trim().isNotEmpty) reviewerName = dn;
     } catch (_) {}
 
     final reviewData = {
-      'customerId': currentUser.uid,
+      'customerId': me.uid,
       'reviewerName': reviewerName,
       'rating': rating,
       'comment': comment,
@@ -251,111 +268,208 @@ class TrainerHomePageState extends State<TrainerHomePage> {
     };
 
     try {
-      // 1. add the new review
+      // add
       await FirebaseFirestore.instance
           .collection('trainer_profiles')
           .doc(trainerUid)
           .collection('reviews')
           .add(reviewData);
 
-      // 2. recompute & save the average
+      // recompute avg and store to 'rating' (legacy field)
       final reviewsSnap = await FirebaseFirestore.instance
           .collection('trainer_profiles')
           .doc(trainerUid)
           .collection('reviews')
           .get();
 
+      if (reviewsSnap.docs.isEmpty) return;
+
       double total = 0;
       for (final d in reviewsSnap.docs) {
-        total += (d.data()['rating'] as num).toDouble();
+        total += (_toDouble(d.data()['rating']) ?? 0.0);
       }
-      final avg =
-          reviewsSnap.docs.isEmpty ? 0 : total / reviewsSnap.docs.length;
+      final avg = total / reviewsSnap.docs.length;
 
       await FirebaseFirestore.instance
           .collection('trainer_profiles')
           .doc(trainerUid)
-          .update({'rating': double.parse(avg.toStringAsFixed(2))});
+          .set({'rating': double.parse(avg.toStringAsFixed(2))},
+              SetOptions(merge: true));
     } catch (e, st) {
-      FirebaseCrashlytics.instance
-          .recordError(e, st, reason: 'submit review / save average failed');
+      FirebaseCrashlytics.instance.recordError(
+        e,
+        st,
+        reason: 'submit review / save average failed',
+      );
     }
   }
 
-// ---------------------------------------------------------------------------
-// REPORT DIALOG
-// ---------------------------------------------------------------------------
-  void _showReportDialog() {
+  // Report dialog (parameterized: no reference to state fields)
+  void _showReportDialog(String trainerUid) {
     final reasonController = TextEditingController();
+
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        // <-- use ctx instead of _
-        title: const Text('Report Trainer'),
-        content: TextField(
-          controller: reasonController,
-          maxLines: 3,
-          decoration: const InputDecoration(hintText: 'Reason for reporting'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-            },
-            child: const Text('Cancel'),
+      barrierDismissible: true,
+      builder: (ctx) {
+        final insets = MediaQuery.of(ctx).viewInsets;
+        return AnimatedPadding(
+          padding:
+              insets + const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Material(
+                color: Colors.transparent,
+                child: Dialog(
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16)),
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Report Trainer',
+                          style: TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: reasonController,
+                          maxLines: 4,
+                          textInputAction: TextInputAction.done,
+                          decoration: const InputDecoration(
+                            hintText: 'Reason for reporting',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: const Text('Cancel'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: () async {
+                                  final reason = reasonController.text.trim();
+                                  Navigator.pop(ctx); // close dialog first
+                                  if (reason.isEmpty) return;
+
+                                  final user =
+                                      FirebaseAuth.instance.currentUser;
+                                  if (user == null) return;
+
+                                  await FirebaseFirestore.instance
+                                      .collection('reports')
+                                      .add({
+                                    'reportedBy': user.uid,
+                                    'reportedItemId': trainerUid,
+                                    'reportedType': 'trainer',
+                                    'reason': reason,
+                                    'timestamp': FieldValue.serverTimestamp(),
+                                  });
+
+                                  // update report count
+                                  final count = (await FirebaseFirestore
+                                          .instance
+                                          .collection('reports')
+                                          .where('reportedItemId',
+                                              isEqualTo: trainerUid)
+                                          .where('reportedType',
+                                              isEqualTo: 'trainer')
+                                          .get())
+                                      .docs
+                                      .length;
+
+                                  await FirebaseFirestore.instance
+                                      .collection('trainer_profiles')
+                                      .doc(trainerUid)
+                                      .set({
+                                    'reportCount': count,
+                                    if (count >= 3) 'flagged': true,
+                                  }, SetOptions(merge: true));
+
+                                  if (!mounted) return;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                        content: Text('Trainer reported.')),
+                                  );
+                                },
+                                child: const Text('Submit'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ),
-          ElevatedButton(
-            onPressed: () async {
-              final reason = reasonController.text.trim();
-              if (reason.isEmpty) return;
-
-              Navigator.pop(ctx);
-
-              final user = FirebaseAuth.instance.currentUser;
-              if (user == null) return;
-
-              final tid = trainerProfile['uid'];
-
-              await FirebaseFirestore.instance.collection('reports').add({
-                'reportedBy': user.uid,
-                'reportedItemId': tid,
-                'reportedType': 'trainer',
-                'reason': reason,
-                'timestamp': FieldValue.serverTimestamp(),
-              });
-
-              // update report counter
-              final count = (await FirebaseFirestore.instance
-                      .collection('reports')
-                      .where('reportedItemId', isEqualTo: tid)
-                      .where('reportedType', isEqualTo: 'trainer')
-                      .get())
-                  .docs
-                  .length;
-
-              await FirebaseFirestore.instance
-                  .collection('trainer_profiles')
-                  .doc(tid)
-                  .set({
-                'reportCount': count,
-                if (count >= 3) 'flagged': true,
-              }, SetOptions(merge: true));
-
-              if (!ctx.mounted) return; // guard dialog context
-              ScaffoldMessenger.of(ctx).showSnackBar(
-                const SnackBar(content: Text('Trainer reported.')),
-              );
-            },
-            child: const Text('Submit'),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // LOCATION PARSE
-  // ---------------------------------------------------------------------------
+  // Review notification banner (owner only)
+  Widget _buildReviewNotificationBanner(String trainerUid) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('trainer_profiles')
+          .doc(trainerUid)
+          .collection('reviews')
+          .where('notified', isEqualTo: false)
+          .orderBy('timestamp', descending: true)
+          .limit(1)
+          .snapshots(),
+      builder: (ctx, snap) {
+        if (!snap.hasData || snap.data!.docs.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        final reviewDoc = snap.data!.docs.first;
+        final reviewer =
+            (reviewDoc.data() as Map<String, dynamic>)['reviewerName'] ??
+                'A customer';
+
+        return GestureDetector(
+          onTap: () async {
+            final bannerMessenger = ScaffoldMessenger.of(ctx); // capture
+            await reviewDoc.reference.update({'notified': true});
+            if (!ctx.mounted) return;
+            bannerMessenger.showSnackBar(
+              SnackBar(content: Text('$reviewer left a review.')),
+            );
+          },
+          child: Container(
+            width: double.infinity,
+            color: Colors.greenAccent,
+            padding: const EdgeInsets.all(8),
+            child: Text(
+              'New review from $reviewer. Tap here.',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBottomNavigation(String viewerRole) {
+    if (widget.viewAsCustomer) return const SizedBox.shrink();
+    return (viewerRole == 'trainer')
+        ? const BottomNavigation(currentIndex: 3)
+        : const BottomNavigationCustomers(currentIndex: 3);
+  }
+
   Map<String, String> _parseLocation(String? loc) {
     if (loc == null || loc.isEmpty) {
       return {'suburb': '', 'state': '', 'postcode': ''};
@@ -379,140 +493,96 @@ class TrainerHomePageState extends State<TrainerHomePage> {
   }
 
   // ---------------------------------------------------------------------------
-  // BANNER FOR NEW REVIEWS
-  // ---------------------------------------------------------------------------
-  Widget _buildReviewNotificationBanner(String trainerUid) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('trainer_profiles')
-          .doc(trainerUid)
-          .collection('reviews')
-          .where('notified', isEqualTo: false)
-          .orderBy('timestamp', descending: true)
-          .limit(1)
-          .snapshots(),
-      builder: (ctx, snap) {
-        if (!snap.hasData || snap.data!.docs.isEmpty) {
-          return const SizedBox.shrink();
-        }
-        final reviewDoc = snap.data!.docs.first;
-        final reviewer =
-            (reviewDoc.data() as Map<String, dynamic>)['reviewerName'] ??
-                'A customer';
-        return GestureDetector(
-          onTap: () async {
-            await reviewDoc.reference.update({'notified': true});
-            if (!mounted) {
-              return;
-            }
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('$reviewer left a review.')),
-            );
-          },
-          child: Container(
-            width: double.infinity,
-            color: Colors.greenAccent,
-            padding: const EdgeInsets.all(8),
-            child: Text(
-              'New review from $reviewer. Tap here.',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // BOTTOM NAVIGATION PICKER
-  // ---------------------------------------------------------------------------
-  Widget _buildBottomNavigation() {
-    if (widget.viewAsCustomer) return const SizedBox.shrink();
-    return (viewerRole == 'trainer')
-        ? const BottomNavigation(currentIndex: 3)
-        : const BottomNavigationCustomers(currentIndex: 3);
-  }
-
-  // ---------------------------------------------------------------------------
   // UI
   // ---------------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
-    final currentUser = FirebaseAuth.instance.currentUser;
+    // Resolve viewer & trainer safely (no crashy null checks)
+    final viewer = FirebaseAuth.instance.currentUser;
+    final viewerUid = viewer?.uid;
 
-    if (trainerProfile.isEmpty) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
+    final String trainerUid = (widget.trainerData?['uid']?.toString() ??
+            _trainerProfile['uid']?.toString() ??
+            viewerUid) ??
+        '';
+
+    if (trainerUid.isEmpty) {
+      return Scaffold(
+        appBar:
+            AppBar(title: const Text('Trainer'), backgroundColor: kBrandOrange),
+        body: const Center(child: Text('Trainer not found. Please try again.')),
       );
     }
 
-    viewerRole = currentUserRole ?? 'customer';
+    final viewerRole = (_currentUserRole ?? 'customer');
+    final isOwner = viewerUid == trainerUid;
 
-    final trainerUid = trainerProfile['uid'] ?? currentUser?.uid;
-
-    // If this trainer is blocked, show a simple “blocked” screen
+    // Blocked?
     if (_blocked.contains(trainerUid)) {
-      // <-- NEW
       return Scaffold(
         appBar: AppBar(
           automaticallyImplyLeading: true,
           backgroundColor: kBrandOrange,
           title: const Text('Trainer blocked'),
         ),
-        body: const Center(
-          child: Text('You have blocked this trainer.'),
-        ),
+        body: const Center(child: Text('You have blocked this trainer.')),
       );
     }
 
-    final displayName =
-        trainerProfile['displayName'] ?? currentUser?.displayName ?? 'Trainer';
-    final parsedLoc = _parseLocation(trainerProfile['location']);
-    final suburb = parsedLoc['suburb']!,
-        state = parsedLoc['state']!,
-        postcode = parsedLoc['postcode']!;
+    // While profile loads, keep a pleasant skeleton
+    if (_trainerProfile.isEmpty) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final displayName = (_trainerProfile['displayName'] ??
+            '${_trainerProfile['firstName'] ?? ''} ${_trainerProfile['lastName'] ?? ''}')
+        .toString()
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ');
+    final imgUrl = (_trainerProfile['profileImageUrl'] ?? '').toString();
+    final parsedLoc = _parseLocation(_trainerProfile['location']?.toString());
+    final suburb = parsedLoc['suburb']!;
+    final state = parsedLoc['state']!;
+    final postcode = parsedLoc['postcode']!;
+    final rateText = formatRate(_trainerProfile['rate']);
 
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading:
             !(viewerRole == 'trainer' && !widget.viewAsCustomer),
         iconTheme: const IconThemeData(color: Colors.white),
-        title: Text(
-          displayName,
-          style: const TextStyle(color: Colors.white),
-        ),
+        title: Text(displayName.isEmpty ? 'Trainer' : displayName,
+            style: const TextStyle(color: Colors.white)),
         backgroundColor: kBrandOrange,
         actions: [
-          IconButton(
-            tooltip: 'Report Trainer',
-            icon: const Icon(Icons.flag_outlined, color: Colors.white),
-            onPressed: _showReportDialog,
-          ),
-          if (trainerUid != currentUser?.uid) // <-- NEW
+          if (!isOwner)
+            IconButton(
+              tooltip: 'Report Trainer',
+              icon: const Icon(Icons.flag_outlined, color: Colors.white),
+              onPressed: () => _showReportDialog(trainerUid),
+            ),
+          if (!isOwner)
             PopupMenuButton<String>(
               onSelected: (val) async {
                 if (val == 'block') {
-                  // async work
-                  await BlockService.instance.block(trainerUid);
+                  // capture BEFORE any await
+                  final messenger = ScaffoldMessenger.of(context);
+                  final navigator = Navigator.of(context);
 
-                  // First guard (State context—needed before setState)
+                  await BlockService.instance.block(trainerUid);
                   if (!mounted) return;
                   setState(() => _blocked.add(trainerUid));
 
-                  // Second guard (same BuildContext you’ll use next)
-                  if (!context.mounted) return;
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Trainer blocked')),
-                  );
-                  Navigator.of(context).pop(); // go back to previous screen
+                  messenger.showSnackBar(
+                      const SnackBar(content: Text('Trainer blocked')));
+                  navigator.pop();
                 }
               },
               itemBuilder: (_) => const [
                 PopupMenuItem<String>(
-                  value: 'block',
-                  child: Text('Block trainer'),
-                ),
+                    value: 'block', child: Text('Block trainer')),
               ],
             ),
         ],
@@ -526,296 +596,336 @@ class TrainerHomePageState extends State<TrainerHomePage> {
             if (viewerRole == 'trainer')
               _buildReviewNotificationBanner(trainerUid),
 
-            // ----------------------------------------------------------------
-            // PROFILE CARD
-            // ----------------------------------------------------------------
-            Card(
-              margin: const EdgeInsets.all(16),
-              elevation: 4,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // avatar/banner
-                  ClipRRect(
-                    borderRadius:
-                        const BorderRadius.vertical(top: Radius.circular(16)),
-                    child: (trainerProfile['profileImageUrl'] != null &&
-                            (trainerProfile['profileImageUrl'] as String)
-                                .isNotEmpty)
-                        ? CachedNetworkImage(
-                            imageUrl: trainerProfile['profileImageUrl'],
-                            height: 400,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                            errorWidget: (_, __, ___) => Image.asset(
-                              'assets/default_profile.png',
-                              height: 400,
+            // ---------------- Header Card ----------------
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Stack(
+                  children: [
+                    // Background image
+                    SizedBox(
+                      height: 260,
+                      width: double.infinity,
+                      child: imgUrl.isNotEmpty
+                          ? CachedNetworkImage(
+                              imageUrl: imgUrl,
                               fit: BoxFit.cover,
-                            ),
-                          )
-                        : Image.asset(
-                            'assets/default_profile.png',
-                            height: 400,
-                            fit: BoxFit.cover,
-                          ),
-                  ),
-                  // details
-                  Padding(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          displayName,
-                          style: const TextStyle(
-                              fontSize: 24, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 4),
-                        FutureBuilder<double>(
-                          future: _fetchAverageRating(trainerUid),
-                          builder: (_, snap) {
-                            if (snap.connectionState ==
-                                ConnectionState.waiting) {
-                              return const SizedBox(
-                                height: 24,
-                                child: Center(
-                                  child: CircularProgressIndicator(),
-                                ),
-                              );
-                            }
-                            final rating = snap.data ?? 0.0;
-                            return Row(
-                              children: [
-                                const Icon(Icons.star, color: Colors.amber),
-                                const SizedBox(width: 4),
-                                Text(
-                                  rating.toStringAsFixed(1),
-                                  style: const TextStyle(
-                                      fontSize: 23,
-                                      fontWeight: FontWeight.bold),
-                                ),
-                              ],
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 20),
-                        Text(
-                          formatRate(trainerProfile['rate']),
-                          style: const TextStyle(fontSize: 20),
-                        ),
-                        const SizedBox(height: 20),
-                        // experience
-                        if ((trainerProfile['experience'] ?? '')
-                            .toString()
-                            .trim()
-                            .isNotEmpty)
-                          RichText(
-                            text: TextSpan(
-                              style: const TextStyle(
-                                  fontSize: 20, color: Colors.black),
-                              children: [
-                                const TextSpan(
-                                  text: 'Experience: ',
-                                  style: TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                                TextSpan(
-                                  text: trainerProfile['experience'].toString(),
-                                ),
-                              ],
-                            ),
-                          )
-                        else
-                          const Text(
-                            'Experience not set',
-                            style: TextStyle(fontSize: 20),
-                          ),
-                        const SizedBox(height: 20),
-                        // bio
-                        const Text(
-                          'Bio:',
-                          style: TextStyle(
-                              fontSize: 20, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          trainerProfile['description'] ??
-                              'No description available.',
-                          style: const TextStyle(fontSize: 20),
-                        ),
-                        const SizedBox(height: 20),
-                        // location
-                        const Text(
-                          'Location:',
-                          style: TextStyle(
-                              fontSize: 20, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 4),
-                        if (suburb.isEmpty && state.isEmpty && postcode.isEmpty)
-                          const Text(
-                            'No location provided.',
-                            style: TextStyle(fontSize: 20),
-                          )
-                        else
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Suburb: $suburb',
-                                style: const TextStyle(fontSize: 20),
+                              errorWidget: (_, __, ___) => Image.asset(
+                                'assets/default_profile.png',
+                                fit: BoxFit.cover,
                               ),
-                              if (state.isNotEmpty)
-                                Text('State: $state',
-                                    style: const TextStyle(fontSize: 20)),
-                              if (postcode.isNotEmpty)
-                                Text('Postcode: $postcode',
-                                    style: const TextStyle(fontSize: 20)),
+                            )
+                          : Image.asset('assets/default_profile.png',
+                              fit: BoxFit.cover),
+                    ),
+                    // Gradient overlay (no deprecated withOpacity)
+                    Positioned.fill(
+                      child: const DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Color.fromRGBO(0, 0, 0, 0.00),
+                              Color.fromRGBO(0, 0, 0, 0.54),
                             ],
                           ),
-                        const SizedBox(height: 20),
-                        // specialties chips
-                        if (trainerProfile['specialties'] != null &&
-                            (trainerProfile['specialties'] as List).isNotEmpty)
-                          Wrap(
-                            spacing: 8,
-                            children:
-                                (trainerProfile['specialties'] as List<dynamic>)
-                                    .map((s) {
-                              final color = categoryColors[s] ?? Colors.grey;
-                              return Chip(
-                                label: Text(
-                                  s.toString(),
-                                  style: const TextStyle(
-                                      color: Colors.white, fontSize: 16),
-                                ),
-                                backgroundColor: color,
-                              );
-                            }).toList(),
-                          )
-                        else
-                          const Text(
-                            'No specialties selected',
-                            style: TextStyle(
-                                fontSize: 16, fontStyle: FontStyle.italic),
-                          ),
-                        const SizedBox(height: 16),
-                        // training methods
-                        if (trainerProfile['trainingMethods'] != null &&
-                            (trainerProfile['trainingMethods'] as List)
-                                .isNotEmpty)
-                          Wrap(
-                            spacing: 8,
-                            children:
-                                (trainerProfile['trainingMethods'] as List)
-                                    .map(
-                                      (m) => Chip(
-                                        label: Text(m.toString()),
-                                        backgroundColor: Colors.lightBlueAccent,
-                                      ),
-                                    )
-                                    .toList(),
-                          ),
-                      ],
+                        ),
+                      ),
                     ),
-                  ),
-                  // portfolio images
-                  if (trainerProfile['workImageUrls'] != null &&
-                      (trainerProfile['workImageUrls'] as List).isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    // Name + rating + rate
+                    Positioned(
+                      left: 16,
+                      right: 16,
+                      bottom: 16,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          const Text(
-                            'Trainer Portfolio',
-                            style: TextStyle(
-                                fontSize: 20, fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 8),
-                          GridView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: (trainerProfile['workImageUrls'] as List)
-                                .length,
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 3,
-                              crossAxisSpacing: 8,
-                              mainAxisSpacing: 8,
-                            ),
-                            itemBuilder: (_, i) {
-                              final url = trainerProfile['workImageUrls'][i];
-                              return GestureDetector(
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          FullScreenImage(imageUrl: url),
-                                    ),
-                                  );
-                                },
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: CachedNetworkImage(
-                                    imageUrl: url,
-                                    fit: BoxFit.cover,
-                                    errorWidget: (_, __, ___) => Image.asset(
-                                      'assets/default_profile.png',
-                                      fit: BoxFit.cover,
-                                    ),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  displayName.isEmpty ? 'Trainer' : displayName,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w800,
+                                    shadows: [
+                                      Shadow(blurRadius: 2, color: Colors.black)
+                                    ],
                                   ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                              );
-                            },
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    FutureBuilder<_RatingInfo>(
+                                      future: _resolveRating(_trainerProfile),
+                                      builder: (_, snap) {
+                                        final r = snap.data ??
+                                            const _RatingInfo(null, 0);
+                                        final has =
+                                            r.avg != null && r.count > 0;
+                                        return Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 10, vertical: 6),
+                                          decoration: BoxDecoration(
+                                            color: const Color.fromRGBO(
+                                                255, 255, 255, 0.9),
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(Icons.star_rounded,
+                                                  size: 16,
+                                                  color: Colors.amber),
+                                              const SizedBox(width: 4),
+                                              Text(
+                                                has
+                                                    ? '${r.avg!.toStringAsFixed(1)} (${r.count})'
+                                                    : 'New',
+                                                style: const TextStyle(
+                                                    fontWeight:
+                                                        FontWeight.w600),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: const Color.fromRGBO(
+                                            255, 255, 255, 0.9),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Text(
+                                        rateText,
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w600),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
-                    )
-                  else
-                    const Padding(
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      child: Text(
-                        'No work images available.',
-                        style: TextStyle(
-                            fontSize: 16, fontStyle: FontStyle.italic),
-                      ),
                     ),
-                ],
+                  ],
+                ),
               ),
             ),
 
-// ----------------------------------------------------------------
-// MESSAGE TRAINER BUTTON  (only when viewing as customer/guest)
-// ----------------------------------------------------------------
-            if (trainerProfile['uid'] != null &&
-                trainerProfile['uid'] != currentUser?.uid &&
-                viewerRole == 'customer')
+            // ---------------- Details Card ----------------
+            Card(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (suburb.isNotEmpty ||
+                        state.isNotEmpty ||
+                        postcode.isNotEmpty)
+                      Row(
+                        children: [
+                          const Icon(Icons.location_on_outlined, size: 18),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              [
+                                if (suburb.isNotEmpty) suburb,
+                                if (state.isNotEmpty) state,
+                                if (postcode.isNotEmpty) postcode,
+                              ].join(', '),
+                              style: const TextStyle(fontSize: 16),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      Row(
+                        children: const [
+                          Icon(Icons.location_off_outlined, size: 18),
+                          SizedBox(width: 6),
+                          Text('No location provided.',
+                              style: TextStyle(fontSize: 16)),
+                        ],
+                      ),
+                    const SizedBox(height: 16),
+
+                    // Specialties
+                    const Text('Specialties',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    if (_trainerProfile['specialties'] is List &&
+                        (_trainerProfile['specialties'] as List).isNotEmpty)
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: (_trainerProfile['specialties'] as List)
+                            .take(12)
+                            .map((s) {
+                          final spec = s.toString();
+                          final color = categoryColors[spec] ?? Colors.grey;
+                          return Chip(
+                            label: Text(spec,
+                                style: const TextStyle(color: Colors.white)),
+                            backgroundColor: color,
+                          );
+                        }).toList(),
+                      )
+                    else
+                      const Text('No specialties selected',
+                          style: TextStyle(fontStyle: FontStyle.italic)),
+                    const SizedBox(height: 16),
+
+                    // Training methods
+                    if (_trainerProfile['trainingMethods'] is List &&
+                        (_trainerProfile['trainingMethods'] as List)
+                            .isNotEmpty) ...[
+                      const Text('Training methods',
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: (_trainerProfile['trainingMethods'] as List)
+                            .map((m) => Chip(
+                                  label: Text(m.toString()),
+                                  backgroundColor: Colors.blue.shade50,
+                                  side: BorderSide(color: Colors.blue.shade200),
+                                ))
+                            .toList(),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // Experience
+                    const Text('Experience',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Text(
+                      (_trainerProfile['experience'] ?? 'Not set').toString(),
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Bio
+                    const Text('About',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    Text(
+                      (_trainerProfile['description'] ??
+                              'No description available.')
+                          .toString(),
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // ---------------- Portfolio ----------------
+            if (_trainerProfile['workImageUrls'] is List &&
+                (_trainerProfile['workImageUrls'] as List).isNotEmpty)
               Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Trainer portfolio',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 8),
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount:
+                          (_trainerProfile['workImageUrls'] as List).length,
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                      ),
+                      itemBuilder: (_, i) {
+                        final url =
+                            _trainerProfile['workImageUrls'][i].toString();
+                        return GestureDetector(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => FullScreenImage(imageUrl: url),
+                              ),
+                            );
+                          },
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: CachedNetworkImage(
+                              imageUrl: url,
+                              fit: BoxFit.cover,
+                              errorWidget: (_, __, ___) => Image.asset(
+                                'assets/default_profile.png',
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              )
+            else
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Text('No work images available.',
+                    style: TextStyle(fontStyle: FontStyle.italic)),
+              ),
+            const SizedBox(height: 16),
+
+            // ---------------- Message button (customer/guest only) ----------------
+            if (!isOwner && viewerRole == 'customer')
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: ElevatedButton.icon(
                   icon: const Icon(Icons.message),
-                  label: const Text('Message Trainer'),
+                  label: const Text('Message trainer'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: kBrandOrange,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(
-                        vertical: 16, horizontal: 24),
+                        vertical: 14, horizontal: 18),
                     textStyle: const TextStyle(
-                        fontSize: 20, fontWeight: FontWeight.w600),
+                        fontSize: 18, fontWeight: FontWeight.w600),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
+                        borderRadius: BorderRadius.circular(10)),
                   ),
                   onPressed: () {
-                    final user = FirebaseAuth.instance.currentUser;
-
-                    // Not signed-in → send to sign-up (customer role locked)
-                    if (user == null) {
+                    final me = FirebaseAuth.instance.currentUser;
+                    if (me == null) {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -825,16 +935,13 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                       );
                       return;
                     }
-
-                    // Signed-in customer → open / create chat
-                    _messageTrainer(trainerProfile['uid']);
+                    _messageTrainer(trainerUid);
                   },
                 ),
               ),
+            const SizedBox(height: 16),
 
-            // ----------------------------------------------------------------
-            // REVIEWS SECTION
-            // ----------------------------------------------------------------
+            // ---------------- Reviews ----------------
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: TrainerReviewsSection(
@@ -843,30 +950,26 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                     FirebaseAuth.instance.currentUser?.emailVerified ?? false,
               ),
             ),
+            const SizedBox(height: 8),
 
-            // ----------------------------------------------------------------
-            // REVIEW FORM (only when user is looking as customer)
-            // ----------------------------------------------------------------
+            // ---------------- Review Form (customer view only) ----------------
             if (widget.viewAsCustomer)
               (FirebaseAuth.instance.currentUser?.emailVerified ?? false)
                   ? Padding(
-                      padding: const EdgeInsets.all(22),
+                      padding: const EdgeInsets.all(16),
                       child: ReviewForm(
                         onSubmit: (int rating, String comment) async {
                           if (rating <= 0 || comment.trim().isEmpty) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
-                                content: Text(
-                                    'Please provide a rating and a review comment.'),
-                              ),
+                                  content: Text(
+                                      'Please provide a rating and a review comment.')),
                             );
                             return;
                           }
                           final messenger = ScaffoldMessenger.of(context);
                           await _submitReview(rating: rating, comment: comment);
-                          if (!mounted) {
-                            return;
-                          }
+                          if (!mounted) return;
                           messenger.showSnackBar(const SnackBar(
                               content: Text('Review submitted!')));
                           setState(() {});
@@ -879,7 +982,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           const Text(
-                            'Sign up or Log in to leave a review.',
+                            'Sign up or log in to leave a review.',
                             style: TextStyle(color: Colors.red, fontSize: 16),
                           ),
                           const SizedBox(height: 8),
@@ -887,9 +990,8 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                             style: ElevatedButton.styleFrom(
                                 backgroundColor: kBrandOrange),
                             onPressed: () async {
-                              final user = FirebaseAuth.instance.currentUser;
-                              if (user == null) {
-                                // guest → ask to log in
+                              final me = FirebaseAuth.instance.currentUser;
+                              if (me == null) {
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
@@ -897,33 +999,39 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                                 );
                                 return;
                               }
-                              await user.sendEmailVerification();
-
-                              // guard the SAME BuildContext that will be used
-                              if (!context.mounted) return;
-
-                              ScaffoldMessenger.of(context)
-                                  .showSnackBar(const SnackBar(
-                                content: Text(
-                                    'Verification e-mail sent. Check your inbox.'),
-                              ));
+                              // capture messenger before await
+                              final messenger = ScaffoldMessenger.of(context);
+                              try {
+                                await me.sendEmailVerification();
+                                messenger.showSnackBar(const SnackBar(
+                                  content: Text(
+                                      'Verification e-mail sent. Check your inbox.'),
+                                ));
+                              } catch (e) {
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                      content: Text(
+                                          'Could not send verification email: $e')),
+                                );
+                              }
                             },
-                            child: const Text('Sign Up / Log In'),
+                            child: const Text('Sign up / Log in'),
                           ),
                         ],
                       ),
                     ),
+            const SizedBox(height: 16),
           ],
         ),
       ),
       bottomNavigationBar:
-          widget.viewAsCustomer ? null : _buildBottomNavigation(),
+          widget.viewAsCustomer ? null : _buildBottomNavigation(viewerRole),
     );
   }
 }
 
 // -----------------------------------------------------------------------------
-// REVIEW FORM WIDGET
+// REVIEW FORM
 // -----------------------------------------------------------------------------
 class ReviewForm extends StatefulWidget {
   final Future<void> Function(int rating, String comment) onSubmit;
@@ -939,18 +1047,22 @@ class _ReviewFormState extends State<ReviewForm> {
   bool _isSubmitting = false;
 
   @override
+  void dispose() {
+    _commentCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Submit Your Review',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
+        const Text('Submit your review',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         Row(
-          children: List.generate(5, (index) {
-            final idx = index + 1;
+          children: List.generate(5, (i) {
+            final idx = i + 1;
             return IconButton(
               icon: Icon(
                 Icons.star,
@@ -958,11 +1070,7 @@ class _ReviewFormState extends State<ReviewForm> {
                     ? const Color(0xFFFFC107)
                     : Colors.grey,
               ),
-              onPressed: () {
-                setState(() {
-                  _selectedRating = idx;
-                });
-              },
+              onPressed: () => setState(() => _selectedRating = idx),
             );
           }),
         ),
@@ -983,20 +1091,15 @@ class _ReviewFormState extends State<ReviewForm> {
                       _commentCtrl.text.trim().isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text(
-                            'Please provide a rating and a review comment.'),
-                      ),
+                          content: Text(
+                              'Please provide a rating and a review comment.')),
                     );
                     return;
                   }
-                  setState(() {
-                    _isSubmitting = true;
-                  });
+                  setState(() => _isSubmitting = true);
                   await widget.onSubmit(
                       _selectedRating, _commentCtrl.text.trim());
-                  if (!mounted) {
-                    return;
-                  }
+                  if (!mounted) return;
                   setState(() {
                     _selectedRating = 5;
                     _commentCtrl.clear();
@@ -1005,16 +1108,10 @@ class _ReviewFormState extends State<ReviewForm> {
                 },
           child: _isSubmitting
               ? const CircularProgressIndicator()
-              : const Text('Submit Review'),
+              : const Text('Submit'),
         ),
       ],
     );
-  }
-
-  @override
-  void dispose() {
-    _commentCtrl.dispose();
-    super.dispose();
   }
 }
 
@@ -1029,9 +1126,8 @@ class FullScreenImage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Trainer Portfolio'),
-        backgroundColor: kBrandOrange,
-      ),
+          title: const Text('Trainer portfolio'),
+          backgroundColor: kBrandOrange),
       body: Center(
         child: InteractiveViewer(
           child: CachedNetworkImage(

@@ -30,4 +30,6 @@ linter:
 analyzer:
   exclude:
     - ios/geolocator_apple_plugin/example/**'
+    - ios/geolocator_apple_plugin/**   # exclude stray plugin copy
+    - ios/test/**    
 

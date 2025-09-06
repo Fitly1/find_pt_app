@@ -1,13 +1,15 @@
 // ignore_for_file: use_build_context_synchronously
-import 'package:flutter/material.dart';
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'dart:async';
 
 import 'marketplace_page.dart';
 import 'trainer_home_page.dart';
-import 'services/block_service.dart';                       // ← NEW
+import 'services/block_service.dart';
 
 class ChatPage extends StatefulWidget {
   /// Firestore document id you plan to use for this conversation
@@ -16,10 +18,14 @@ class ChatPage extends StatefulWidget {
   /// uid of the other participant
   final String otherUserId;
 
+  /// If true, DO NOT read/create the conversation until the first send.
+  final bool lazyCreate;
+
   const ChatPage({
     super.key,
     required this.conversationId,
     required this.otherUserId,
+    this.lazyCreate = false,
   });
 
   @override
@@ -38,30 +44,60 @@ class _ChatPageState extends State<ChatPage> {
   bool _isOtherTrainer = false;
   bool _hasListing = false;
 
-  // ───────────────────────────────── block state  ──────────────── NEW
+  // ───────────────────────────────── block state
   bool _iBlockedThem = false;
   bool _theyBlockedMe = false;
 
-  // ---------------------------------------------------------------------------
-  // LIFE-CYCLE
-  // ---------------------------------------------------------------------------
+  // When true we attach the messages StreamBuilder.
+  // In lazy mode this becomes true after the first successful send
+  // OR when the conversation appears (from console reply, etc).
+  bool _conversationLive = false; // ← default fixes LateInitializationError
+
+  // live update for block status & conversation existence
+  StreamSubscription<DocumentSnapshot>? _blockSub;
+  StreamSubscription<DocumentSnapshot>? _convWatchSub;
+
   @override
   void initState() {
     super.initState();
     _otherUserId = widget.otherUserId;
+    _conversationLive = !widget.lazyCreate;
 
-    _loadConversationData();
-    _markConversationAsRead();
-    _checkBlockStatus();                                         // NEW
+    _loadParticipantData(); // safe even in lazy mode
+
+    if (!widget.lazyCreate) {
+      _markConversationAsRead(); // only if we expect the convo to exist
+      _loadConversationExtras(); // listing flag, etc.
+    } else {
+      // In lazy mode: watch for the conversation being created elsewhere
+      final convRef = FirebaseFirestore.instance
+          .collection('conversations')
+          .doc(widget.conversationId);
+
+      _convWatchSub = convRef.snapshots().listen((snap) {
+        if (!mounted) return;
+        if (snap.exists && !_conversationLive) {
+          _conversationLive = true;
+
+          // best effort: pick up listing flag if present
+          final data = snap.data() ?? const <String, dynamic>{};
+          _hasListing = (data['listingId'] is String) &&
+              (data['listingId'] as String).isNotEmpty;
+
+          setState(() {});
+          _markConversationAsRead();
+          _scrollToBottom();
+        }
+      });
+    }
+
+    _checkBlockStatus();
   }
 
-  // optional live update (comment out if unwanted)  -------------- NEW
-  StreamSubscription<DocumentSnapshot>? _blockSub;                // NEW
-
-  Future<void> _checkBlockStatus() async {                        // NEW
+  Future<void> _checkBlockStatus() async {
     _iBlockedThem = await BlockService.instance.iBlocked(_otherUserId);
     _theyBlockedMe = await BlockService.instance.blockedMe(_otherUserId);
-    // live update: watch if they block/unblock us later
+
     _blockSub = FirebaseFirestore.instance
         .collection('users')
         .doc(_otherUserId)
@@ -72,19 +108,24 @@ class _ChatPageState extends State<ChatPage> {
       _theyBlockedMe = doc.exists;
       if (mounted) setState(() {});
     });
+
     if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
-    _maybeDeleteEmptyConversation();
+    // Don’t try to delete “empty conversation” in lazy mode—there may be none.
+    if (_conversationLive) {
+      _maybeDeleteEmptyConversation();
+    }
     _messageController.dispose();
     _scrollController.dispose();
-    _blockSub?.cancel();                                         // NEW
+    _blockSub?.cancel();
+    _convWatchSub?.cancel();
     super.dispose();
   }
 
-  // ───────────────────────────────── firestore helpers
+  // ───────────────────────────────── helpers
   Future<void> _markConversationAsRead() async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) return;
@@ -97,7 +138,7 @@ class _ChatPageState extends State<ChatPage> {
         'unreadBy': FieldValue.arrayRemove([currentUser.uid])
       });
     } catch (_) {
-      // conversation doesn’t exist yet
+      // ignore if it doesn't exist yet
     }
   }
 
@@ -106,37 +147,32 @@ class _ChatPageState extends State<ChatPage> {
         .collection('conversations')
         .doc(widget.conversationId);
 
-    final doc = await ref.get();
-    if (!doc.exists) return;
+    try {
+      final doc = await ref.get();
+      if (!doc.exists) return;
 
-    final msgs = await ref.collection('messages').limit(1).get();
-    if (msgs.docs.isEmpty) {
-      await ref.delete();
+      final msgs = await ref.collection('messages').limit(1).get();
+      if (msgs.docs.isEmpty) {
+        await ref.delete();
+      }
+    } catch (_) {
+      // ignore permission / existence issues
     }
   }
 
-  Future<void> _loadConversationData() async {
+  // Only reads profile docs (safe in lazy mode).
+  Future<void> _loadParticipantData() async {
     try {
-      // conversation for listing flag
-      final convSnap = await FirebaseFirestore.instance
-          .collection('conversations')
-          .doc(widget.conversationId)
-          .get();
-      if (convSnap.exists) {
-        final data = convSnap.data() as Map<String, dynamic>;
-        _hasListing =
-            data['listingId'] != null && (data['listingId'] as String).isNotEmpty;
-      }
-
-      // other user profile
       var userDoc = await FirebaseFirestore.instance
           .collection('trainer_profiles')
           .doc(_otherUserId)
           .get();
       _isOtherTrainer = userDoc.exists;
       if (!userDoc.exists) {
-        userDoc =
-            await FirebaseFirestore.instance.collection('users').doc(_otherUserId).get();
+        userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(_otherUserId)
+            .get();
       }
 
       if (!userDoc.exists) {
@@ -150,70 +186,114 @@ class _ChatPageState extends State<ChatPage> {
       final userData = userDoc.data() as Map<String, dynamic>;
       setState(() {
         _otherDisplayName = userData['displayName'] ??
-            ('${userData['firstName'] ?? ''} ${userData['lastName'] ?? ''}').trim();
+            ('${userData['firstName'] ?? ''} ${userData['lastName'] ?? ''}')
+                .trim();
         _otherImageUrl = userData['profileImageUrl'] ?? '';
       });
     } catch (e) {
-      debugPrint('Error loading conversation data: $e');
+      debugPrint('Error loading user data: $e');
+    }
+  }
+
+  // Only attempt conversation-specific extra reads when not lazy
+  Future<void> _loadConversationExtras() async {
+    try {
+      final convSnap = await FirebaseFirestore.instance
+          .collection('conversations')
+          .doc(widget.conversationId)
+          .get();
+      if (convSnap.exists) {
+        final data = convSnap.data() as Map<String, dynamic>;
+        _hasListing = data['listingId'] != null &&
+            (data['listingId'] as String).isNotEmpty;
+      }
+    } catch (_) {
+      // ignore
     }
   }
 
   // ───────────────────────────────── send message
   Future<void> _sendMessage() async {
-    // guard if blocked  ------------------------------------------- NEW
     if (_iBlockedThem) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('You blocked this user')));
       return;
     }
     if (_theyBlockedMe) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('This user has blocked you')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('This user has blocked you')));
       return;
     }
 
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
 
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) return;
+    final me = FirebaseAuth.instance.currentUser;
+    if (me == null) return;
+
+    final myUid = me.uid;
+    final otherUid = _otherUserId;
 
     final now = FieldValue.serverTimestamp();
-    final convRef =
-        FirebaseFirestore.instance.collection('conversations').doc(widget.conversationId);
+    final convRef = FirebaseFirestore.instance
+        .collection('conversations')
+        .doc(widget.conversationId);
     final msgsRef = convRef.collection('messages');
 
-    // 1. add message
-    await msgsRef.add({
-      'senderId': currentUser.uid,
-      'recipientId': _otherUserId,
-      'message': text,
-      'timestamp': now,
-    });
-
-    // 2. create / update conversation
-    await FirebaseFirestore.instance.runTransaction((tx) async {
-      final snap = await tx.get(convRef);
-
-      if (!snap.exists) {
-        tx.set(convRef, {
-          'participants': [currentUser.uid, _otherUserId],
+    // 1) Try to UPDATE existing convo (do NOT include `participants`)
+    try {
+      await convRef.update({
+        'lastMessage': text,
+        'timestamp': now,
+        if (otherUid != myUid) 'unreadBy': FieldValue.arrayUnion([otherUid]),
+      });
+    } on FirebaseException catch (e) {
+      if (e.code == 'not-found') {
+        // 2) CREATE if missing (include `participants` once)
+        final parts = (myUid.compareTo(otherUid) < 0)
+            ? [myUid, otherUid]
+            : [otherUid, myUid];
+        await convRef.set({
+          'participants': parts,
           'lastMessage': text,
           'timestamp': now,
-          'unreadBy': _otherUserId != currentUser.uid ? [_otherUserId] : [],
+          'unreadBy': otherUid != myUid ? [otherUid] : [],
         });
       } else {
-        tx.update(convRef, {
-          'lastMessage': text,
-          'timestamp': now,
-          if (_otherUserId != currentUser.uid)
-            'unreadBy': FieldValue.arrayUnion([_otherUserId])
-        });
+        // Surface real permission errors
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Couldn't start chat: ${e.message}")),
+        );
+        return;
       }
-    });
+    }
 
-    _messageController.clear();
-    _scrollToBottom();
+    // 3) Write the message
+    try {
+      final senderToken = await FirebaseMessaging.instance.getToken();
+      await msgsRef.add({
+        'senderId': myUid,
+        'recipientId': otherUid,
+        'message': text,
+        'timestamp': now,
+        'senderDeviceToken': senderToken,
+        'senderName': me.displayName ?? '',
+      });
+
+      _messageController.clear();
+
+      // If we opened in lazy mode, start listening after first send
+      if (widget.lazyCreate && !_conversationLive) {
+        setState(() => _conversationLive = true);
+        _markConversationAsRead(); // we’re now in the thread
+      }
+
+      _scrollToBottom();
+    } on FirebaseException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Send failed: ${e.message}')),
+      );
+    }
   }
 
   void _scrollToBottom() {
@@ -241,7 +321,9 @@ class _ChatPageState extends State<ChatPage> {
           decoration: const InputDecoration(hintText: 'Why are you reporting?'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
               final reason = reasonCtrl.text.trim();
@@ -257,7 +339,6 @@ class _ChatPageState extends State<ChatPage> {
                 'timestamp': FieldValue.serverTimestamp(),
               });
 
-              // update report count
               final countSnap = await FirebaseFirestore.instance
                   .collection('reports')
                   .where('reportedItemId', isEqualTo: _otherUserId)
@@ -266,7 +347,10 @@ class _ChatPageState extends State<ChatPage> {
                   .get();
 
               final targetCol = _isOtherTrainer ? 'trainer_profiles' : 'users';
-              await FirebaseFirestore.instance.collection(targetCol).doc(_otherUserId).set({
+              await FirebaseFirestore.instance
+                  .collection(targetCol)
+                  .doc(_otherUserId)
+                  .set({
                 'reportCount': countSnap.docs.length,
                 if (countSnap.docs.length >= 3) 'flagged': true,
               }, SetOptions(merge: true));
@@ -282,7 +366,7 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  // ───────────────────────────────── build-time helpers  NEW (extracted AppBar)
+  // ───────────────────────────────── AppBar
   PreferredSizeWidget _buildAppBar() {
     return PreferredSize(
       preferredSize: const Size.fromHeight(kToolbarHeight + 8),
@@ -295,7 +379,8 @@ class _ChatPageState extends State<ChatPage> {
         ),
         flexibleSpace: Container(
           decoration: const BoxDecoration(
-            gradient: LinearGradient(colors: [Color(0xFFFFA726), Color(0xFFFFA726)]),
+            gradient:
+                LinearGradient(colors: [Color(0xFFFFA726), Color(0xFFFFA726)]),
           ),
         ),
         titleSpacing: 0,
@@ -305,14 +390,17 @@ class _ChatPageState extends State<ChatPage> {
               radius: 24,
               backgroundImage: _otherImageUrl.isNotEmpty
                   ? NetworkImage(_otherImageUrl)
-                  : const AssetImage('assets/default_profile.png') as ImageProvider,
+                  : const AssetImage('assets/default_profile.png')
+                      as ImageProvider,
             ),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
                 _otherDisplayName,
                 style: const TextStyle(
-                    color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -329,14 +417,14 @@ class _ChatPageState extends State<ChatPage> {
             tooltip: 'View profile',
             onPressed: _navigateToOtherProfile,
           ),
-          PopupMenuButton<String>(                                   // NEW
+          PopupMenuButton<String>(
             onSelected: (val) async {
               if (val == 'block') {
                 await BlockService.instance.block(_otherUserId);
                 _iBlockedThem = true;
                 if (mounted) setState(() {});
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(const SnackBar(content: Text('User blocked')));
+                ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('User blocked')));
               }
             },
             itemBuilder: (_) => const [
@@ -351,7 +439,7 @@ class _ChatPageState extends State<ChatPage> {
   // ───────────────────────────────── UI
   @override
   Widget build(BuildContext context) {
-    // ---------- blocked states override UI ---------------------- NEW
+    // blocked overrides
     if (_iBlockedThem) {
       return Scaffold(
         appBar: _buildAppBar(),
@@ -361,7 +449,29 @@ class _ChatPageState extends State<ChatPage> {
     if (_theyBlockedMe) {
       return Scaffold(
         appBar: _buildAppBar(),
-        body: const Center(child: Text('Chat unavailable: you have been blocked.')),
+        body: const Center(
+            child: Text('Chat unavailable: you have been blocked.')),
+      );
+    }
+
+    // Lazy mode: don’t attach a Firestore listener until the first send
+    // or until our watcher sees the conversation exists.
+    if (!_conversationLive) {
+      return Scaffold(
+        appBar: _buildAppBar(),
+        body: Column(
+          children: [
+            const Expanded(
+              child: Center(
+                child: Text(
+                  'Say hi 👋 — your conversation will start after you send.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+            SafeArea(top: false, child: _buildInputBar()),
+          ],
+        ),
       );
     }
 
@@ -373,14 +483,9 @@ class _ChatPageState extends State<ChatPage> {
 
     return Scaffold(
       resizeToAvoidBottomInset: true,
-
-      // header
       appBar: _buildAppBar(),
-
-      // body
       body: Column(
         children: [
-          // message list
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: msgsQuery.snapshots(),
@@ -396,7 +501,8 @@ class _ChatPageState extends State<ChatPage> {
                   return const Center(child: Text('No messages yet.'));
                 }
 
-                WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+                WidgetsBinding.instance
+                    .addPostFrameCallback((_) => _scrollToBottom());
 
                 return ListView.builder(
                   controller: _scrollController,
@@ -408,21 +514,18 @@ class _ChatPageState extends State<ChatPage> {
                     final isMe =
                         senderId == FirebaseAuth.instance.currentUser?.uid;
                     final ts = data['timestamp'] as Timestamp?;
-                    final timeStr =
-                        ts == null ? '' : DateFormat('h:mm a').format(ts.toDate());
+                    final timeStr = ts == null
+                        ? ''
+                        : DateFormat('h:mm a').format(ts.toDate());
 
-                    return _buildBubble(message: text, isMe: isMe, time: timeStr);
+                    return _buildBubble(
+                        message: text, isMe: isMe, time: timeStr);
                   },
                 );
               },
             ),
           ),
-
-          // input bar – only SafeArea, no extra padding!
-          SafeArea(
-            top: false, // keep away from the bottom gesture bar
-            child: _buildInputBar(),
-          ),
+          SafeArea(top: false, child: _buildInputBar()),
         ],
       ),
     );
@@ -447,8 +550,8 @@ class _ChatPageState extends State<ChatPage> {
         children: [
           Container(
             padding: const EdgeInsets.all(12),
-            constraints:
-                BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.7),
+            constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.7),
             decoration: BoxDecoration(
               color: isMe ? Colors.blueAccent : Colors.grey[200],
               borderRadius: radius,

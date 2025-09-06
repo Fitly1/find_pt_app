@@ -333,13 +333,16 @@ exports.createSubscriptionCheckoutSession = onCall(async (req) => {
 /* ──────────────────────────────────────────────────────────────
    4) CALLABLE: createBillingPortalSession (original)
 ───────────────────────────────────────────────────────────────*/
-exports.createBillingPortalSession = onCall(async (data, context) => {
-  if (!context.auth)
+/* 4) CALLABLE: createBillingPortalSession (v2 signature) */
+exports.createBillingPortalSession = onCall(async (req) => {
+  if (!req.auth) {
     throw new HttpsError("unauthenticated", "User must be authenticated.");
+  }
 
-  const customerId = data.customerId;
-  if (!customerId)
+  const customerId = req.data?.customerId;
+  if (!customerId) {
     throw new HttpsError("invalid-argument", "Customer ID is required.");
+  }
 
   try {
     const session = await stripe.billingPortal.sessions.create({
@@ -352,6 +355,7 @@ exports.createBillingPortalSession = onCall(async (data, context) => {
     throw new HttpsError("internal", error.message);
   }
 });
+
 
 /* ──────────────────────────────────────────────────────────────
    5) STRIPE WEBHOOK HTTP FUNCTION  (idempotent + fall-backs)
@@ -808,7 +812,7 @@ exports.updateTrainerAvgRating = onDocumentWritten(
 );
 
 /* ──────────────────────────────────────────────────────────────
-   FIRESTORE TRIGGER → SEND PUSH NOTIFICATION (NEW BLOCK)
+   FIRESTORE TRIGGER → SEND PUSH NOTIFICATION (existing)
 ───────────────────────────────────────────────────────────────*/
 exports.pushOnNewNotification = onDocumentCreated(
   "users/{userId}/notifications/{notifId}",
@@ -840,7 +844,7 @@ exports.pushOnNewNotification = onDocumentCreated(
       },
     };
 
-    // 3) Send to every token
+    // 3) Send to every token (legacy API for broad compatibility)
     const tokens = tokensSnap.docs.map((d) => d.id);
     const resp = await admin.messaging().sendToDevice(tokens, payload);
 
@@ -871,71 +875,71 @@ exports.pushOnNewNotification = onDocumentCreated(
 );
 
 /* ──────────────────────────────────────────────────────────────
-   CHAT  →  PUSH NOTIFICATION   (v1 API version)
+   CHAT  →  PUSH NOTIFICATION   (UPDATED)
+   - Skips sender’s current device (senderDeviceToken)
+   - Mirrors Concierge conversations to /concierge_inbox
 ───────────────────────────────────────────────────────────────*/
+
 exports.notifyOnNewMessage = onDocumentCreated(
   "conversations/{cid}/messages/{mid}",
   async (event) => {
+    const cid = event.params.cid;
+    const mid = event.params.mid;
     const msg = event.data.data();
     if (!msg) return null;
 
-    const toUid = msg.recipientId;
+    const toUid   = msg.recipientId;
     const fromUid = msg.senderId;
     if (!toUid || !fromUid || toUid === fromUid) return null;
 
-    /* 1) fetch recipient tokens */
+    const senderDeviceToken = msg.senderDeviceToken || null;
+
+    // 1) fetch recipient tokens
     const tokensSnap = await admin
       .firestore()
       .collection("users")
       .doc(toUid)
       .collection("tokens")
       .get();
-    if (tokensSnap.empty) {
-      console.log(`notifyOnNewMessage: no tokens for user ${toUid}`);
-      return null;
+
+    let tokens = tokensSnap.empty ? [] : tokensSnap.docs.map((d) => d.id).filter(Boolean);
+
+    // Exclude the sender's current device token if present
+    if (senderDeviceToken) {
+      tokens = tokens.filter((t) => t !== senderDeviceToken);
     }
-    const tokens = tokensSnap.docs.map((d) => d.id);
 
-    /* 2) compose notification */
-    const title =
-      msg.senderName ||
-      (await admin
-        .auth()
-        .getUser(fromUid)
-        .then((u) => u.displayName || "New message")
-        .catch(() => "New message"));
+    if (tokens.length) {
+      // 2) compose notification
+      const title =
+        msg.senderName && msg.senderName.trim().length
+          ? msg.senderName
+          : "New message";
 
-    const body =
-      typeof msg.message === "string" && msg.message.length > 40
-        ? msg.message.substring(0, 37) + "…"
-        : msg.message || "";
+      const text = typeof msg.message === "string" ? msg.message : "";
+      const body = text.length > 120 ? text.slice(0, 120) + "…" : text || "New message";
 
-    const notif = { title, body };
-    const data  = {
-      route: "/chat",                         // adjust if needed
-      conversationId: event.params.cid,
-    };
+      const payload = {
+        notification: { title, body },
+        data: {
+          route: "/messages",
+          conversationId: cid,
+          senderUid: fromUid,
+          recipientUid: toUid,
+        },
+      };
 
-    /* 3) send through FCM v1 (sendEach) */
-    const resp = await admin.messaging().sendEach(
-      tokens.map((t) => ({
-        token: t,
-        notification: notif,
-        data: data,
-      }))
-    );
-    console.log(
-      `💬 sent to ${tokens.length} device(s) – convo ${event.params.cid}`
-    );
+      // 3) send (legacy API for compatibility)
+      const resp = await admin.messaging().sendToDevice(tokens, payload);
 
-    /* 4) remove invalid tokens */
-    const batch = admin.firestore().batch();
-    resp.responses.forEach((r, idx) => {
-      if (!r.success) {
-        const code = r.error.code;
+      // 4) clean invalid tokens
+      const batch = admin.firestore().batch();
+      resp.results.forEach((r, idx) => {
+        const err = r.error;
         if (
-          code === "messaging/invalid-registration-token" ||
-          code === "messaging/registration-token-not-registered"
+          err &&
+          (err.code === "messaging/invalid-registration-token" ||
+            err.code === "messaging/registration-token-not-registered")
         ) {
           batch.delete(
             admin
@@ -946,9 +950,127 @@ exports.notifyOnNewMessage = onDocumentCreated(
               .doc(tokens[idx])
           );
         }
+      });
+      await batch.commit();
+
+      console.log(
+        `✉️ notifyOnNewMessage: ${cid}/${mid} → ${tokens.length} token(s)`
+      );
+    } else {
+      console.log(`notifyOnNewMessage: no tokens for ${toUid}`);
+    }
+
+// 5) Mirror concierge-related messages for ops review
+if (fromUid === CONCIERGE_UID || toUid === CONCIERGE_UID) {
+  try {
+    const mirrorRef = admin
+      .firestore()
+      .collection("concierge_inbox").doc(cid)
+      .collection("messages").doc(mid);
+
+    await mirrorRef.set(
+      {
+        ...msg,
+        participants: [fromUid, toUid],
+        mirroredAt: admin.firestore.FieldValue.serverTimestamp(),
+        // create an editable box once; won’t overwrite if already there
+        ...(msg.reply === undefined ? { reply: "" } : {}),
+      },
+      { merge: true }
+    );
+
+    console.log(`🗂️ Mirrored to concierge_inbox/${cid}/messages/${mid}`);
+  } catch (err) {
+    console.error("concierge mirror error:", err);
+  }
+}
+
+
+    return null;
+  }
+);
+
+const CONCIERGE_UID = "JzPLt6B6PFhnXxjaZI4t4lFnoKQ2"; // ensure this exists only once
+
+exports.conciergeConsoleReplyOnUpdate = onDocumentWritten(
+  "concierge_inbox/{cid}/messages/{mid}",
+  async (event) => {
+    const before = event.data?.before?.data() || {};
+    const after  = event.data?.after?.data()  || {};
+    if (!after || event.data?.after?.exists === false) return null; // deleted
+
+    // Only act when 'reply' changes from empty → non-empty
+    const prevReply = (before.reply ?? "").toString().trim();
+    const newReply  = (after.reply  ?? "").toString().trim();
+    if (!newReply || newReply === prevReply) return null;
+
+    // Idempotency: if we already delivered, do nothing
+    if (after.deliveredMessageId || after.replySentAt) return null;
+
+    const db   = admin.firestore();
+    const cid  = event.params.cid;
+    const conv = db.collection("conversations").doc(cid);
+
+    // Figure out the other participant
+    let otherUid = null;
+    try {
+      const convSnap = await conv.get();
+      if (convSnap.exists) {
+        const parts = (convSnap.data().participants || []).map(String);
+        if (parts.includes(CONCIERGE_UID)) {
+          otherUid = parts.find((p) => p !== CONCIERGE_UID) || null;
+        }
       }
+    } catch (_) {}
+
+    // Fallback to mirrored message’s sender/recipient
+    if (!otherUid) {
+      const s = String(after.senderId || "");
+      const r = String(after.recipientId || "");
+      if (s === CONCIERGE_UID && r) otherUid = r;
+      else if (r === CONCIERGE_UID && s) otherUid = s;
+    }
+
+    if (!otherUid) {
+      await event.data.after.ref.set(
+        { error: "Could not infer recipient for reply" },
+        { merge: true }
+      );
+      return null;
+    }
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    // Keep conversation in sync
+    await conv.set(
+      {
+        participants: admin.firestore.FieldValue.arrayUnion(CONCIERGE_UID, otherUid),
+        lastMessage: newReply,
+        timestamp: now,
+        unreadBy: [otherUid],
+      },
+      { merge: true }
+    );
+
+    // Send the chat message
+    const msgRef = await conv.collection("messages").add({
+      senderId: CONCIERGE_UID,
+      recipientId: otherUid,
+      message: newReply,
+      senderName: "Fitly Concierge",
+      timestamp: now,
     });
-    await batch.commit();
+
+    // Mark this mirrored doc as processed
+    await event.data.after.ref.set(
+      {
+        replySentAt: now,
+        deliveredMessageId: msgRef.id,
+      },
+      { merge: true }
+    );
+
+    console.log(`Concierge reply sent for ${cid} → ${msgRef.id}`);
     return null;
   }
 );

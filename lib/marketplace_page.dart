@@ -8,15 +8,18 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
 import 'bottom_navigation.dart';
 import 'bottom_navigation_customers.dart';
 import 'components/trainer_card.dart';
 import 'trainer_home_page.dart';
-import 'splashpage.dart';
-import 'listings_page.dart';
 import 'services/block_service.dart';
 import 'feature_flags.dart';
+import 'signup_page.dart';
+import 'login_page.dart';
+import 'chat_page.dart';
+
+// -- concierge UID
+const String kConciergeUid = 'JzPLt6B6PFhnXxjaZI4t4lFnoKQ2';
 
 class MarketplacePage extends StatefulWidget {
   final bool guestMode;
@@ -28,9 +31,8 @@ class MarketplacePage extends StatefulWidget {
 
 class _MarketplacePageState extends State<MarketplacePage> {
   // ---------------------------------------------------------------------------
-  //                               STATE & DATA
+  // STATE
   // ---------------------------------------------------------------------------
-  // Filtering variables
   List<Map<String, dynamic>> allSuburbs = [];
   Map<String, dynamic>? selectedSuburbData;
   String selectedSuburbText = '';
@@ -74,7 +76,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
   List<String> _blocked = [];
 
   // ---------------------------------------------------------------------------
-  //                               LIFE-CYCLE
+  // LIFE-CYCLE
   // ---------------------------------------------------------------------------
   @override
   void initState() {
@@ -98,7 +100,8 @@ class _MarketplacePageState extends State<MarketplacePage> {
   Future<void> loadSuburbData() async {
     try {
       final jsonData = await rootBundle.loadString('assets/Suburbs.json');
-      allSuburbs = (json.decode(jsonData) as List).cast<Map<String, dynamic>>();
+      final List<dynamic> decoded = json.decode(jsonData);
+      allSuburbs = List<Map<String, dynamic>>.from(decoded);
       if (mounted) setState(() {});
     } catch (e) {
       debugPrint('Error loading suburbs: $e');
@@ -106,7 +109,108 @@ class _MarketplacePageState extends State<MarketplacePage> {
   }
 
   // ---------------------------------------------------------------------------
-  //                             HELPER FUNCTIONS
+  // AUTH / CHAT HELPERS
+  // ---------------------------------------------------------------------------
+  void _openChat(
+    String peerUid, {
+    String? peerName,
+    bool lazyCreate = false,
+  }) {
+    final me = FirebaseAuth.instance.currentUser;
+    if (me == null) return; // gated by auth elsewhere
+
+    // deterministic conversation id: smallerUid_biggerUid
+    final myUid = me.uid;
+    final convoId = (myUid.compareTo(peerUid) < 0)
+        ? '${myUid}_$peerUid'
+        : '${peerUid}_$myUid';
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChatPage(
+          conversationId: convoId,
+          otherUserId: peerUid,
+          lazyCreate: lazyCreate, // important for concierge
+        ),
+      ),
+    );
+  }
+
+  Future<void> _promptAuthForMessaging({
+    required String nextChatUid,
+    required String nextChatName,
+    bool lazyCreate = false,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null && !user.isAnonymous) {
+      _openChat(nextChatUid, peerName: nextChatName, lazyCreate: lazyCreate);
+      return;
+    }
+
+    // save pending intent
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('pendingChatPeerUid', nextChatUid);
+    await prefs.setString('pendingChatPeerName', nextChatName);
+
+    // auth prompt sheet
+    await showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.chat_bubble_outline, size: 36),
+              const SizedBox(height: 8),
+              const Text(
+                "Create an account to message",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                "We’ll drop you straight into chat with $nextChatName.",
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.black54),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            const SignupPage(preselectedRole: 'customer'),
+                      ),
+                    );
+                  },
+                  child: const Text("Sign up (Customer)"),
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LoginPage()),
+                  );
+                },
+                child: const Text("I already have an account"),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // FILTER HELPERS
   // ---------------------------------------------------------------------------
   String _formatSuburb(Map<String, dynamic> item) =>
       '${item['Suburb']}, ${item['State']} (${item['Postcode']})';
@@ -129,20 +233,20 @@ class _MarketplacePageState extends State<MarketplacePage> {
       if (_blocked.contains(t['uid'])) return false;
 
       final rating = ((t['rating'] as num?)?.toDouble() ?? 0);
-      bool okRating = rating >= minRating;
+      final okRating = rating >= minRating;
 
-      bool okCat = selectedCategories.isEmpty ||
+      final okCat = selectedCategories.isEmpty ||
           selectedCategories.any((c) => (t['specialties'] ?? [])
               .map((e) => e.toString().toLowerCase())
               .contains(c.toLowerCase()));
 
-      bool okPrice = true;
+      var okPrice = true;
       if (t['rate'] is num) {
         final rate = (t['rate'] as num).toDouble();
         okPrice = rate >= priceRange.start && rate <= priceRange.end;
       }
 
-      bool okDist = true;
+      var okDist = true;
       if (selectedSuburbData != null) {
         final geo = t['geoLocation'];
         if (geo is Map) {
@@ -158,7 +262,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
         }
       }
 
-      bool okMethod = selectedTrainingMethods.isEmpty ||
+      final okMethod = selectedTrainingMethods.isEmpty ||
           selectedTrainingMethods.contains(t['method']) ||
           (t['trainingMethods'] is List &&
               (t['trainingMethods'] as List)
@@ -222,9 +326,9 @@ class _MarketplacePageState extends State<MarketplacePage> {
     return chips;
   }
 
-// ---------------------------------------------------------------------------
-//  FILTER DIALOG  (guests allowed)
-// ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // FULL showFilterDialog
+  // ---------------------------------------------------------------------------
   Future<void> showFilterDialog() async {
     int dDistance = selectedDistance;
     double dRating = minRating;
@@ -238,10 +342,9 @@ class _MarketplacePageState extends State<MarketplacePage> {
       context: context,
       isScrollControlled: true,
       builder: (ctx) => SafeArea(
-        // ← keeps sheet above home-indicator
         child: Padding(
           padding: EdgeInsets.only(
-            bottom: MediaQuery.of(ctx).viewPadding.bottom + 24, // 24px extra
+            bottom: MediaQuery.of(ctx).viewPadding.bottom + 24,
             top: 24,
             left: 16,
             right: 16,
@@ -256,7 +359,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
                           TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
 
-                  // ───────── Location ─────────
+                  // Location
                   const Text('Location:'),
                   Material(
                     child: TypeAheadField<Map<String, dynamic>>(
@@ -304,7 +407,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // ───────── Training Method ─────────
+                  // Training Method
                   const Text('Training Method:'),
                   Wrap(
                     spacing: 8,
@@ -320,7 +423,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // ───────── Specialties ─────────
+                  // Specialties
                   const Text('Specialties:'),
                   Wrap(
                     spacing: 8,
@@ -336,7 +439,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // ───────── Distance ─────────
+                  // Distance
                   const Text('Distance (km):'),
                   DropdownButton<int>(
                     value: dDistance,
@@ -348,7 +451,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // ───────── Rating ─────────
+                  // Rating
                   const Text('Minimum Rating:'),
                   DropdownButton<double>(
                     value: dRating,
@@ -360,7 +463,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // ───────── Price ─────────
+                  // Price
                   const Text('Price Range (\$/hr):'),
                   Wrap(
                     spacing: 8,
@@ -377,7 +480,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
                   ),
                   const SizedBox(height: 24),
 
-                  // ───────── Buttons ─────────
+                  // Buttons
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
@@ -422,7 +525,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
   }
 
   // ---------------------------------------------------------------------------
-  //                     SEARCH & BOTTOM NAV HELPERS
+  // BOTTOM NAV / SEARCH
   // ---------------------------------------------------------------------------
   Future<void> _showSearch(BuildContext context) async {
     showSearch(
@@ -440,7 +543,9 @@ class _MarketplacePageState extends State<MarketplacePage> {
         : const BottomNavigationCustomers(currentIndex: 0);
   }
 
-  // Long-press block seller
+  // ---------------------------------------------------------------------------
+  // LONG-PRESS BLOCK
+  // ---------------------------------------------------------------------------
   void _showTrainerOptions(BuildContext ctx, Map<String, dynamic> trainer) {
     showModalBottomSheet(
       context: ctx,
@@ -462,7 +567,152 @@ class _MarketplacePageState extends State<MarketplacePage> {
   }
 
   // ---------------------------------------------------------------------------
-  //                               BUILD
+  // EXTRA WIDGETS
+  // ---------------------------------------------------------------------------
+  Widget _helperTile() {
+    return GestureDetector(
+      onTap: () => _promptAuthForMessaging(
+        nextChatUid: kConciergeUid,
+        nextChatName: 'Fitly Concierge',
+        lazyCreate: true, // do NOT create conversation until first send
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.orange.shade100,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: const [
+            Icon(Icons.support_agent, size: 48, color: Colors.orange),
+            SizedBox(height: 12),
+            Text(
+              'Need help finding a trainer?',
+              style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87),
+              textAlign: TextAlign.center,
+            ),
+            SizedBox(height: 6),
+            Text(
+              'Tap here & we’ll match you manually',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.black54),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // shows ONLY to guests (not logged-in)
+  Widget _signupTrainerBanner() {
+    final user = FirebaseAuth.instance.currentUser;
+    final guest = user == null || user.isAnonymous;
+    if (!guest) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.blueGrey.shade50,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.fitness_center, size: 20),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'Grow your PT business — Join for free',
+              style: TextStyle(fontSize: 12),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          TextButton(
+            onPressed: _handleJoinAsTrainer,
+            style: TextButton.styleFrom(
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              minimumSize: const Size(0, 28),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+            ),
+            child: const Text(
+              'Join as Trainer',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleJoinAsTrainer() async {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null || user.isAnonymous) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+            builder: (_) => const SignupPage(preselectedRole: 'trainer')),
+      );
+      return;
+    }
+
+    if (userRole != 'trainer' &&
+        userRole != 'personal trainer' &&
+        userRole != 'personaltrainer') {
+      final confirm = await showDialog<bool>(
+            context: context,
+            builder: (_) => AlertDialog(
+              title: const Text('Become a Trainer?'),
+              content: const Text(
+                  'You’re currently a customer account. Do you want to switch and create a trainer profile?'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Cancel')),
+                TextButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Yes')),
+              ],
+            ),
+          ) ??
+          false;
+      if (!confirm) return;
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .set({'role': 'trainer'}, SetOptions(merge: true));
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('userRole', 'trainer');
+
+      await FirebaseFirestore.instance
+          .collection('trainer_profiles')
+          .doc(user.uid)
+          .set({
+        'completed': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      setState(() => userRole = 'trainer');
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) =>
+            const TrainerHomePage(showProfileCompleteMessage: false),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // BUILD
   // ---------------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
@@ -470,7 +720,6 @@ class _MarketplacePageState extends State<MarketplacePage> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    // Trainers not allowed in marketplace
     if (userRole == 'trainer' ||
         userRole == 'personal trainer' ||
         userRole == 'personaltrainer') {
@@ -491,31 +740,18 @@ class _MarketplacePageState extends State<MarketplacePage> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () async {
-            final user = FirebaseAuth.instance.currentUser;
-            final guest = user == null || user.isAnonymous;
-            if (guest) {
-              Navigator.pushReplacement(context,
-                  MaterialPageRoute(builder: (_) => const SplashPage()));
-            } else {
-              final isTrainerRole = userRole == 'trainer' ||
-                  userRole == 'personal trainer' ||
-                  userRole == 'personaltrainer';
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => isTrainerRole
-                      ? const TrainerHomePage(showProfileCompleteMessage: false)
-                      : const ListingsPage(),
-                ),
-              );
-            }
-          },
+        automaticallyImplyLeading: false,
+        leading: Navigator.canPop(context)
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => Navigator.pop(context),
+              )
+            : null,
+        title: Image.asset(
+          'assets/Fitly2.png',
+          height: 75,
         ),
-        title: const Text('Find a Personal Trainer',
-            style: TextStyle(color: Colors.white)),
+        centerTitle: true,
         backgroundColor: const Color(0xFFFFA726),
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
@@ -535,9 +771,11 @@ class _MarketplacePageState extends State<MarketplacePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (_buildActiveFilterChips().isNotEmpty)
+              _signupTrainerBanner(),
+              if (_buildActiveFilterChips().isNotEmpty) ...[
                 Wrap(spacing: 8, children: _buildActiveFilterChips()),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
+              ],
               Expanded(
                 child: StreamBuilder<QuerySnapshot>(
                   stream: (isTrainerPaymentsEnabled
@@ -573,11 +811,17 @@ class _MarketplacePageState extends State<MarketplacePage> {
                     final filtered = _filterTrainers(docs);
                     if (filtered.isEmpty) {
                       return const Center(
-                          child: Text(
-                              'No trainers found. Try adjusting filters!',
-                              style:
-                                  TextStyle(fontSize: 16, color: Colors.grey)));
+                        child: Text(
+                          'No trainers found. Try adjusting filters!',
+                          style: TextStyle(fontSize: 16, color: Colors.grey),
+                        ),
+                      );
                     }
+
+                    final listWithHelper = [
+                      {'helperTile': true},
+                      ...filtered
+                    ];
 
                     return GridView.builder(
                       gridDelegate:
@@ -587,9 +831,12 @@ class _MarketplacePageState extends State<MarketplacePage> {
                         mainAxisSpacing: 10,
                         childAspectRatio: 0.5,
                       ),
-                      itemCount: filtered.length,
+                      itemCount: listWithHelper.length,
                       itemBuilder: (_, i) {
-                        final trainer = filtered[i];
+                        final item = listWithHelper[i];
+                        if (item['helperTile'] == true) return _helperTile();
+
+                        final trainer = item;
                         return InkWell(
                           onTap: () {
                             final isTrainerRole = userRole == 'trainer' ||
@@ -637,7 +884,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
 }
 
 // ---------------------------------------------------------------------------
-//                         SEARCH DELEGATE
+// SEARCH DELEGATE
 // ---------------------------------------------------------------------------
 class TrainerSearchDelegate extends SearchDelegate {
   final List<Map<String, dynamic>> trainers;

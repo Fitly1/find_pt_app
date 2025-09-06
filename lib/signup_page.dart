@@ -42,11 +42,17 @@ String prettyAuthError(dynamic error) {
 
 /* ───────────────────────────────────────────────────────────── */
 class SignupPage extends StatefulWidget {
-  /// If supplied ('trainer' | 'customer') the role dropdown is hidden
-  /// and the form is locked to this role.
+  final String? role;
   final String? preselectedRole;
 
-  const SignupPage({super.key, this.preselectedRole});
+  const SignupPage({
+    super.key,
+    this.role,
+    this.preselectedRole,
+  }) : assert(
+          role == null || preselectedRole == null,
+          'Pass only role OR preselectedRole, not both.',
+        );
 
   @override
   SignupPageState createState() => SignupPageState();
@@ -84,8 +90,9 @@ class SignupPageState extends State<SignupPage> {
   @override
   void initState() {
     super.initState();
-    _selectedRole = widget.preselectedRole; // may be null
-    _hideRoleDropdown = widget.preselectedRole != null;
+    _selectedRole =
+        widget.role ?? widget.preselectedRole; // null = user must pick
+    _hideRoleDropdown = _selectedRole != null;
   }
 
   /* ───────── social sign-in handler ───────── */
@@ -105,8 +112,8 @@ class SignupPageState extends State<SignupPage> {
       if (cred == null) throw Exception('cancelled');
 
       // AuthService already created / merged the Firestore user-doc.
-      (await SharedPreferences.getInstance())
-          .setString('userRole', _selectedRole!.toLowerCase());
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('userRole', _selectedRole!.toLowerCase());
 
       /* social users skip e-mail verification */
       final isSocial = cred.user!.providerData.any(
@@ -187,9 +194,9 @@ class SignupPageState extends State<SignupPage> {
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      (await SharedPreferences.getInstance())
-        ..clear()
-        ..setString('userRole', _selectedRole!.toLowerCase());
+      // IMPORTANT: Do NOT clear all prefs (we keep pendingChat keys, etc.)
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('userRole', _selectedRole!.toLowerCase());
 
       if (!mounted) return;
       Navigator.pushReplacement(
@@ -277,7 +284,24 @@ class SignupPageState extends State<SignupPage> {
                         textAlign: TextAlign.center,
                         style: TextStyle(
                             fontSize: 22, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 16),
+
+                    // Read-only hint when role is preselected/hidden
+                    if (_hideRoleDropdown) ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.info_outline,
+                              size: 16, color: Colors.black54),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Signing up as ${_selectedRole == 'trainer' ? 'Personal trainer' : 'Customer'}',
+                            style: const TextStyle(color: Colors.black54),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                    ],
 
                     /* role dropdown + social buttons */
                     if (!_hideRoleDropdown) ...[
@@ -303,12 +327,18 @@ class SignupPageState extends State<SignupPage> {
                     SocialSignInButtons(
                       loading: _isLoading,
                       onGooglePressed: _socialEnabled
-                          ? () => _handleSocialSignIn(() =>
-                              AuthService.googleOneTap(role: _selectedRole))
+                          ? () => _handleSocialSignIn(
+                                () => AuthService.googleOneTap(
+                                  role: _selectedRole,
+                                ),
+                              )
                           : null,
                       onApplePressed: _socialEnabled
-                          ? () => _handleSocialSignIn(() =>
-                              AuthService.appleOneTap(role: _selectedRole))
+                          ? () => _handleSocialSignIn(
+                                () => AuthService.appleOneTap(
+                                  role: _selectedRole,
+                                ),
+                              )
                           : null,
                     ),
                     if (!_socialEnabled)

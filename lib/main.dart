@@ -14,7 +14,7 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'package:device_info_plus/device_info_plus.dart'; // <── NEW
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:app_links/app_links.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -24,7 +24,8 @@ import 'package:logger/logger.dart';
 /* ─── local files ─── */
 import 'firebase_options.dart';
 import 'package:find_pt_app/services/push_notification_service.dart';
-
+import 'package:find_pt_app/navigation.dart'; // <-- navigatorKey lives here
+import 'package:find_pt_app/landing_gate.dart';
 import 'splashpage.dart';
 import 'marketplace_page.dart';
 import 'signup_page.dart';
@@ -54,7 +55,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint('🔹 BG message handled: ${message.messageId}');
 }
 
-/* ───────── DEEP-LINK HANDLER (unchanged) ───────── */
+/* ───────── DEEP-LINK HANDLER ───────── */
 class DeepLinkHandler extends StatefulWidget {
   final Widget child;
   const DeepLinkHandler({super.key, required this.child});
@@ -65,6 +66,7 @@ class DeepLinkHandler extends StatefulWidget {
 class _DeepLinkHandlerState extends State<DeepLinkHandler> {
   final AppLinks _appLinks = AppLinks();
   StreamSubscription? _linkSub;
+
   @override
   void initState() {
     super.initState();
@@ -160,8 +162,7 @@ Future<void> main() async {
       FirebaseMessaging.onBackgroundMessage(
           _firebaseMessagingBackgroundHandler);
 
-      await PushNotificationService
-          .initialize(); // full init (incl. local notif)
+      await PushNotificationService.initialize(); // local + FCM hooks
 
       Stripe.publishableKey = dotenv.env['STRIPE_PUBLISHABLE_KEY'] ?? "";
 
@@ -181,7 +182,7 @@ Future<void> main() async {
   );
 }
 
-/* ───────── ROOT GATE ───────── */
+/* ───────── (kept for reference) ROOT GATE ───────── */
 class RootGate extends StatelessWidget {
   const RootGate({super.key});
   @override
@@ -255,7 +256,7 @@ class _FindPTAppState extends State<FindPTApp> {
         await fcm.requestPermission(alert: true, badge: true, sound: true);
     debugPrint('perm: ${settings.authorizationStatus}');
 
-    // Skip all token work when on iOS simulator
+    // Skip token work on iOS Simulator
     if (await _runningOnIosSimulator()) {
       debugPrint('📵  Running on iOS simulator – skipping FCM/APNs token');
     } else {
@@ -267,7 +268,7 @@ class _FindPTAppState extends State<FindPTApp> {
       fcm.onTokenRefresh.listen(_saveToken);
     }
 
-    // Foreground notifications
+    // Foreground notifications → show local banner
     _fgSub?.cancel();
     _fgSub = FirebaseMessaging.onMessage
         .listen((msg) => PushNotificationService.showFlutterNotification(msg));
@@ -287,10 +288,11 @@ class _FindPTAppState extends State<FindPTApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      navigatorKey: navigatorKey,
+      navigatorKey: navigatorKey, // from navigation.dart
       title: 'Find PT App',
       debugShowCheckedModeBanner: false,
-      home: const RootGate(),
+      home:
+          const LandingGate(), // guests → marketplace, signed-in → RoleRedirect
       routes: {
         '/splash': (context) => const SplashPage(),
         '/marketplace': (context) => const MarketplacePage(),
