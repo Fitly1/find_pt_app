@@ -277,15 +277,19 @@ class _ListingsPageState extends State<ListingsPage> {
                         // Training method
                         const Text('Training Method:',
                             style: TextStyle(fontWeight: FontWeight.bold)),
-                        ..._trainingMethods.map((method) {
-                          return RadioListTile<String>(
-                            title: Text(method),
-                            value: method,
-                            groupValue: localMethod,
-                            onChanged: (value) =>
-                                setStateDialog(() => localMethod = value!),
-                          );
-                        }),
+                        RadioGroup<String>(
+                          groupValue: localMethod,
+                          onChanged: (value) =>
+                              setStateDialog(() => localMethod = value!),
+                          child: Column(
+                            children: _trainingMethods
+                                .map((method) => RadioListTile<String>(
+                                      title: Text(method),
+                                      value: method,
+                                    ))
+                                .toList(),
+                          ),
+                        ),
                         const SizedBox(height: 16),
 
                         // Suburb

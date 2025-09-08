@@ -180,11 +180,9 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
                                   borderRadius: BorderRadius.circular(12)),
                             ),
                             onPressed: () => Navigator.of(ctx).pop(),
-                            child: Text(
-                              buttonText,
-                              style: const TextStyle(
-                                  fontSize: 16, color: Colors.white),
-                            ),
+                            child: Text(buttonText,
+                                style: const TextStyle(
+                                    fontSize: 16, color: Colors.white)),
                           ),
                         ),
                       ],
@@ -262,11 +260,9 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
                                   ),
                                 ),
                                 onPressed: () => Navigator.of(ctx).pop(false),
-                                child: const Text(
-                                  'Cancel',
-                                  style: TextStyle(
-                                      fontSize: 16, color: Colors.black),
-                                ),
+                                child: const Text('Cancel',
+                                    style: TextStyle(
+                                        fontSize: 16, color: Colors.black)),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -281,11 +277,9 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
                                   ),
                                 ),
                                 onPressed: () => Navigator.of(ctx).pop(true),
-                                child: Text(
-                                  confirmText,
-                                  style: const TextStyle(
-                                      fontSize: 16, color: Colors.white),
-                                ),
+                                child: Text(confirmText,
+                                    style: const TextStyle(
+                                        fontSize: 16, color: Colors.white)),
                               ),
                             ),
                           ],
@@ -368,11 +362,9 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
                                   borderRadius: BorderRadius.circular(12)),
                             ),
                             onPressed: () => Navigator.of(ctx).pop(true),
-                            child: const Text(
-                              'Continue',
-                              style:
-                                  TextStyle(fontSize: 16, color: Colors.white),
-                            ),
+                            child: const Text('Continue',
+                                style: TextStyle(
+                                    fontSize: 16, color: Colors.white)),
                           ),
                         ),
                       ],
@@ -437,7 +429,8 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
       await user.delete();
 
       if (credential.providerId == 'google.com') {
-        await GoogleSignIn().disconnect();
+        // v7 API: singleton + disconnect to revoke
+        await GoogleSignIn.instance.disconnect();
       }
 
       /* 4️⃣ local cleanup */
@@ -476,12 +469,15 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
       final user = FirebaseAuth.instance.currentUser!;
       return EmailAuthProvider.credential(email: user.email!, password: pass);
     } else if (providerId == 'google.com') {
-      final googleUser = await GoogleSignIn().signIn();
-      if (googleUser == null) return null;
-      final googleAuth = await googleUser.authentication;
+      // v7+ flow: interactive authenticate() returns non-null account
+      final googleUser = await GoogleSignIn.instance.authenticate();
+
+      // New API: synchronous authentication object; accessToken is not provided.
+      final googleAuth = googleUser.authentication;
+
       return GoogleAuthProvider.credential(
         idToken: googleAuth.idToken,
-        accessToken: googleAuth.accessToken,
+        // accessToken no longer available/required for Google on Firebase
       );
     } else if (providerId == 'apple.com') {
       final appleCred = await SignInWithApple.getAppleIDCredential(
@@ -553,6 +549,7 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
                       height: 84,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
+                        // Flutter 3.35: prefer withValues
                         color: Colors.white.withValues(alpha: 0.35),
                       ),
                     ),
@@ -564,17 +561,21 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(_displayName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontSize: 22, fontWeight: FontWeight.w800)),
+                      Text(
+                        _displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 22, fontWeight: FontWeight.w800),
+                      ),
                       const SizedBox(height: 4),
-                      Text(_email,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontSize: 16, color: Colors.black87)),
+                      Text(
+                        _email,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 16, color: Colors.black87),
+                      ),
                       const SizedBox(height: 12),
                       SizedBox(
                         height: 44,
@@ -601,9 +602,10 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
                           label: const Text(
                             'Edit Profile',
                             style: TextStyle(
-                                fontSize: 16,
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600),
+                              fontSize: 16,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.black,
@@ -648,26 +650,27 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
                 Icons.description_outlined,
                 'Terms & Conditions',
                 () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const TermsConditionsPage())),
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const TermsConditionsPage()),
+                ),
                 subtitle: 'View Terms & Conditions',
               ),
               _menuTile(
                 Icons.lock_outline,
                 'Privacy Policy',
                 () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const PrivacyPolicyPage())),
+                  context,
+                  MaterialPageRoute(builder: (_) => const PrivacyPolicyPage()),
+                ),
               ),
               _menuTile(
                 Icons.library_books_outlined,
                 'Legal Documents',
                 () => Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (_) => const LegalDocumentsPage())),
+                  context,
+                  MaterialPageRoute(builder: (_) => const LegalDocumentsPage()),
+                ),
               ),
             ],
           ),

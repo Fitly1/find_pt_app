@@ -1,4 +1,4 @@
-// lib/services/auth_service.dart   (Dart-2/3 compatible)
+// lib/services/auth_service.dart   (Dart 3 compatible, no fetchSignInMethods* calls)
 
 import 'dart:convert';
 import 'dart:math';
@@ -21,36 +21,48 @@ class AuthService {
   }
 
   /* ───────── GOOGLE ───────── */
+  // Add this helper anywhere inside AuthService (e.g., just above googleOneTap)
+  static Future<UserCredential?> _finishGoogleSignIn(
+    gsi.GoogleSignInAccount? account, {
+    String? role,
+  }) async {
+    if (account == null) {
+      _log('🤖 Google | user cancelled');
+      return null;
+    }
+
+    // v7: synchronous authentication object
+    final googleAuth = account.authentication;
+
+    final cred = GoogleAuthProvider.credential(
+      idToken: googleAuth.idToken, // accessToken not needed by Firebase
+    );
+
+    final userCred = await _auth.signInWithCredential(cred);
+
+    // ensure /users/{uid} exists
+    final names = _splitName(userCred.user?.displayName);
+    await _ensureUserDocument(
+      user: userCred.user!,
+      firstName: names[0],
+      lastName: names[1],
+      role: role,
+    );
+
+    _log('✅ Google | uid=${userCred.user?.uid}');
+    return userCred;
+  }
+
+// Replace your existing googleOneTap with this:
   static Future<UserCredential?> googleOneTap({String? role}) async {
     try {
-      final gsi.GoogleSignInAccount? googleUser =
-          await gsi.GoogleSignIn().signIn();
-      if (googleUser == null) {
-        _log('🤖 Google | user cancelled');
-        return null;
-      }
+      // Try lightweight first, then fallback to full auth
+      final account =
+          await gsi.GoogleSignIn.instance.attemptLightweightAuthentication() ??
+              await gsi.GoogleSignIn.instance.authenticate();
 
-      final gsi.GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
-
-      final cred = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
-
-      final userCred = await _auth.signInWithCredential(cred);
-
-      /* ensure /users/{uid} exists */
-      final names = _splitName(userCred.user?.displayName);
-      await _ensureUserDocument(
-        user: userCred.user!,
-        firstName: names[0],
-        lastName: names[1],
-        role: role,
-      );
-
-      _log('✅ Google | uid=${userCred.user?.uid}');
-      return userCred;
+      // Delegate to helper that accepts a *nullable* account
+      return _finishGoogleSignIn(account, role: role);
     } catch (e, s) {
       _log('❌ Google sign-in failed → $e\n$s');
       rethrow;
@@ -58,9 +70,6 @@ class AuthService {
   }
 
   /* ───────── APPLE ───────── */
-  // ignore: unused_field
-  static const String _appleClientId = 'com.fitly.findptapp';
-
   static String _genNonce([int len = 32]) {
     const chars =
         '0123456789ABCDEFGHIJKLMNPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-._';
@@ -82,11 +91,11 @@ class AuthService {
     final rawNonce = _genNonce();
     final hashedNonce = _sha256(rawNonce);
 
-    // 1. Ask Apple
+    // 1) Ask Apple
     final apple = await SignInWithApple.getAppleIDCredential(
       scopes: [
         AppleIDAuthorizationScopes.email,
-        AppleIDAuthorizationScopes.fullName
+        AppleIDAuthorizationScopes.fullName,
       ],
       nonce: hashedNonce,
     );
@@ -98,13 +107,13 @@ class AuthService {
     );
 
     try {
-      // 2. Normal sign-in
+      // 2) Normal sign-in
       final userCred = await _auth.signInWithCredential(oauthCred);
 
-      // 3. Once-off profile updates
+      // 3) Once-off profile updates
       await _postAppleProfileUpdates(userCred, apple);
 
-      // 4. Ensure Firestore user-doc exists
+      // 4) Ensure Firestore user-doc exists
       await _ensureUserDocument(
         user: userCred.user!,
         firstName: apple.givenName,
@@ -115,13 +124,10 @@ class AuthService {
       _log('✅ Apple | uid=${userCred.user?.uid}');
       return userCred;
     } on FirebaseAuthException catch (e) {
-      /* duplicate-credential resolution */
+      // Duplicate-credential flow WITHOUT fetchSignInMethods*:
       if (e.code == 'account-exists-with-different-credential' ||
           e.code == 'credential-already-in-use') {
-        final email = e.email!;
-        // ignore: deprecated_member_use
-        final methods = await _auth.fetchSignInMethodsForEmail(email);
-
+        // If already signed-in → just link
         if (_auth.currentUser != null) {
           final linkedCred =
               await _auth.currentUser!.linkWithCredential(oauthCred);
@@ -135,33 +141,31 @@ class AuthService {
           return linkedCred;
         }
 
-        if (methods.contains('google.com')) {
+        // Try Google sign-in automatically (common case), then link
+        try {
           final googleCred = await googleOneTap(role: role);
-          if (googleCred == null) {
-            throw FirebaseAuthException(
-              code: 'sign-in-cancelled',
-              message: 'Google sign-in cancelled while linking Apple.',
+          if (googleCred != null && _auth.currentUser != null) {
+            final linkedCred =
+                await _auth.currentUser!.linkWithCredential(oauthCred);
+            await _postAppleProfileUpdates(linkedCred, apple);
+            await _ensureUserDocument(
+              user: linkedCred.user!,
+              firstName: apple.givenName,
+              lastName: apple.familyName,
+              role: role,
             );
+            return linkedCred;
           }
-        } else if (methods.contains('password')) {
-          throw FirebaseAuthException(
-            code: 'password-required',
-            message: 'Account exists. Sign in with e-mail & password first.',
-          );
-        } else {
-          rethrow;
+        } catch (_) {
+          // If Google attempt fails/cancelled, fall through to message below
         }
 
-        final linkedCred =
-            await _auth.currentUser!.linkWithCredential(oauthCred);
-        await _postAppleProfileUpdates(linkedCred, apple);
-        await _ensureUserDocument(
-          user: linkedCred.user!,
-          firstName: apple.givenName,
-          lastName: apple.familyName,
-          role: role,
+        // Clear, user-facing guidance without relying on fetchSignInMethods*
+        throw FirebaseAuthException(
+          code: 'sign-in-required',
+          message:
+              'This e-mail is already used by another sign-in method. Please sign in with your existing method (Google or e-mail & password) first, then link Apple from inside the app.',
         );
-        return linkedCred;
       }
       rethrow;
     } on SignInWithAppleAuthorizationException catch (e) {
@@ -172,7 +176,9 @@ class AuthService {
 
   /* update e-mail / displayName once */
   static Future<void> _postAppleProfileUpdates(
-      UserCredential cred, AuthorizationCredentialAppleID apple) async {
+    UserCredential cred,
+    AuthorizationCredentialAppleID apple,
+  ) async {
     final user = cred.user!;
     if (apple.email != null && (user.email?.isEmpty ?? true)) {
       await user.verifyBeforeUpdateEmail(apple.email!);
@@ -182,7 +188,7 @@ class AuthService {
     }
   }
 
-  /* ───── guarantee Firestore user-doc ───── */
+  /* ensure Firestore user-doc exists */
   static Future<void> _ensureUserDocument({
     required User user,
     String? firstName,
@@ -209,7 +215,7 @@ class AuthService {
     };
 
     if (role != null) {
-      data['role'] = role; // override
+      data['role'] = role; // override on demand
     } else if (!snap.exists) {
       data['role'] = 'customer'; // default first-login role
     }
@@ -220,7 +226,7 @@ class AuthService {
   /* ───────── misc ───────── */
   static Future<void> signOut() async {
     await _auth.signOut();
-    await gsi.GoogleSignIn().signOut();
+    await gsi.GoogleSignIn.instance.signOut(); // v7 singleton
     final p = await SharedPreferences.getInstance();
     await p.remove('userRole');
   }
@@ -231,7 +237,7 @@ class AuthService {
         (p) => p.providerId == 'apple.com' || p.providerId == 'google.com',
       );
 
-  /* ───── helper: split name (pre-Dart-3) ───── */
+  /* split name helper */
   static List<String?> _splitName(String? displayName) {
     if (displayName == null || displayName.trim().isEmpty) return [null, null];
     final parts = displayName.trim().split(RegExp(r'\s+'));

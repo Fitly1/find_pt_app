@@ -1,17 +1,19 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Permissions -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/> <!-- ✅ Push notifications -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
     <application
         android:label="Fitly"
         android:name="${applicationName}"
-        android:icon="@mipmap/launcher_icon">
+        android:icon="@mipmap/launcher_icon"
+        android:extractNativeLibs="false"
+        tools:replace="android:extractNativeLibs">
 
-        <!-- ✅ Use custom notification icon -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@drawable/ic_stat_fitly2" />
@@ -30,53 +32,38 @@
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
 
-            <!-- Existing intent-filter for MAIN/LAUNCHER -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Intent filter for mailto links -->
             <intent-filter>
                 <action android:name="android.intent.action.SENDTO" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="mailto" />
             </intent-filter>
 
-            <!-- Intent filter for deep linking fitly://billing-portal-return -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:scheme="fitly"
-                    android:host="billing-portal-return" />
+                <data android:scheme="fitly" android:host="billing-portal-return" />
             </intent-filter>
-
         </activity>
 
-        <!-- UCrop image cropping activity -->
         <activity
             android:name="com.yalantis.ucrop.UCropActivity"
             android:exported="false"
             android:theme="@style/UCropActivityTheme" />
 
-        <!-- Flutter plugin registry -->
-        <meta-data
-            android:name="flutterEmbedding"
-            android:value="2" />
-
+        <meta-data android:name="flutterEmbedding" android:value="2" />
     </application>
 
-    <!-- Required to query activities that can process text -->
     <queries>
-        <intent>
-            <action android:name="android.intent.action.GET_CONTENT" />
-        </intent>
+        <intent><action android:name="android.intent.action.GET_CONTENT" /></intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />
             <data android:mimeType="text/plain" />
         </intent>
     </queries>
-
 </manifest>

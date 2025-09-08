@@ -368,7 +368,7 @@ class _CreateListingPageState extends State<CreateListingPage> {
                     style: TextStyle(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 4),
                 DropdownButtonFormField<String>(
-                  value: _selectedTrainingMethod,
+                  initialValue: _selectedTrainingMethod,
                   onChanged: (v) =>
                       setState(() => _selectedTrainingMethod = v!),
                   items: _trainingMethods

@@ -747,7 +747,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: DropdownButtonFormField<int>(
-                        value: _experienceValue,
+                        initialValue: _experienceValue,
                         decoration:
                             const InputDecoration(border: OutlineInputBorder()),
                         items: List.generate(51, (index) => index)

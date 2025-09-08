@@ -309,7 +309,7 @@ class SignupPageState extends State<SignupPage> {
                           style: TextStyle(fontSize: 16)),
                       const SizedBox(height: 8),
                       DropdownButtonFormField<String>(
-                        value: _selectedRole,
+                        initialValue: _selectedRole,
                         decoration:
                             const InputDecoration(border: OutlineInputBorder()),
                         items: const [
