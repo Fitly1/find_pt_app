@@ -1,38 +1,45 @@
 /*
- * android/app/build.gradle   (Groovy syntax)
- * If you keep this file, delete android/app/build.gradle.kts
+ * android/app/build.gradle   (Groovy)
+ * Keep this file; delete android/app/build.gradle.kts if it exists.
  */
 plugins {
     id 'com.android.application'
-    id 'kotlin-android'
+    id 'org.jetbrains.kotlin.android'          // Kotlin 2.1.x (declared in settings.gradle)
     id 'dev.flutter.flutter-gradle-plugin'
-    id 'com.google.gms.google-services'
+    id 'com.google.gms.google-services'        // if you use Firebase
 }
 
 android {
     namespace "com.fitly.findptapp"
-    compileSdk flutter.compileSdkVersion       // from Flutter.gradle
-    ndkVersion flutter.ndkVersion
 
-    /* ───────── Java / desugaring ───────── */
+    // Use Flutter's compile/target SDKs from flutter.gradle
+    compileSdk flutter.compileSdkVersion
+
+    // Pin NDK r28 for 16 KB page-size compatibility
+    ndkVersion "28.0.12433566"
+
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_11
-        targetCompatibility JavaVersion.VERSION_11
-        // enable core-library desugaring (required by flutter_local_notifications)
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+        // Desugaring (needed by libs like flutter_local_notifications)
         coreLibraryDesugaringEnabled true
     }
-    kotlinOptions { jvmTarget = '11' }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
 
     defaultConfig {
         applicationId "com.fitly.findptapp"
-        minSdk 23                // ≥21 needed for desugaring
+        minSdkVersion flutter.minSdkVersion
         targetSdk flutter.targetSdkVersion
         versionCode flutter.versionCode
         versionName flutter.versionName
+        multiDexEnabled true
     }
 
     signingConfigs {
         release {
+            // ⚠️ Consider moving secrets out of VCS later
             storeFile     file("my_release.keystore")
             storePassword "fitly1612"
             keyAlias      "mykey"
@@ -41,28 +48,34 @@ android {
     }
 
     buildTypes {
-        debug  { signingConfig signingConfigs.debug }
+        debug {
+            signingConfig signingConfigs.debug
+        }
         release {
             signingConfig signingConfigs.release
             minifyEnabled true
             shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android.txt'),
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
                           'proguard-rules.pro'
         }
     }
+
+    // If you hit packaging issues with native libs, you can temporarily enable:
+    // packagingOptions { jniLibs { useLegacyPackaging = true } }
 }
 
-flutter { source '../..' }
+flutter {
+    source '../..'
+}
 
 dependencies {
-    /* Align all Firebase libs with the BoM */
+    // Firebase (optional) — align versions with BoM
     implementation platform('com.google.firebase:firebase-bom:32.7.0')
-
     implementation 'com.google.firebase:firebase-auth'
     implementation 'com.google.firebase:firebase-firestore'
     implementation 'com.google.firebase:firebase-appcheck-playintegrity'
     implementation 'com.google.firebase:firebase-messaging'
 
-    /* ─── Desugaring library ─── */
-    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
+    // Desugaring: >= 2.1.4 required; 2.1.5 is good
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
 }
