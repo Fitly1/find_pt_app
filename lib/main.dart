@@ -26,7 +26,7 @@ import 'firebase_options.dart';
 import 'package:find_pt_app/services/push_notification_service.dart';
 import 'package:find_pt_app/navigation.dart'; // <-- navigatorKey lives here
 import 'package:find_pt_app/landing_gate.dart';
-import 'splashpage.dart';
+import 'welcome_page.dart';
 import 'marketplace_page.dart';
 import 'signup_page.dart';
 import 'trainer_profile_setup_page.dart';
@@ -105,7 +105,7 @@ class _DeepLinkHandlerState extends State<DeepLinkHandler> {
   Widget build(BuildContext context) => widget.child;
 }
 
-/* ───────── STRIPE CHECKOUT HELPER (unchanged) ───────── */
+/* ───────── STRIPE CHECKOUT HELPER ───────── */
 Future<void> startStripeCheckout(BuildContext context) async {
   final messenger = ScaffoldMessenger.of(context);
   try {
@@ -162,7 +162,7 @@ Future<void> main() async {
       FirebaseMessaging.onBackgroundMessage(
           _firebaseMessagingBackgroundHandler);
 
-      await PushNotificationService.initialize(); // local + FCM hooks
+      await PushNotificationService.initialize();
 
       Stripe.publishableKey = dotenv.env['STRIPE_PUBLISHABLE_KEY'] ?? "";
 
@@ -182,7 +182,7 @@ Future<void> main() async {
   );
 }
 
-/* ───────── (kept for reference) ROOT GATE ───────── */
+/* ───────── (reference) ROOT GATE ───────── */
 class RootGate extends StatelessWidget {
   const RootGate({super.key});
   @override
@@ -191,10 +191,11 @@ class RootGate extends StatelessWidget {
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
-          return Scaffold(body: Center(child: CircularProgressIndicator()));
+          return const Scaffold(
+              body: Center(child: CircularProgressIndicator()));
         }
         final user = snap.data;
-        if (user == null || user.isAnonymous) return const SplashPage();
+        if (user == null || user.isAnonymous) return const MarketplacePage();
         return const RoleRedirect();
       },
     );
@@ -227,7 +228,7 @@ class _FindPTAppState extends State<FindPTApp> {
     super.dispose();
   }
 
-  /* ---------- helper to save token ---------- */
+  /* ---------- save FCM token ---------- */
   Future<void> _saveToken(String? token) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null || token == null) return;
@@ -250,13 +251,10 @@ class _FindPTAppState extends State<FindPTApp> {
   /* ---------- configure FCM ---------- */
   Future<void> _configureFCM() async {
     final fcm = FirebaseMessaging.instance;
-
-    // Request permission (no-op on Android)
     final settings =
         await fcm.requestPermission(alert: true, badge: true, sound: true);
     debugPrint('perm: ${settings.authorizationStatus}');
 
-    // Skip token work on iOS Simulator
     if (await _runningOnIosSimulator()) {
       debugPrint('📵  Running on iOS simulator – skipping FCM/APNs token');
     } else {
@@ -268,12 +266,10 @@ class _FindPTAppState extends State<FindPTApp> {
       fcm.onTokenRefresh.listen(_saveToken);
     }
 
-    // Foreground notifications → show local banner
     _fgSub?.cancel();
     _fgSub = FirebaseMessaging.onMessage
         .listen((msg) => PushNotificationService.showFlutterNotification(msg));
 
-    // Handle tap on terminated notification
     final initial = await fcm.getInitialMessage();
     if (initial != null) _handleNavigation(initial);
   }
@@ -288,13 +284,13 @@ class _FindPTAppState extends State<FindPTApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      navigatorKey: navigatorKey, // from navigation.dart
+      navigatorKey: navigatorKey,
       title: 'Find PT App',
       debugShowCheckedModeBanner: false,
       home:
           const LandingGate(), // guests → marketplace, signed-in → RoleRedirect
       routes: {
-        '/splash': (context) => const SplashPage(),
+        '/welcome': (context) => const WelcomePage(), // CTA screen
         '/marketplace': (context) => const MarketplacePage(),
         '/signup': (context) => const SignupPage(),
         '/login': (context) => const LoginPage(),

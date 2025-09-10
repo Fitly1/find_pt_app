@@ -2,9 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'marketplace_page.dart';
 import 'trainer_profile_setup_page.dart';
-import 'splashpage.dart';
+import 'welcome_page.dart';
 
 class EmailVerificationPage extends StatefulWidget {
   const EmailVerificationPage({super.key});
@@ -16,8 +17,9 @@ class EmailVerificationPage extends StatefulWidget {
 class _EmailVerificationPageState extends State<EmailVerificationPage> {
   bool _isLoading = false;
   bool _resent = false;
-  String? userRole;
+  String? _userRole;
   Timer? _verificationTimer;
+  bool _navigated = false; // ✅ prevents double navigation
 
   @override
   void initState() {
@@ -25,63 +27,63 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
     _startVerificationCheck();
   }
 
+  // Periodically check if the user verified their email
   void _startVerificationCheck() {
     _verificationTimer =
         Timer.periodic(const Duration(seconds: 3), (timer) async {
-      await FirebaseAuth.instance.currentUser?.reload();
-      final user = FirebaseAuth.instance.currentUser;
+      // ensure we have a user
+      final auth = FirebaseAuth.instance;
+      await auth.currentUser?.reload();
+      final user = auth.currentUser;
       final verified = user?.emailVerified ?? false;
 
-      if (verified) {
+      if (verified && user != null) {
         timer.cancel();
-
-        // ✅ Update Firestore
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user!.uid)
-            .set({'emailVerified': true}, SetOptions(merge: true));
-
-        // ✅ Load user role from Firestore before navigating
-        final doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
-        userRole = (doc.data()?['role'] as String?)?.toLowerCase();
-
-        if (!mounted) return;
-        _navigateAfterVerify();
+        await _handleVerified(user);
       }
     });
   }
 
+  // Manual "I have verified" button
   Future<void> _checkEmailVerifiedManually() async {
     setState(() => _isLoading = true);
-    await FirebaseAuth.instance.currentUser?.reload();
-    final user = FirebaseAuth.instance.currentUser;
+
+    final auth = FirebaseAuth.instance;
+    await auth.currentUser?.reload();
+    final user = auth.currentUser;
     final verified = user?.emailVerified ?? false;
 
-    if (verified) {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user!.uid)
-          .set({'emailVerified': true}, SetOptions(merge: true));
-
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
-      userRole = (doc.data()?['role'] as String?)?.toLowerCase();
-
-      if (!mounted) return;
-      _navigateAfterVerify();
+    if (verified && user != null) {
+      await _handleVerified(user);
     } else {
-      setState(() {
-        _isLoading = false;
-      });
+      if (!mounted) return;
+      setState(() => _isLoading = false);
       _showSnack(const Text('Email not verified yet.'));
     }
   }
 
+  // Common path once verified
+  Future<void> _handleVerified(User user) async {
+    if (_navigated) return; // ✅ guard
+
+    // Mark verified in Firestore
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .set({'emailVerified': true}, SetOptions(merge: true));
+
+    // Fetch role
+    final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .get();
+    _userRole = (doc.data()?['role'] as String?)?.toLowerCase();
+
+    if (!mounted) return;
+    _navigateAfterVerify();
+  }
+
+  // Resend verification email
   Future<void> _resendEmail() async {
     try {
       await FirebaseAuth.instance.currentUser?.sendEmailVerification();
@@ -99,27 +101,28 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
   }
 
   void _navigateAfterVerify() {
-    if (!mounted) return;
+    if (!mounted || _navigated) return;
+    _navigated = true;
 
-    final lowerRole = (userRole ?? '').toLowerCase();
+    final role = (_userRole ?? '').toLowerCase();
 
-    if (lowerRole == 'trainer' ||
-        lowerRole == 'personal trainer' ||
-        lowerRole == 'personaltrainer') {
+    if (role == 'trainer' ||
+        role == 'personal trainer' ||
+        role == 'personaltrainer') {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const TrainerProfileSetupPage()),
       );
-    } else if (lowerRole == 'customer') {
+    } else if (role == 'customer') {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const MarketplacePage()),
       );
     } else {
-      // fallback: unknown role, return to welcome page or error
+      // Fallback if role missing/unknown
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const SplashPage()),
+        MaterialPageRoute(builder: (_) => const WelcomePage()),
       );
     }
   }
@@ -132,12 +135,14 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
 
   @override
   Widget build(BuildContext context) {
+    const brand = Color(0xFFFFA726);
+
     return Scaffold(
-      backgroundColor: const Color(0xFFFFA726),
+      backgroundColor: brand,
       appBar: AppBar(
         title: const Text('Verify Your Email',
             style: TextStyle(color: Colors.white)),
-        backgroundColor: const Color(0xFFFFA726),
+        backgroundColor: brand,
         iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: Center(
@@ -152,7 +157,7 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.email, size: 50, color: Colors.orange),
+                  const Icon(Icons.email, size: 50, color: brand),
                   const SizedBox(height: 12),
                   const Text(
                     'Please Verify Your Email Address',
@@ -162,12 +167,13 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
                   const SizedBox(height: 10),
                   const Text(
                     'We have sent a verification link to your email. '
-                    'Please check your inbox (and spam) and verify your account '
-                    'to continue.',
+                    'Please check your inbox (and spam) and verify your account to continue.',
                     style: TextStyle(fontSize: 15),
                     textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
+
+                  // Manual check button
                   ElevatedButton.icon(
                     icon: const Icon(Icons.refresh, color: Colors.white),
                     label: const Text('I have verified'),
@@ -180,7 +186,9 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
                     ),
                     onPressed: _isLoading ? null : _checkEmailVerifiedManually,
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
+
+                  // Resend button
                   ElevatedButton(
                     onPressed: _isLoading ? null : _resendEmail,
                     style: ElevatedButton.styleFrom(
@@ -192,12 +200,22 @@ class _EmailVerificationPageState extends State<EmailVerificationPage> {
                     child: const Text('Resend Verification Email',
                         style: TextStyle(color: Colors.white)),
                   ),
+
                   if (_resent)
                     const Padding(
                       padding: EdgeInsets.only(top: 8),
                       child: Text('Verification email resent.',
                           style: TextStyle(color: Colors.green)),
                     ),
+
+                  if (_isLoading) ...[
+                    const SizedBox(height: 16),
+                    const SizedBox(
+                      height: 28,
+                      width: 28,
+                      child: CircularProgressIndicator(strokeWidth: 3),
+                    ),
+                  ],
                 ],
               ),
             ),

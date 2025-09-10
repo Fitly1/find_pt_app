@@ -24,9 +24,9 @@ class ListingsPage extends StatefulWidget {
 }
 
 class _ListingsPageState extends State<ListingsPage> {
-/* -------------------------------------------------------------------------- */
-/*                               STATE VARIABLES                              */
-/* -------------------------------------------------------------------------- */
+  /* -------------------------------------------------------------------------- */
+  /*                               STATE VARIABLES                              */
+  /* -------------------------------------------------------------------------- */
 
   // Category colours
   final Map<String, Color> categoryColors = {
@@ -66,9 +66,9 @@ class _ListingsPageState extends State<ListingsPage> {
   List<Map<String, dynamic>> _suburbsData = [];
   final List<String> _trainingMethods = ["all", "online", "face-to-face"];
 
-/* -------------------------------------------------------------------------- */
-/*                               INITIALISATION                               */
-/* -------------------------------------------------------------------------- */
+  /* -------------------------------------------------------------------------- */
+  /*                               INITIALISATION                               */
+  /* -------------------------------------------------------------------------- */
 
   @override
   void initState() {
@@ -91,9 +91,9 @@ class _ListingsPageState extends State<ListingsPage> {
     debugPrint("ListingsPage: role loaded = $role");
   }
 
-/* -------------------------------------------------------------------------- */
-/*                         BACK-NAVIGATION HELPER                              */
-/* -------------------------------------------------------------------------- */
+  /* -------------------------------------------------------------------------- */
+  /*                         BACK-NAVIGATION HELPER                              */
+  /* -------------------------------------------------------------------------- */
 
   void _handleBack() {
     final isTrainer = (userRole == 'trainer' ||
@@ -109,9 +109,9 @@ class _ListingsPageState extends State<ListingsPage> {
     );
   }
 
-/* -------------------------------------------------------------------------- */
-/*                          OTHER HELPERS / LOADERS                           */
-/* -------------------------------------------------------------------------- */
+  /* -------------------------------------------------------------------------- */
+  /*                          OTHER HELPERS / LOADERS                           */
+  /* -------------------------------------------------------------------------- */
 
   Future<void> _loadSuburbs() async {
     try {
@@ -137,9 +137,9 @@ class _ListingsPageState extends State<ListingsPage> {
     return earthRadius * c;
   }
 
-/* -------------------------------------------------------------------------- */
-/*                              FIRESTORE QUERY                               */
-/* -------------------------------------------------------------------------- */
+  /* -------------------------------------------------------------------------- */
+  /*                              FIRESTORE QUERY                               */
+  /* -------------------------------------------------------------------------- */
 
   Query _buildQuery() {
     Query query = FirebaseFirestore.instance
@@ -182,9 +182,9 @@ class _ListingsPageState extends State<ListingsPage> {
     return listings;
   }
 
-/* -------------------------------------------------------------------------- */
-/*                                UI HELPERS                                  */
-/* -------------------------------------------------------------------------- */
+  /* -------------------------------------------------------------------------- */
+  /*                                UI HELPERS                                  */
+  /* -------------------------------------------------------------------------- */
 
   Widget _buildActiveFilterChips() {
     List<Widget> chips = [];
@@ -224,7 +224,10 @@ class _ListingsPageState extends State<ListingsPage> {
         ),
       );
     }
-    return Wrap(spacing: 8.0, children: chips);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      child: Wrap(spacing: 8.0, runSpacing: 4.0, children: chips),
+    );
   }
 
   void clearFilters() {
@@ -257,13 +260,12 @@ class _ListingsPageState extends State<ListingsPage> {
       useRootNavigator: true,
       builder: (BuildContext ctx) {
         return SafeArea(
-          // 👈 NEW
           child: Padding(
             padding: MediaQuery.of(ctx).viewInsets,
             child: StatefulBuilder(
               builder: (BuildContext context, StateSetter setStateDialog) {
                 return Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 32), // 👈 NEW
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
                   child: SingleChildScrollView(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -343,8 +345,9 @@ class _ListingsPageState extends State<ListingsPage> {
                               );
                             },
                             emptyBuilder: (_) => const Padding(
-                                padding: EdgeInsets.all(8.0),
-                                child: Text("No suburb found.")),
+                              padding: EdgeInsets.all(8.0),
+                              child: Text("No suburb found."),
+                            ),
                           ),
                         ),
                         const SizedBox(height: 16),
@@ -417,9 +420,9 @@ class _ListingsPageState extends State<ListingsPage> {
         : const BottomNavigationCustomers(currentIndex: 2);
   }
 
-/* -------------------------------------------------------------------------- */
-/*                                  BUILD                                    */
-/* -------------------------------------------------------------------------- */
+  /* -------------------------------------------------------------------------- */
+  /*                                  BUILD                                     */
+  /* -------------------------------------------------------------------------- */
 
   @override
   Widget build(BuildContext context) {
@@ -437,13 +440,13 @@ class _ListingsPageState extends State<ListingsPage> {
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: _handleBack, // role-aware
         ),
-        title:
-            const Text("Listings Page", style: TextStyle(color: Colors.white)),
-        backgroundColor: const Color.fromARGB(255, 255, 167, 38),
+        title: const Text("Listings", style: TextStyle(color: Colors.white)),
+        backgroundColor: const Color(0xFFFFA726),
         actions: [
           IconButton(
             icon: const Icon(Icons.filter_list, color: Colors.white),
             onPressed: _openFilterSheet,
+            tooltip: 'Filters',
           ),
         ],
       ),
@@ -451,7 +454,7 @@ class _ListingsPageState extends State<ListingsPage> {
       body: Column(
         children: [
           _buildActiveFilterChips(),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: query.snapshots(),
@@ -478,12 +481,13 @@ class _ListingsPageState extends State<ListingsPage> {
 
                 return ListView.separated(
                   itemCount: listings.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  separatorBuilder: (_, __) => const SizedBox(height: 4),
                   itemBuilder: (_, index) {
                     final data = listings[index];
-                    final title = data["title"] ?? "No title";
-                    final description = data["description"] ?? "";
-                    final location = data["location"] ?? "";
+                    final rawTitle = (data["title"] ?? "No title").toString();
+                    final title = _capitalize(rawTitle);
+                    final description = (data["description"] ?? "").toString();
+                    final location = (data["location"] ?? "").toString();
                     final Timestamp? ts = data["timestamp"];
                     final formattedTime = ts != null
                         ? DateFormat('dd MMM yyyy').format(ts.toDate())
@@ -496,57 +500,25 @@ class _ListingsPageState extends State<ListingsPage> {
                         label: Text(spec),
                         backgroundColor: color,
                         labelStyle: const TextStyle(color: Colors.white),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 0),
                       );
                     }).toList();
-                    final String creatorName = data["firstName"] ?? "Unknown";
+                    final String creatorName =
+                        (data["firstName"] ?? "Unknown").toString();
                     final String profileImageUrl =
-                        data["profileImageUrl"] ?? "";
+                        (data["profileImageUrl"] ?? "").toString();
 
+                    // Redesigned card
                     return Card(
                       margin: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      elevation: 3,
+                          horizontal: 12, vertical: 8),
+                      elevation: 4,
                       shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10)),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.all(8),
-                        leading: CircleAvatar(
-                          radius: 20,
-                          backgroundImage: profileImageUrl.isNotEmpty
-                              ? NetworkImage(profileImageUrl)
-                              : const AssetImage('assets/default_profile.png')
-                                  as ImageProvider,
-                        ),
-                        title: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(title,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 2),
-                            Text("By: $creatorName",
-                                style: const TextStyle(
-                                    fontSize: 12, fontStyle: FontStyle.italic)),
-                          ],
-                        ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(height: 4),
-                            Text(description),
-                            const SizedBox(height: 4),
-                            Text("Location: $location"),
-                            if (specialtyChips.isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 6.0,
-                                runSpacing: 4.0,
-                                children: specialtyChips,
-                              ),
-                            ],
-                          ],
-                        ),
-                        trailing: Text(formattedTime),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(16),
                         onTap: () => Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -554,6 +526,98 @@ class _ListingsPageState extends State<ListingsPage> {
                               listingData: data,
                               listingId: data["uid"],
                             ),
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Header: avatar + title + meta
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  CircleAvatar(
+                                    radius: 24,
+                                    backgroundImage: profileImageUrl.isNotEmpty
+                                        ? NetworkImage(profileImageUrl)
+                                        : const AssetImage(
+                                                'assets/default_profile.png')
+                                            as ImageProvider,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          "By $creatorName • $formattedTime",
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+
+                              const SizedBox(height: 12),
+
+                              // Description
+                              if (description.isNotEmpty)
+                                Text(
+                                  description,
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 14, height: 1.3),
+                                ),
+
+                              const SizedBox(height: 10),
+
+                              // Location row
+                              if (location.isNotEmpty)
+                                Row(
+                                  children: [
+                                    const Icon(Icons.location_on,
+                                        size: 16, color: Colors.orange),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        location,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 13),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+
+                              // Specialties chips
+                              if (specialtyChips.isNotEmpty) ...[
+                                const SizedBox(height: 10),
+                                Wrap(
+                                  spacing: 6.0,
+                                  runSpacing: 4.0,
+                                  children: specialtyChips,
+                                ),
+                              ],
+                            ],
                           ),
                         ),
                       ),
@@ -575,7 +639,7 @@ class _ListingsPageState extends State<ListingsPage> {
             return const SizedBox.shrink();
           }
           return FloatingActionButton(
-            backgroundColor: const Color.fromARGB(255, 255, 167, 38),
+            backgroundColor: const Color(0xFFFFA726),
             tooltip: "Create a Listing",
             onPressed: () => Navigator.push(
               context,
@@ -592,12 +656,22 @@ class _ListingsPageState extends State<ListingsPage> {
     );
   }
 
-/* -------------------------------------------------------------------------- */
-/*                                 UTILITIES                                  */
-/* -------------------------------------------------------------------------- */
+  /* -------------------------------------------------------------------------- */
+  /*                                 UTILITIES                                  */
+  /* -------------------------------------------------------------------------- */
 
   String _formatSuburb(Map<String, dynamic> item) =>
       "${item['Suburb']}, ${item['State']} (${item['Postcode']})";
+
+  // Capitalize FIRST character only (as requested).
+  String _capitalize(String text) {
+    final t = text.trimLeft();
+    if (t.isEmpty) return text;
+    final leadingSpaceCount = text.length - t.length;
+    final leadingSpaces =
+        leadingSpaceCount > 0 ? text.substring(0, leadingSpaceCount) : '';
+    return leadingSpaces + t[0].toUpperCase() + t.substring(1);
+  }
 }
 
 /* -------------------------------------------------------------------------- */

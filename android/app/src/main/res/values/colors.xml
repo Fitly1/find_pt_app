@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- existing -->
     <color name="ic_launcher_background">#F3B342</color>
+
+    <!-- add this -->
+    <color name="brand_orange">#FFA726</color>
 </resources>

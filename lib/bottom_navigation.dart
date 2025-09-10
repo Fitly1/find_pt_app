@@ -8,7 +8,7 @@ import 'messages_page.dart';
 import 'listings_page.dart';
 import 'trainer_home_page.dart';
 import 'profile_page.dart' as profile;
-import 'splashpage.dart';
+import 'welcome_page.dart';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'notification_provider.dart';
@@ -161,7 +161,7 @@ class BottomNavigation extends ConsumerWidget {
             onPressed: () {
               Navigator.of(ctx).pop();
               Navigator.pushReplacement(
-                  ctx, MaterialPageRoute(builder: (_) => const SplashPage()));
+                  ctx, MaterialPageRoute(builder: (_) => const WelcomePage()));
             },
             child: const Text('OK', style: TextStyle(fontSize: 18)),
           ),

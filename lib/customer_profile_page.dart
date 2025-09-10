@@ -10,7 +10,7 @@ import 'edit_profile_page_customers.dart';
 import 'faq_page.dart';
 import 'contact_us_page.dart';
 import 'bottom_navigation_customers.dart';
-import 'splashpage.dart';
+import 'welcome_page.dart';
 import 'marketplace_page.dart';
 import 'terms_conditions_page.dart';
 import 'privacy_policy_page.dart';
@@ -67,7 +67,7 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
         final nav = Navigator.of(context);
         await Future<void>.delayed(Duration.zero);
         nav.pushReplacement(
-            MaterialPageRoute(builder: (_) => const SplashPage()));
+            MaterialPageRoute(builder: (_) => const WelcomePage()));
       }
     });
 
@@ -392,7 +392,7 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
     await secureStorage.deleteData('last_customer_profile_view');
 
     if (!mounted) return;
-    nav.pushReplacement(MaterialPageRoute(builder: (_) => const SplashPage()));
+    nav.pushReplacement(MaterialPageRoute(builder: (_) => const WelcomePage()));
   }
 
   Future<void> _deleteAccount() async {
@@ -449,7 +449,7 @@ class _CustomerProfilePageState extends State<CustomerProfilePage> {
 
       if (!mounted) return;
       nav.pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const SplashPage()),
+        MaterialPageRoute(builder: (_) => const WelcomePage()),
         (_) => false,
       );
     } catch (e) {

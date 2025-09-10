@@ -37,6 +37,9 @@ class _ChatPageState extends State<ChatPage> {
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
+  // input state
+  bool _canSend = false;
+
   // ───────────────────────────────── other participant
   late final String _otherUserId;
   String _otherDisplayName = "Loading...";
@@ -51,7 +54,7 @@ class _ChatPageState extends State<ChatPage> {
   // When true we attach the messages StreamBuilder.
   // In lazy mode this becomes true after the first successful send
   // OR when the conversation appears (from console reply, etc).
-  bool _conversationLive = false; // ← default fixes LateInitializationError
+  bool _conversationLive = false;
 
   // live update for block status & conversation existence
   StreamSubscription<DocumentSnapshot>? _blockSub;
@@ -62,6 +65,14 @@ class _ChatPageState extends State<ChatPage> {
     super.initState();
     _otherUserId = widget.otherUserId;
     _conversationLive = !widget.lazyCreate;
+
+    // watch input to enable/disable send button
+    _messageController.addListener(() {
+      final next = _messageController.text.trim().isNotEmpty;
+      if (next != _canSend) {
+        setState(() => _canSend = next);
+      }
+    });
 
     _loadParticipantData(); // safe even in lazy mode
 
@@ -114,10 +125,10 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   void dispose() {
-    // Don’t try to delete “empty conversation” in lazy mode—there may be none.
     if (_conversationLive) {
       _maybeDeleteEmptyConversation();
     }
+    _messageController.removeListener(() {});
     _messageController.dispose();
     _scrollController.dispose();
     _blockSub?.cancel();
@@ -260,7 +271,6 @@ class _ChatPageState extends State<ChatPage> {
           'unreadBy': otherUid != myUid ? [otherUid] : [],
         });
       } else {
-        // Surface real permission errors
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Couldn't start chat: ${e.message}")),
         );
@@ -280,15 +290,14 @@ class _ChatPageState extends State<ChatPage> {
         'senderName': me.displayName ?? '',
       });
 
-      _messageController.clear();
+      _messageController.clear(); // will also disable send button via listener
+      _scrollToBottom();
 
       // If we opened in lazy mode, start listening after first send
       if (widget.lazyCreate && !_conversationLive) {
         setState(() => _conversationLive = true);
         _markConversationAsRead(); // we’re now in the thread
       }
-
-      _scrollToBottom();
     } on FirebaseException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Send failed: ${e.message}')),
@@ -469,7 +478,7 @@ class _ChatPageState extends State<ChatPage> {
                 ),
               ),
             ),
-            SafeArea(top: false, child: _buildInputBar()),
+            _buildInputBar(),
           ],
         ),
       );
@@ -525,7 +534,7 @@ class _ChatPageState extends State<ChatPage> {
               },
             ),
           ),
-          SafeArea(top: false, child: _buildInputBar()),
+          _buildInputBar(),
         ],
       ),
     );
@@ -576,27 +585,54 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   Widget _buildInputBar() {
-    return Container(
-      color: Colors.grey[100],
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              controller: _messageController,
-              textInputAction: TextInputAction.send,
-              onSubmitted: (_) => _sendMessage(),
-              decoration: const InputDecoration(
-                hintText: 'Type something...',
-                border: InputBorder.none,
+    return SafeArea(
+      top: false,
+      child: Container(
+        color: Colors.grey[100],
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  // ~5 lines max height; adjust if you want more
+                  maxHeight: 160,
+                ),
+                child: Scrollbar(
+                  child: TextField(
+                    controller: _messageController,
+                    keyboardType: TextInputType.multiline,
+                    textInputAction:
+                        TextInputAction.newline, // RETURN = newline
+                    minLines: 1,
+                    maxLines: null, // <-- allows wrapping / vertical growth
+                    expands: false, // <-- IMPORTANT: don't set this to true
+                    textCapitalization: TextCapitalization.sentences,
+                    decoration: const InputDecoration(
+                      hintText: 'Type a message…',
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.send, color: Colors.blueAccent),
-            onPressed: _sendMessage,
-          ),
-        ],
+            const SizedBox(width: 6),
+            IconButton(
+              icon: Icon(
+                Icons.send,
+                color: _canSend ? Colors.blueAccent : Colors.grey,
+              ),
+              onPressed: _canSend ? _sendMessage : null,
+              tooltip: 'Send',
+            ),
+          ],
+        ),
       ),
     );
   }

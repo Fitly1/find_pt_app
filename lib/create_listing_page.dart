@@ -96,15 +96,16 @@ class _CreateListingPageState extends State<CreateListingPage> {
       setState(() {
         _suburbsData = jsonData.map((e) => e as Map<String, dynamic>).toList();
       });
-      debugPrint("✅ Loaded ${_suburbsData.length} suburbs from JSON.");
     } catch (e) {
       debugPrint("❌ Error loading suburbs data: $e");
     }
   }
 
+  /* ───────────────────────────── helpers ───────────────────────────────── */
+  String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+
   /* ─────────────────────────────  submit  ──────────────────────────────── */
   Future<void> _submitListing() async {
-    // Grab navigator / messenger up-front to avoid using context after await.
     final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.of(context);
 
@@ -129,7 +130,7 @@ class _CreateListingPageState extends State<CreateListingPage> {
     }
 
     final listingData = <String, dynamic>{
-      "title": _titleController.text.trim(),
+      "title": _cap(_titleController.text.trim()),
       "description": _descriptionController.text.trim(),
       "location": _selectedLocation,
       "trainingMethod": _selectedTrainingMethod,
@@ -163,10 +164,9 @@ class _CreateListingPageState extends State<CreateListingPage> {
       }
 
       messenger.showSnackBar(
-          const SnackBar(content: Text("Listing saved successfully!")));
+          const SnackBar(content: Text("✅ Listing saved successfully!")));
       navigator.pop();
 
-      // Store timestamp (no UI needed).
       await secureStorage.writeData(
           'last_listing_submission', DateTime.now().toIso8601String());
     } catch (e) {
@@ -187,7 +187,8 @@ class _CreateListingPageState extends State<CreateListingPage> {
             onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
-          TextButton(
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
               final messenger = ScaffoldMessenger.of(parentContext);
               final navigator = Navigator.of(parentContext);
@@ -202,11 +203,11 @@ class _CreateListingPageState extends State<CreateListingPage> {
               }
 
               if (!mounted) return;
-              navigator.pop(); // leave page
+              navigator.pop();
               messenger.showSnackBar(
                   const SnackBar(content: Text('Listing deleted')));
             },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -219,61 +220,78 @@ class _CreateListingPageState extends State<CreateListingPage> {
       context: context,
       useRootNavigator: true,
       isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (ctx) {
         return DraggableScrollableSheet(
           initialChildSize: 0.7,
           maxChildSize: 0.95,
+          expand: false,
           builder: (ctx, scrollController) {
-            return SingleChildScrollView(
-              controller: scrollController,
+            return Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  const Text("Search Location",
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  Container(
+                    height: 4,
+                    width: 40,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const Text(
+                    "Search Location",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 16),
-                  TypeAheadField<Map<String, dynamic>>(
-                    // ←--- original working async callback kept intact
-                    suggestionsCallback: (pattern) async {
-                      if (pattern.isEmpty) return [];
-                      final matches = _suburbsData.where((item) {
-                        final suburb =
-                            item["Suburb"]?.toString().toLowerCase() ?? "";
-                        final postcode = item["Postcode"]?.toString() ?? "";
-                        return suburb.contains(pattern.toLowerCase()) ||
-                            postcode.contains(pattern);
-                      }).toList();
-                      return matches.take(10).toList();
-                    },
-                    itemBuilder: (ctx, suggestion) {
-                      final display =
-                          "${suggestion['Suburb']}, ${suggestion['State']} (${suggestion['Postcode']})";
-                      return ListTile(title: Text(display));
-                    },
-                    onSelected: (suggestion) {
-                      setState(() {
-                        _selectedLocation =
+                  Expanded(
+                    child: TypeAheadField<Map<String, dynamic>>(
+                      suggestionsCallback: (pattern) async {
+                        if (pattern.isEmpty) return [];
+                        final lower = pattern.toLowerCase();
+                        return _suburbsData
+                            .where((item) {
+                              final suburb =
+                                  item["Suburb"]?.toString().toLowerCase() ??
+                                      "";
+                              final postcode =
+                                  item["Postcode"]?.toString() ?? "";
+                              return suburb.contains(lower) ||
+                                  postcode.contains(pattern);
+                            })
+                            .take(10)
+                            .toList();
+                      },
+                      itemBuilder: (ctx, suggestion) {
+                        final display =
                             "${suggestion['Suburb']}, ${suggestion['State']} (${suggestion['Postcode']})";
-                        _selectedSuburb = suggestion;
-                      });
-                      Navigator.pop(ctx);
-                    },
-                    builder: (ctx, textController, focusNode) {
-                      return TextField(
-                        controller: textController,
-                        focusNode: focusNode,
-                        decoration: const InputDecoration(
-                          hintText: "e.g., 2147 or Seven Hills",
-                          border: OutlineInputBorder(),
-                          helperText:
-                              "This helps match you with nearby trainers",
-                        ),
-                      );
-                    },
-                    emptyBuilder: (ctx) => const Padding(
-                      padding: EdgeInsets.all(8),
-                      child: Text("No matching suburb/postcode found."),
+                        return ListTile(title: Text(display));
+                      },
+                      onSelected: (suggestion) {
+                        setState(() {
+                          _selectedLocation =
+                              "${suggestion['Suburb']}, ${suggestion['State']} (${suggestion['Postcode']})";
+                          _selectedSuburb = suggestion;
+                        });
+                        Navigator.pop(ctx);
+                      },
+                      builder: (ctx, textController, focusNode) {
+                        return TextField(
+                          controller: textController,
+                          focusNode: focusNode,
+                          decoration: const InputDecoration(
+                            hintText: "e.g., 2147 or Seven Hills",
+                            border: OutlineInputBorder(),
+                          ),
+                        );
+                      },
+                      emptyBuilder: (_) => const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Text("No matching suburb/postcode found."),
+                      ),
                     ),
                   ),
                 ],
@@ -288,103 +306,79 @@ class _CreateListingPageState extends State<CreateListingPage> {
   /* ─────────────────────────────  UI  ──────────────────────────────────── */
   @override
   Widget build(BuildContext context) {
+    final isEditing = widget.isEditing;
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.isEditing ? "Edit Listing" : "Create Listing"),
-        backgroundColor: const Color.fromARGB(255, 255, 167, 38),
+        title: Text(isEditing ? "Edit Listing" : "Create Listing"),
+        backgroundColor: const Color(0xFFFFA726),
       ),
       body: SafeArea(
-        // 👈 added
         child: SingleChildScrollView(
-          padding:
-              const EdgeInsets.fromLTRB(16, 16, 16, 32), // 👈 bottom padding
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
           child: Form(
             key: _formKey,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                /* ────────────── Basic information ────────────── */
-                const Text("Basic Information",
-                    style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                const Divider(),
-                const SizedBox(height: 8),
-                const Text("What are your training goals?",
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
+                _sectionHeader("Basic Information"),
                 TextFormField(
                   controller: _titleController,
+                  textCapitalization: TextCapitalization.sentences,
                   validator: (v) =>
                       v == null || v.trim().isEmpty ? "Required" : null,
                   decoration: const InputDecoration(
+                    labelText: "Training Goal / Title",
                     hintText: "e.g., I need help with weight loss",
                     border: OutlineInputBorder(),
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Text("Description:",
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
                 TextFormField(
                   controller: _descriptionController,
+                  maxLines: 3,
                   validator: (v) =>
                       v == null || v.trim().isEmpty ? "Required" : null,
-                  maxLines: 3,
                   decoration: const InputDecoration(
+                    labelText: "Description",
                     hintText: "Provide details about your training needs...",
                     border: OutlineInputBorder(),
                   ),
                 ),
-                const SizedBox(height: 16),
-
-                /* ────────────── Location ────────────── */
-                const Text("Location (Suburb/Postcode):",
-                    style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                const Divider(),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _showLocationBottomSheet,
-                    icon: const Icon(Icons.search),
-                    label: Text(_selectedLocation?.isEmpty ?? true
-                        ? "Select Location"
-                        : _selectedLocation!),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color.fromARGB(255, 255, 167, 38),
-                    ),
+                const SizedBox(height: 24),
+                _sectionHeader("Location"),
+                ElevatedButton.icon(
+                  onPressed: _showLocationBottomSheet,
+                  icon: const Icon(Icons.search),
+                  label: Text(_selectedLocation ?? "Select Location"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFFA726),
+                    minimumSize: const Size(double.infinity, 48),
                   ),
                 ),
-                const SizedBox(height: 16),
-
-                /* ────────────── Preferences ────────────── */
-                const Text("Preferences",
-                    style:
-                        TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                const Divider(),
-                const SizedBox(height: 8),
-                const Text("Preferred Training Method:",
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
+                const SizedBox(height: 24),
+                _sectionHeader("Preferences"),
                 DropdownButtonFormField<String>(
-                  initialValue: _selectedTrainingMethod,
+                  initialValue: _selectedTrainingMethod, // ✅ deprecation fix
                   onChanged: (v) =>
                       setState(() => _selectedTrainingMethod = v!),
                   items: _trainingMethods
                       .map((m) => DropdownMenuItem(value: m, child: Text(m)))
                       .toList(),
-                  validator: (v) => v == null || v.isEmpty ? "Required" : null,
-                  decoration:
-                      const InputDecoration(border: OutlineInputBorder()),
+                  decoration: const InputDecoration(
+                    labelText: "Preferred Training Method",
+                    border: OutlineInputBorder(),
+                  ),
                 ),
                 const SizedBox(height: 16),
-                const Text("Specialties:",
-                    style: TextStyle(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
+                const Text(
+                  "Specialties",
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                const SizedBox(height: 8),
                 Wrap(
                   spacing: 8,
-                  runSpacing: 4,
+                  runSpacing: 6,
                   children: _allSpecialties.map((s) {
                     final selected = _selectedSpecialties.contains(s);
                     return FilterChip(
@@ -395,37 +389,34 @@ class _CreateListingPageState extends State<CreateListingPage> {
                             ? _selectedSpecialties.add(s)
                             : _selectedSpecialties.remove(s);
                       }),
+                      // ✅ withOpacity -> withValues(alpha: ...)
+                      selectedColor:
+                          const Color(0xFFFFA726).withValues(alpha: 0.2),
+                      checkmarkColor: const Color(0xFFFFA726),
                     );
                   }).toList(),
                 ),
-                const SizedBox(height: 24),
-
-                /* ────────────── Submit / Delete ────────────── */
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: _submitListing,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color.fromARGB(255, 255, 167, 38),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                    ),
-                    child: Text(
-                        widget.isEditing ? "Save Changes" : "Create Listing"),
+                const SizedBox(height: 32),
+                ElevatedButton(
+                  onPressed: _submitListing,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFFA726),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    minimumSize: const Size(double.infinity, 48),
                   ),
+                  child: Text(isEditing ? "Save Changes" : "Create Listing"),
                 ),
-                if (widget.isEditing) ...[
+                if (isEditing) ...[
                   const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () => _confirmDelete(context),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red.shade600,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: const Text('Delete Listing',
-                          style: TextStyle(color: Colors.white)),
+                  ElevatedButton(
+                    onPressed: () => _confirmDelete(context),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      minimumSize: const Size(double.infinity, 48),
                     ),
+                    child: const Text('Delete Listing',
+                        style: TextStyle(color: Colors.white)),
                   ),
                 ],
               ],
@@ -435,4 +426,12 @@ class _CreateListingPageState extends State<CreateListingPage> {
       ),
     );
   }
+
+  Widget _sectionHeader(String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Text(
+          text,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        ),
+      );
 }

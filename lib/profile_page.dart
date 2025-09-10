@@ -30,7 +30,7 @@ import 'marketplace_page.dart';
 import 'privacy_policy_page.dart';
 import 'refund_policy_page.dart';
 import 'secure_storage_service.dart';
-import 'splashpage.dart';
+import 'welcome_page.dart';
 import 'terms_conditions_page.dart';
 import 'trainer_dashboard_page.dart';
 
@@ -740,7 +740,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
       // use captured navigator (no context after awaits)
       nav.pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const SplashPage()),
+        MaterialPageRoute(builder: (_) => const WelcomePage()),
         (_) => false,
       );
     } on FirebaseAuthException catch (e) {
@@ -1244,7 +1244,7 @@ class _ProfilePageState extends State<ProfilePage> {
               // navigate using captured navigator to avoid context-after-await
               SchedulerBinding.instance.addPostFrameCallback((_) {
                 navigator.pushReplacement(
-                  MaterialPageRoute(builder: (_) => const SplashPage()),
+                  MaterialPageRoute(builder: (_) => const WelcomePage()),
                 );
               });
             },

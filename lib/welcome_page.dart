@@ -1,17 +1,13 @@
 import 'package:flutter/material.dart';
 
-// ─── adjust these paths to your project structure ───────────
-import '../signup_page.dart';
-import '../marketplace_page.dart';
-import '../login_page.dart';
-// ────────────────────────────────────────────────────────────
+// If this file sits in lib/, use these (remove ../ if not in a subfolder)
+import 'signup_page.dart';
+import 'marketplace_page.dart';
+import 'login_page.dart';
 
-/// The first in-app page after the native / Lottie splash.
-/// • “I’m a Trainer” → SignupPage with role locked to trainer
-/// • “I’m Looking for a Trainer” → Marketplace (guest mode)
-/// • “Already have an account? Log in” → LoginPage
-class SplashPage extends StatelessWidget {
-  const SplashPage({super.key});
+/// CTA / welcome screen (not the visual splash)
+class WelcomePage extends StatelessWidget {
+  const WelcomePage({super.key});
 
   static const Color brandOrange = Color(0xFFFFA726);
 
@@ -26,12 +22,8 @@ class SplashPage extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Logo
                 Image.asset('assets/Fitly2.png', height: 200),
-
                 const SizedBox(height: 30),
-
-                // Headline
                 const Text(
                   'Welcome to Fitly',
                   textAlign: TextAlign.center,
@@ -41,10 +33,9 @@ class SplashPage extends StatelessWidget {
                     color: Colors.white,
                   ),
                 ),
-
                 const SizedBox(height: 40),
 
-                // ─── Button 1 : Trainers ──────────────────────────
+                // Trainers
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
@@ -67,17 +58,13 @@ class SplashPage extends StatelessWidget {
                     child: const Text(
                       'I’m a Trainer',
                       style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
+                        fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 15),
 
-                // ─── Button 2 : Customers ────────────────────────
+                // Customers
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton(
@@ -85,8 +72,7 @@ class SplashPage extends StatelessWidget {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) =>
-                              const MarketplacePage(guestMode: true),
+                          builder: (_) => const MarketplacePage(guestMode: true),
                         ),
                       );
                     },
@@ -100,17 +86,13 @@ class SplashPage extends StatelessWidget {
                     child: const Text(
                       'I’m Looking for a Trainer',
                       style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
-                      ),
+                        fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 25),
 
-                // ─── Login link ──────────────────────────────────
+                // Login
                 TextButton(
                   onPressed: () {
                     Navigator.push(
