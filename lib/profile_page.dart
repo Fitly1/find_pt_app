@@ -3,15 +3,14 @@
 
 import 'dart:async';
 import 'dart:io';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:google_sign_in/google_sign_in.dart' as gsi;
-import 'package:in_app_purchase/in_app_purchase.dart';
-import 'package:in_app_purchase_storekit/in_app_purchase_storekit.dart';
+import 'iap_compat_stub.dart';
+
 import 'package:logger/logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
@@ -375,10 +374,13 @@ class _ProfilePageState extends State<ProfilePage> {
       return;
     }
     final res = await InAppPurchase.instance.queryProductDetails(_kProductIds);
-    if (res.error != null) {
-      logger.e('IAP query error: ${res.error}');
+
+// In stub: `error` is a bool, and we also expose `notFoundIDs`.
+    if (res.error || res.notFoundIDs.isNotEmpty) {
+      logger.e('IAP query error');
       return;
     }
+
     if (res.productDetails.isEmpty) {
       logger.e('IAP: product not found');
       return;
