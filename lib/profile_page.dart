@@ -165,8 +165,6 @@ class _SubscriptionSheet extends StatelessWidget {
             Text('Price: ${_priceString()} after a 3-month free trial',
                 style: const TextStyle(fontSize: 16)),
             const SizedBox(height: 18),
-
-            // feature bullets
             ...features.map(
               (f) => Padding(
                 padding: const EdgeInsets.only(bottom: 6),
@@ -179,7 +177,6 @@ class _SubscriptionSheet extends StatelessWidget {
                 ),
               ),
             ),
-
             const SizedBox(height: 16),
             Wrap(
               spacing: 12,
@@ -375,7 +372,6 @@ class _ProfilePageState extends State<ProfilePage> {
     }
     final res = await InAppPurchase.instance.queryProductDetails(_kProductIds);
 
-// In stub: `error` is a bool, and we also expose `notFoundIDs`.
     if (res.error || res.notFoundIDs.isNotEmpty) {
       logger.e('IAP query error');
       return;
@@ -669,11 +665,10 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _reauthGoogle() async {
-    // Try silent, then interactive authenticate() (v7 API)
     var account =
         await gsi.GoogleSignIn.instance.attemptLightweightAuthentication();
     account ??= await gsi.GoogleSignIn.instance.authenticate();
-    final googleAuth = account.authentication; // synchronous in v7
+    final googleAuth = account.authentication;
     final cred = GoogleAuthProvider.credential(idToken: googleAuth.idToken);
     await FirebaseAuth.instance.currentUser!.reauthenticateWithCredential(cred);
   }
@@ -698,12 +693,11 @@ class _ProfilePageState extends State<ProfilePage> {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final nav = Navigator.of(context); // capture BEFORE awaits
+    final nav = Navigator.of(context);
 
     if (!await _confirmDeletion()) return;
 
     try {
-      // re-authenticate
       final providers = user.providerData.map((e) => e.providerId).toList();
       if (providers.contains('google.com')) {
         await _reauthGoogle();
@@ -713,7 +707,6 @@ class _ProfilePageState extends State<ProfilePage> {
         await _reauthEmail(user.email ?? '');
       }
 
-      // delete firestore docs then auth user
       final batch = FirebaseFirestore.instance.batch();
       batch
           .delete(FirebaseFirestore.instance.collection('users').doc(user.uid));
@@ -724,11 +717,9 @@ class _ProfilePageState extends State<ProfilePage> {
 
       await user.delete();
       if (providers.contains('google.com')) {
-        // v7 API: singleton + disconnect to revoke consent
         await gsi.GoogleSignIn.instance.disconnect();
       }
 
-      // local cleanup
       await secureStorage.deleteData('userToken');
       await secureStorage.deleteData('last_profile_view');
       final prefs = await SharedPreferences.getInstance();
@@ -740,7 +731,6 @@ class _ProfilePageState extends State<ProfilePage> {
             message: 'Your account has been deleted successfully.');
       }
 
-      // use captured navigator (no context after awaits)
       nav.pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const WelcomePage()),
         (_) => false,
@@ -897,7 +887,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
-    final nav = Navigator.of(context); // used later in logout
+    final nav = Navigator.of(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -950,6 +940,28 @@ class _ProfilePageState extends State<ProfilePage> {
                 displayName = user?.displayName ?? 'No Name';
               }
 
+              // ─────────────────────────────────────────────────────────────
+              // BADGE LOGIC (paywall-aware)
+              // - Paywall ON  → show "Membership: Active/Inactive"
+              // - Paywall OFF → show "Profile: Active/Hidden"
+              // - Only for trainer roles; hidden for customers
+              // ─────────────────────────────────────────────────────────────
+              final bool isTrainerRole = [
+                'trainer',
+                'personal trainer',
+                'personaltrainer'
+              ].contains(userRole);
+
+              final String statusLabel = isTrainerPaymentsEnabled
+                  ? (isActive ? 'Membership: Active' : 'Membership: Inactive')
+                  : (isActive ? 'Profile: Active' : 'Profile: Hidden');
+
+              final String? statusHint = isTrainerPaymentsEnabled
+                  ? null
+                  : (isActive
+                      ? 'Your profile is visible in the Marketplace.'
+                      : 'Your profile is currently not visible in the Marketplace.');
+
               return Column(
                 children: [
                   // banner with avatar, name, chips
@@ -964,7 +976,6 @@ class _ProfilePageState extends State<ProfilePage> {
                             : Image.asset('assets/default_profile.png',
                                 fit: BoxFit.cover),
                       ),
-                      // gradient for legibility
                       Positioned.fill(
                         child: DecoratedBox(
                           decoration: const BoxDecoration(
@@ -1028,41 +1039,46 @@ class _ProfilePageState extends State<ProfilePage> {
                                     crossAxisAlignment:
                                         WrapCrossAlignment.center,
                                     children: [
-                                      // membership chip
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 10, vertical: 6),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white,
-                                          borderRadius:
-                                              BorderRadius.circular(12),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Container(
-                                              width: 8,
-                                              height: 8,
-                                              decoration: BoxDecoration(
-                                                color: isActive
-                                                    ? const Color(0xFF2E7D32)
-                                                    : const Color(0xFFC62828),
-                                                shape: BoxShape.circle,
-                                              ),
+                                      if (isTrainerRole)
+                                        Tooltip(
+                                          message: statusHint ?? '',
+                                          preferBelow: false,
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 10, vertical: 6),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white,
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
                                             ),
-                                            const SizedBox(width: 6),
-                                            Text(
-                                              isActive
-                                                  ? 'Membership: Active'
-                                                  : 'Membership: Inactive',
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                  fontWeight: FontWeight.w600),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Container(
+                                                  width: 8,
+                                                  height: 8,
+                                                  decoration: BoxDecoration(
+                                                    color: isActive
+                                                        ? const Color(
+                                                            0xFF2E7D32)
+                                                        : const Color(
+                                                            0xFFC62828),
+                                                    shape: BoxShape.circle,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                Text(
+                                                  statusLabel,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                      fontWeight:
+                                                          FontWeight.w600),
+                                                ),
+                                              ],
                                             ),
-                                          ],
+                                          ),
                                         ),
-                                      ),
-                                      // edit button
                                       OutlinedButton.icon(
                                         style: OutlinedButton.styleFrom(
                                           foregroundColor: Colors.white,
@@ -1146,7 +1162,6 @@ class _ProfilePageState extends State<ProfilePage> {
                   );
                 }
 
-                // not active → activation card + promo link (no overflow)
                 return Card(
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16)),
@@ -1235,7 +1250,6 @@ class _ProfilePageState extends State<ProfilePage> {
                 style: TextStyle(color: Colors.white, fontSize: 18)),
             onPressed: () async {
               final prefs = await SharedPreferences.getInstance();
-              // capture navigator first
               final navigator = Navigator.of(context);
 
               await FirebaseAuth.instance.signOut();
@@ -1243,7 +1257,6 @@ class _ProfilePageState extends State<ProfilePage> {
               await secureStorage.deleteData('userToken');
               await secureStorage.deleteData('last_profile_view');
 
-              // navigate using captured navigator to avoid context-after-await
               SchedulerBinding.instance.addPostFrameCallback((_) {
                 navigator.pushReplacement(
                   MaterialPageRoute(builder: (_) => const WelcomePage()),

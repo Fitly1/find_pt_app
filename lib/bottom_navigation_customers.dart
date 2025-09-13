@@ -98,7 +98,8 @@ class BottomNavigationCustomers extends ConsumerWidget {
                     onPressed: () {
                       Navigator.pop(sheetCtx); // close sheet
                       if (!ctx.mounted) return;
-                      Navigator.pushReplacement(
+                      // CHANGED: push (not replacement) so back button appears
+                      Navigator.push(
                         ctx,
                         MaterialPageRoute(
                           builder: (_) =>
@@ -129,7 +130,8 @@ class BottomNavigationCustomers extends ConsumerWidget {
                     onPressed: () {
                       Navigator.pop(sheetCtx);
                       if (!ctx.mounted) return;
-                      Navigator.pushReplacement(
+                      // CHANGED: push (not replacement) so back button appears
+                      Navigator.push(
                         ctx,
                         MaterialPageRoute(
                           builder: (_) =>
@@ -150,7 +152,8 @@ class BottomNavigationCustomers extends ConsumerWidget {
                   onPressed: () {
                     Navigator.pop(sheetCtx);
                     if (!ctx.mounted) return;
-                    Navigator.pushReplacement(
+                    // CHANGED: push (not replacement) so back button appears
+                    Navigator.push(
                       ctx,
                       MaterialPageRoute(builder: (_) => const LoginPage()),
                     );
@@ -205,6 +208,7 @@ class BottomNavigationCustomers extends ConsumerWidget {
         nextPage = const MarketplacePage();
     }
 
+    // Keep pushReplacement for tabs (so you don't stack tab pages)
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => nextPage),
