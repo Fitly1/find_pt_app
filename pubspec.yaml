@@ -68,6 +68,10 @@ dependencies:
   crypto: ^3.0.6
   flutter_local_notifications: ^19.3.0
   device_info_plus: ^11.5.0
+  package_info_plus: ^8.3.1
+  firebase_remote_config: ^6.0.2
+  in_app_update: ^4.2.5
+
 
 
 

@@ -596,30 +596,39 @@ class TrainerHomePageState extends State<TrainerHomePage> {
             if (viewerRole == 'trainer')
               _buildReviewNotificationBanner(trainerUid),
 
-            // ---------------- Header Card ----------------
+// ---------------- Header Card ----------------
             Padding(
               padding: const EdgeInsets.all(16),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(16),
                 child: Stack(
                   children: [
-                    // Background image
+                    // Solid backdrop so "letterboxing" looks intentional
+                    Container(color: Colors.black),
+
+                    // Image (full image, no crop)
                     SizedBox(
                       height: 260,
                       width: double.infinity,
                       child: imgUrl.isNotEmpty
                           ? CachedNetworkImage(
                               imageUrl: imgUrl,
-                              fit: BoxFit.cover,
+                              fit: BoxFit.contain, // 👈 show entire image
+                              alignment: Alignment.center,
                               errorWidget: (_, __, ___) => Image.asset(
                                 'assets/default_profile.png',
-                                fit: BoxFit.cover,
+                                fit: BoxFit.contain, // 👈 match fit
+                                alignment: Alignment.center,
                               ),
                             )
-                          : Image.asset('assets/default_profile.png',
-                              fit: BoxFit.cover),
+                          : Image.asset(
+                              'assets/default_profile.png',
+                              fit: BoxFit.contain,
+                              alignment: Alignment.center,
+                            ),
                     ),
-                    // Gradient overlay (no deprecated withOpacity)
+
+                    // Gradient overlay to keep text readable
                     Positioned.fill(
                       child: const DecoratedBox(
                         decoration: BoxDecoration(
@@ -634,6 +643,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                         ),
                       ),
                     ),
+
                     // Name + rating + rate
                     Positioned(
                       left: 16,
@@ -1134,7 +1144,7 @@ class FullScreenImage extends StatelessWidget {
             imageUrl: imageUrl,
             fit: BoxFit.contain,
             errorWidget: (_, __, ___) =>
-                Image.asset('assets/default_profile.png', fit: BoxFit.contain),
+                Image.asset('assets/default_profile.png', fit: BoxFit.fitWidth),
           ),
         ),
       ),

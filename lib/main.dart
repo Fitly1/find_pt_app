@@ -13,6 +13,7 @@ import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_remote_config/firebase_remote_config.dart';
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
@@ -20,6 +21,9 @@ import 'package:app_links/app_links.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:logger/logger.dart';
+import 'package:in_app_update/in_app_update.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /* ─── local files ─── */
 import 'firebase_options.dart';
@@ -53,6 +57,139 @@ Future<bool> _runningOnIosSimulator() async {
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   debugPrint('🔹 BG message handled: ${message.messageId}');
+}
+
+/* ───────── UPDATE GATE (Android + iOS) ───────── */
+const String kAppStoreUrl = 'https://apps.apple.com/app/id6745589939';
+
+class UpdateGate extends StatefulWidget {
+  final Widget child;
+  const UpdateGate({super.key, required this.child});
+  @override
+  State<UpdateGate> createState() => _UpdateGateState();
+}
+
+class _UpdateGateState extends State<UpdateGate> {
+  bool _checked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkForUpdates();
+  }
+
+  Future<void> _checkForUpdates() async {
+    try {
+      if (Platform.isAndroid) {
+        // Only run Play Core update checks in release builds.
+        if (kReleaseMode) {
+          final info = await InAppUpdate.checkForUpdate();
+          if (!mounted) return;
+          if (info.updateAvailability == UpdateAvailability.updateAvailable) {
+            await InAppUpdate.performImmediateUpdate();
+          }
+        }
+      } else if (Platform.isIOS) {
+        await _ensureRemoteConfigReady();
+        final needUpdate = await _isBelowMinVersion(
+          platformKey: 'min_version_ios',
+        );
+        if (!mounted) return;
+        if (needUpdate) {
+          await _showIosUpdateDialog();
+        }
+      } else {
+        // Other platforms: optional check via Remote Config
+        await _ensureRemoteConfigReady();
+        await _isBelowMinVersion(platformKey: 'min_version_android'); // no-op
+      }
+    } catch (e) {
+      debugPrint('Update check failed: $e');
+    } finally {
+      if (mounted) setState(() => _checked = true);
+    }
+  }
+
+  Future<void> _ensureRemoteConfigReady() async {
+    final rc = FirebaseRemoteConfig.instance;
+    await rc.setConfigSettings(RemoteConfigSettings(
+      fetchTimeout: const Duration(seconds: 10),
+      minimumFetchInterval: const Duration(hours: 1),
+    ));
+    try {
+      await rc.fetchAndActivate();
+    } catch (_) {
+      // Use cached/defaults if fetch fails
+    }
+  }
+
+  Future<bool> _isBelowMinVersion({required String platformKey}) async {
+    try {
+      final pkg = await PackageInfo.fromPlatform();
+      final current = pkg.version; // e.g., "1.0.3"
+      final rc = FirebaseRemoteConfig.instance;
+      final minRequired = rc.getString(platformKey).trim(); // e.g., "1.0.4"
+      if (minRequired.isEmpty) return false;
+      return _compareSemver(current, minRequired) < 0;
+    } catch (e) {
+      debugPrint('Version compare failed: $e');
+      return false;
+    }
+  }
+
+  /// Returns -1 if `a < b`, 0 if equal, 1 if `a > b`.
+  int _compareSemver(String a, String b) {
+    final pa = a.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    final pb = b.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+
+    // Use blocks with while (lint fix) and avoid < > in doc comment (lint fix).
+    while (pa.length < 3) {
+      pa.add(0);
+    }
+    while (pb.length < 3) {
+      pb.add(0);
+    }
+
+    for (int i = 0; i < 3; i++) {
+      if (pa[i] != pb[i]) return pa[i] < pb[i] ? -1 : 1;
+    }
+    return 0;
+  }
+
+  Future<void> _showIosUpdateDialog() async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false, // force the update
+      builder: (_) => AlertDialog(
+        title: const Text('Update required'),
+        content: const Text(
+          'A newer version of the app is available. Please update to continue.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              final uri = Uri.parse(kAppStoreUrl);
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+            },
+            child: const Text('Update'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Now that UpdateGate is inside MaterialApp, Directionality is already present.
+    if (!_checked) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+    return widget.child;
+  }
 }
 
 /* ───────── DEEP-LINK HANDLER ───────── */
@@ -287,10 +424,12 @@ class _FindPTAppState extends State<FindPTApp> {
       navigatorKey: navigatorKey,
       title: 'Find PT App',
       debugShowCheckedModeBanner: false,
-      home:
-          const LandingGate(), // guests → marketplace, signed-in → RoleRedirect
+      // Wrap the home only, not the whole app
+      home: const UpdateGate(
+        child: LandingGate(),
+      ), // guests → marketplace, signed-in → RoleRedirect
       routes: {
-        '/welcome': (context) => const WelcomePage(), // CTA screen
+        '/welcome': (context) => const WelcomePage(),
         '/marketplace': (context) => const MarketplacePage(),
         '/signup': (context) => const SignupPage(),
         '/login': (context) => const LoginPage(),

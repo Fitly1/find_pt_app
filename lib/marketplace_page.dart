@@ -8,6 +8,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:geolocator/geolocator.dart';
+
 import 'bottom_navigation.dart';
 import 'bottom_navigation_customers.dart';
 import 'components/trainer_card.dart';
@@ -20,6 +22,10 @@ import 'chat_page.dart';
 
 // -- concierge UID
 const String kConciergeUid = 'JzPLt6B6PFhnXxjaZI4t4lFnoKQ2';
+
+// Distance choices; -1 = Any (no cap)
+const List<int> kDistanceChoices = [2, 5, 10, 15, 25, 50, -1];
+String _distanceLabel(int km) => km == -1 ? 'Any' : '$km km';
 
 class MarketplacePage extends StatefulWidget {
   final bool guestMode;
@@ -36,6 +42,12 @@ class _MarketplacePageState extends State<MarketplacePage> {
   List<Map<String, dynamic>> allSuburbs = [];
   Map<String, dynamic>? selectedSuburbData;
   String selectedSuburbText = '';
+
+  // Current location toggle/coords
+  bool useCurrentLocation = false;
+  double? _currentLat;
+  double? _currentLng;
+  bool _locBusy = false;
 
   RangeValues priceRange = const RangeValues(20, 150);
   double maxDistance = 1000.0;
@@ -105,6 +117,54 @@ class _MarketplacePageState extends State<MarketplacePage> {
       if (mounted) setState(() {});
     } catch (e) {
       debugPrint('Error loading suburbs: $e');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // LOCATION HELPERS
+  // ---------------------------------------------------------------------------
+  Future<bool> _ensureLocation() async {
+    setState(() => _locBusy = true);
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Enable location services to use this feature.')),
+        );
+        return false;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.deniedForever ||
+          permission == LocationPermission.denied) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Location permission denied.')),
+        );
+        return false;
+      }
+
+      // New API: use LocationSettings (no deprecated desiredAccuracy)
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+
+      _currentLat = pos.latitude;
+      _currentLng = pos.longitude;
+      return true;
+    } catch (e) {
+      debugPrint('Location error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not get location: $e')),
+      );
+      return false;
+    } finally {
+      if (mounted) setState(() => _locBusy = false);
     }
   }
 
@@ -229,39 +289,64 @@ class _MarketplacePageState extends State<MarketplacePage> {
 
   List<Map<String, dynamic>> _filterTrainers(
       List<Map<String, dynamic>> trainers) {
+    // Determine the user's reference point:
+    double? refLat;
+    double? refLng;
+
+    // If ONLY 'Online' is selected, skip distance/location entirely
+    final onlyOnline = selectedTrainingMethods.length == 1 &&
+        selectedTrainingMethods.contains('Online');
+
+    if (!onlyOnline) {
+      if (useCurrentLocation && _currentLat != null && _currentLng != null) {
+        refLat = _currentLat;
+        refLng = _currentLng;
+      } else if (selectedSuburbData != null) {
+        refLat =
+            double.tryParse(selectedSuburbData!['Latitude'].toString()) ?? 0.0;
+        refLng =
+            double.tryParse(selectedSuburbData!['Longitude'].toString()) ?? 0.0;
+      }
+    }
+
     return trainers.where((t) {
       if (_blocked.contains(t['uid'])) return false;
 
+      // rating
       final rating = ((t['rating'] as num?)?.toDouble() ?? 0);
       final okRating = rating >= minRating;
 
+      // categories
       final okCat = selectedCategories.isEmpty ||
           selectedCategories.any((c) => (t['specialties'] ?? [])
               .map((e) => e.toString().toLowerCase())
               .contains(c.toLowerCase()));
 
+      // price
       var okPrice = true;
       if (t['rate'] is num) {
         final rate = (t['rate'] as num).toDouble();
         okPrice = rate >= priceRange.start && rate <= priceRange.end;
       }
 
+      // distance: only if we have a ref point
       var okDist = true;
-      if (selectedSuburbData != null) {
+      if (refLat != null && refLng != null) {
         final geo = t['geoLocation'];
-        if (geo is Map) {
-          final uLat =
-              double.tryParse(selectedSuburbData!['Latitude'].toString()) ?? 0;
-          final uLng =
-              double.tryParse(selectedSuburbData!['Longitude'].toString()) ?? 0;
-          okDist = _distance((geo['lat'] as num).toDouble(),
-                  (geo['lng'] as num).toDouble(), uLat, uLng) <=
-              maxDistance;
+        if (geo is Map && geo['lat'] != null && geo['lng'] != null) {
+          final d = _distance(
+            (geo['lat'] as num).toDouble(),
+            (geo['lng'] as num).toDouble(),
+            refLat,
+            refLng,
+          );
+          okDist = d <= maxDistance;
         } else {
-          okDist = false;
+          okDist = false; // no trainer coords available
         }
       }
 
+      // training methods
       final okMethod = selectedTrainingMethods.isEmpty ||
           selectedTrainingMethods.contains(t['method']) ||
           (t['trainingMethods'] is List &&
@@ -282,6 +367,9 @@ class _MarketplacePageState extends State<MarketplacePage> {
       minRating = 0;
       maxDistance = 1000;
       priceRange = const RangeValues(20, 150);
+      useCurrentLocation = false;
+      _currentLat = null;
+      _currentLng = null;
     });
   }
 
@@ -290,7 +378,15 @@ class _MarketplacePageState extends State<MarketplacePage> {
 
   List<Widget> _buildActiveFilterChips() {
     final chips = <Widget>[];
-    if (selectedSuburbText.isNotEmpty) {
+    if (useCurrentLocation) {
+      chips.add(_chip('Location: Current location', () {
+        setState(() {
+          useCurrentLocation = false;
+          _currentLat = null;
+          _currentLng = null;
+        });
+      }));
+    } else if (selectedSuburbText.isNotEmpty) {
       chips.add(_chip('Suburb: $selectedSuburbText', () {
         setState(() {
           selectedSuburbData = null;
@@ -311,7 +407,10 @@ class _MarketplacePageState extends State<MarketplacePage> {
           () => setState(() => minRating = 0)));
     }
     if (selectedDistance != 50) {
-      chips.add(_chip('Distance: $selectedDistance km', () {
+      final label = selectedDistance == -1
+          ? 'Distance: Any'
+          : 'Distance: $selectedDistance km';
+      chips.add(_chip(label, () {
         setState(() {
           selectedDistance = 50;
           maxDistance = 50;
@@ -338,6 +437,10 @@ class _MarketplacePageState extends State<MarketplacePage> {
     List<String> dCats = List.from(selectedCategories);
     RangeValues dPrice = priceRange;
 
+    bool dUseCurrentLoc = useCurrentLocation;
+    double? dLat = _currentLat;
+    double? dLng = _currentLng;
+
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -359,50 +462,101 @@ class _MarketplacePageState extends State<MarketplacePage> {
                           TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
 
-                  // Location
-                  const Text('Location:'),
-                  Material(
-                    child: TypeAheadField<Map<String, dynamic>>(
-                      controller: suburbController,
-                      suggestionsCallback: (pattern) {
-                        if (pattern.isEmpty) return [];
-                        final matches = allSuburbs.where((item) {
-                          final sub = item['Suburb'].toString().toLowerCase();
-                          final pc = item['Postcode'].toString();
-                          return sub.contains(pattern.toLowerCase()) ||
-                              pc.contains(pattern);
-                        }).toList()
-                          ..sort((a, b) => a['Suburb']
-                              .toString()
-                              .compareTo(b['Suburb'].toString()));
-                        return matches.take(10).toList();
-                      },
-                      itemBuilder: (_, s) =>
-                          ListTile(title: Text(_formatSuburb(s))),
-                      onSelected: (s) {
-                        setStateDialog(() {
-                          dSuburb = s;
-                          dSubText = _formatSuburb(s);
-                          suburbController.text = dSubText;
-                        });
-                      },
-                      builder: (_, textCtrl, focusNode) {
-                        if (suburbController.text.isNotEmpty &&
-                            textCtrl.text.isEmpty) {
-                          textCtrl.text = suburbController.text;
-                        }
-                        return TextField(
-                          controller: textCtrl,
-                          focusNode: focusNode,
-                          decoration: const InputDecoration(
-                            labelText: 'Location (Suburb or Postcode)',
-                            border: OutlineInputBorder(),
-                          ),
-                        );
-                      },
-                      emptyBuilder: (_) => const Padding(
-                          padding: EdgeInsets.all(8.0),
-                          child: Text('No suburb found.')),
+                  // Current location switch
+                  Row(
+                    children: [
+                      Switch(
+                        value: dUseCurrentLoc,
+                        onChanged: (v) async {
+                          if (v) {
+                            setStateDialog(() {});
+                            // fetch location
+                            final ok = await _ensureLocation();
+                            if (ok) {
+                              dUseCurrentLoc = true;
+                              dLat = _currentLat;
+                              dLng = _currentLng;
+                              dSuburb = null;
+                              dSubText = '';
+                              suburbController.clear();
+                            } else {
+                              dUseCurrentLoc = false;
+                            }
+                          } else {
+                            dUseCurrentLoc = false;
+                          }
+                          setStateDialog(() {});
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Use my current location',
+                          style: TextStyle(fontSize: 16),
+                        ),
+                      ),
+                      if (_locBusy) const SizedBox(width: 16),
+                      if (_locBusy)
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Location (suburb) – disabled when using current location
+                  const Text('Location (Suburb or Postcode):'),
+                  AbsorbPointer(
+                    absorbing: dUseCurrentLoc,
+                    child: Opacity(
+                      opacity: dUseCurrentLoc ? 0.4 : 1,
+                      child: Material(
+                        child: TypeAheadField<Map<String, dynamic>>(
+                          controller: suburbController,
+                          suggestionsCallback: (pattern) {
+                            if (pattern.isEmpty) return [];
+                            final matches = allSuburbs.where((item) {
+                              final sub =
+                                  item['Suburb'].toString().toLowerCase();
+                              final pc = item['Postcode'].toString();
+                              return sub.contains(pattern.toLowerCase()) ||
+                                  pc.contains(pattern);
+                            }).toList()
+                              ..sort((a, b) => a['Suburb']
+                                  .toString()
+                                  .compareTo(b['Suburb'].toString()));
+                            return matches.take(10).toList();
+                          },
+                          itemBuilder: (_, s) =>
+                              ListTile(title: Text(_formatSuburb(s))),
+                          onSelected: (s) {
+                            setStateDialog(() {
+                              dUseCurrentLoc = false;
+                              dSuburb = s;
+                              dSubText = _formatSuburb(s);
+                              suburbController.text = dSubText;
+                            });
+                          },
+                          builder: (_, textCtrl, focusNode) {
+                            if (suburbController.text.isNotEmpty &&
+                                textCtrl.text.isEmpty) {
+                              textCtrl.text = suburbController.text;
+                            }
+                            return TextField(
+                              controller: textCtrl,
+                              focusNode: focusNode,
+                              decoration: const InputDecoration(
+                                border: OutlineInputBorder(),
+                              ),
+                            );
+                          },
+                          emptyBuilder: (_) => const Padding(
+                              padding: EdgeInsets.all(8.0),
+                              child: Text('No suburb found.')),
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -439,17 +593,24 @@ class _MarketplacePageState extends State<MarketplacePage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Distance
-                  const Text('Distance (km):'),
-                  DropdownButton<int>(
-                    value: dDistance,
-                    onChanged: (v) => setStateDialog(() => dDistance = v!),
-                    items: [5, 10, 20, 50, 100]
-                        .map((d) =>
-                            DropdownMenuItem(value: d, child: Text('$d km')))
-                        .toList(),
-                  ),
-                  const SizedBox(height: 16),
+                  // Distance chips (hidden if ONLY Online is selected)
+                  if (!(dMethods.length == 1 &&
+                      dMethods.contains('Online'))) ...[
+                    const Text('Distance:'),
+                    Wrap(
+                      spacing: 8,
+                      children: kDistanceChoices.map((km) {
+                        final selected = dDistance == km;
+                        return ChoiceChip(
+                          label: Text(_distanceLabel(km)),
+                          selected: selected,
+                          onSelected: (_) =>
+                              setStateDialog(() => dDistance = km),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
 
                   // Rating
                   const Text('Minimum Rating:'),
@@ -506,8 +667,15 @@ class _MarketplacePageState extends State<MarketplacePage> {
                             selectedSuburbText = dSubText;
                             selectedTrainingMethods = List.from(dMethods);
                             selectedCategories = List.from(dCats);
-                            maxDistance = dDistance.toDouble();
+                            // -1 means Any (remove distance cap)
+                            maxDistance = (dDistance == -1)
+                                ? 100000.0
+                                : dDistance.toDouble();
                             priceRange = dPrice;
+
+                            useCurrentLocation = dUseCurrentLoc;
+                            _currentLat = dLat;
+                            _currentLng = dLng;
                           });
                           Navigator.pop(ctx);
                         },
@@ -829,7 +997,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
                         crossAxisCount: 2,
                         crossAxisSpacing: 10,
                         mainAxisSpacing: 10,
-                        childAspectRatio: 0.5,
+                        childAspectRatio: 0.55,
                       ),
                       itemCount: listWithHelper.length,
                       itemBuilder: (_, i) {
