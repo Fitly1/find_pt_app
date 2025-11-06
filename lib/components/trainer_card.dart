@@ -9,7 +9,7 @@ class TrainerCard extends StatefulWidget {
   final String location;
   final Map<String, Color> categoryColors;
   final String? profileImageUrl;
-  final Map<String, dynamic> trainerData; // must include "uid" ideally
+  final Map<String, dynamic> trainerData;
   final VoidCallback? onTap;
 
   const TrainerCard({
@@ -35,7 +35,11 @@ class _Rating {
 
 class _TrainerCardState extends State<TrainerCard> {
   Future<_Rating>? _ratingFuture;
-  bool _isPressed = false; // for lift effect
+  bool _isPressed = false;
+
+  static const double _imageHeight = 190;
+  static const double _titleFont = 18;
+  static const double _locationFont = 13;
 
   @override
   void initState() {
@@ -115,7 +119,6 @@ class _TrainerCardState extends State<TrainerCard> {
 
   @override
   Widget build(BuildContext context) {
-    // Prefer first/last name if present
     String displayName = (widget.trainerData["firstName"] ?? '') +
         ((widget.trainerData["lastName"] != null &&
                 widget.trainerData["lastName"].toString().trim().isNotEmpty)
@@ -127,7 +130,7 @@ class _TrainerCardState extends State<TrainerCard> {
 
     return InkWell(
       onTap: widget.onTap,
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(14),
       onHighlightChanged: (pressed) {
         setState(() => _isPressed = pressed);
       },
@@ -136,34 +139,32 @@ class _TrainerCardState extends State<TrainerCard> {
         curve: Curves.easeInOut,
         margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(14),
           boxShadow: [
-            if (_isPressed)
-              const BoxShadow(
-                color: Colors.black26,
-                blurRadius: 12,
-                offset: Offset(0, 6),
-              )
-            else
-              const BoxShadow(
-                color: Colors.black12,
-                blurRadius: 4,
-                offset: Offset(0, 2),
-              ),
+            BoxShadow(
+              color: Colors.orange.withValues(alpha: 0.18),
+              blurRadius: _isPressed ? 14 : 10,
+              offset: Offset(0, _isPressed ? 6 : 3),
+              spreadRadius: 0.5,
+            ),
           ],
         ),
         child: Card(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          elevation: 0, // shadow handled above
+          color: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: const BorderSide(
+              color: Color(0xFFFFA726), // orange border line
+              width: 1.3,
+            ),
+          ),
+          elevation: 0,
           clipBehavior: Clip.antiAlias,
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // --- IMAGE ---
-              AspectRatio(
-                aspectRatio: 1.2, // keeps all trainer cards same height
+              SizedBox(
+                height: _imageHeight,
                 child: (widget.profileImageUrl != null &&
                         widget.profileImageUrl!.isNotEmpty)
                     ? CachedNetworkImage(
@@ -187,66 +188,70 @@ class _TrainerCardState extends State<TrainerCard> {
                         fit: BoxFit.cover,
                       ),
               ),
-
-              // --- INFO ---
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.all(8.0),
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
                   child: Column(
-                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Name
                       Text(
                         displayName,
                         style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          fontSize: _titleFont,
+                          letterSpacing: 0.2,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
-
                       const SizedBox(height: 4),
-
-                      // Specialties
+                      Text(
+                        widget.location,
+                        style: const TextStyle(
+                          fontSize: _locationFont,
+                          color: Colors.black54,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 8),
                       Wrap(
-                        spacing: 4,
-                        runSpacing: 4,
+                        spacing: 6,
+                        runSpacing: 6,
                         children: [
                           ...widget.specialties.take(2).map(
-                                (specialty) => Chip(
-                                  label: Text(
-                                    specialty,
-                                    style: const TextStyle(
-                                        color: Colors.white, fontSize: 11),
+                                (s) => Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color:
+                                        widget.categoryColors[s] ?? Colors.grey,
+                                    borderRadius: BorderRadius.circular(18),
                                   ),
-                                  backgroundColor:
-                                      widget.categoryColors[specialty] ??
-                                          Colors.grey,
-                                  materialTapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                  visualDensity: VisualDensity.compact,
+                                  child: Text(
+                                    s,
+                                    style: const TextStyle(
+                                        color: Colors.white, fontSize: 12),
+                                  ),
                                 ),
                               ),
                           if (widget.specialties.length > 2)
-                            const Chip(
-                              label: Text(
-                                '...',
-                                style: TextStyle(
-                                    color: Colors.white, fontSize: 11),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.grey,
+                                borderRadius: BorderRadius.circular(18),
                               ),
-                              backgroundColor: Colors.grey,
-                              materialTapTargetSize:
-                                  MaterialTapTargetSize.shrinkWrap,
-                              visualDensity: VisualDensity.compact,
+                              child: const Text(
+                                '…',
+                                style: TextStyle(
+                                    color: Colors.white, fontSize: 12),
+                              ),
                             ),
                         ],
                       ),
-
                       const Spacer(),
-
-                      // Rating
                       FutureBuilder<_Rating>(
                         future: _ratingFuture ??=
                             _resolveRating(widget.trainerData),
@@ -263,12 +268,9 @@ class _TrainerCardState extends State<TrainerCard> {
                             return const Text("New",
                                 style: TextStyle(fontSize: 13));
                           }
-
                           final rating =
                               snapshot.data ?? const _Rating(null, 0);
-                          final hasRatings =
-                              rating.avg != null && rating.count > 0;
-
+                          final has = rating.avg != null && rating.count > 0;
                           return Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -276,7 +278,7 @@ class _TrainerCardState extends State<TrainerCard> {
                                   size: 16, color: Colors.amber),
                               const SizedBox(width: 4),
                               Text(
-                                hasRatings
+                                has
                                     ? '${rating.avg!.toStringAsFixed(1)} (${rating.count})'
                                     : 'New',
                                 style: const TextStyle(fontSize: 13),
@@ -284,17 +286,6 @@ class _TrainerCardState extends State<TrainerCard> {
                             ],
                           );
                         },
-                      ),
-
-                      const SizedBox(height: 4),
-
-                      // Location
-                      Text(
-                        widget.location,
-                        style:
-                            const TextStyle(fontSize: 12, color: Colors.grey),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),

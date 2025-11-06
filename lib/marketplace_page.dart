@@ -87,6 +87,9 @@ class _MarketplacePageState extends State<MarketplacePage> {
   String userRole = 'customer';
   List<String> _blocked = [];
 
+  // Fixed tile height so the grid is perfectly aligned
+  static const double kTileHeight = 405;
+
   // ---------------------------------------------------------------------------
   // LIFE-CYCLE
   // ---------------------------------------------------------------------------
@@ -147,7 +150,6 @@ class _MarketplacePageState extends State<MarketplacePage> {
         return false;
       }
 
-      // New API: use LocationSettings (no deprecated desiredAccuracy)
       final pos = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
@@ -177,7 +179,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
     bool lazyCreate = false,
   }) {
     final me = FirebaseAuth.instance.currentUser;
-    if (me == null) return; // gated by auth elsewhere
+    if (me == null) return;
 
     // deterministic conversation id: smallerUid_biggerUid
     final myUid = me.uid;
@@ -278,7 +280,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
   double _distance(double lat1, double lon1, double lat2, double lon2) {
     const r = 6371.0;
     final dLat = (lat2 - lat1) * pi / 180;
-    final dLon = (lon2 - lon1) * pi / 180;
+    final dLon = (lat2 - lon1) * pi / 180;
     final a = sin(dLat / 2) * sin(dLat / 2) +
         cos(lat1 * pi / 180) *
             cos(lat2 * pi / 180) *
@@ -470,7 +472,6 @@ class _MarketplacePageState extends State<MarketplacePage> {
                         onChanged: (v) async {
                           if (v) {
                             setStateDialog(() {});
-                            // fetch location
                             final ok = await _ensureLocation();
                             if (ok) {
                               dUseCurrentLoc = true;
@@ -667,7 +668,6 @@ class _MarketplacePageState extends State<MarketplacePage> {
                             selectedSuburbText = dSubText;
                             selectedTrainingMethods = List.from(dMethods);
                             selectedCategories = List.from(dCats);
-                            // -1 means Any (remove distance cap)
                             maxDistance = (dDistance == -1)
                                 ? 100000.0
                                 : dDistance.toDouble();
@@ -738,38 +738,41 @@ class _MarketplacePageState extends State<MarketplacePage> {
   // EXTRA WIDGETS
   // ---------------------------------------------------------------------------
   Widget _helperTile() {
-    return GestureDetector(
-      onTap: () => _promptAuthForMessaging(
-        nextChatUid: kConciergeUid,
-        nextChatName: 'Fitly Concierge',
-        lazyCreate: true, // do NOT create conversation until first send
-      ),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.orange.shade100,
-          borderRadius: BorderRadius.circular(12),
+    return SizedBox(
+      height: kTileHeight, // keep helper same height as cards
+      child: GestureDetector(
+        onTap: () => _promptAuthForMessaging(
+          nextChatUid: kConciergeUid,
+          nextChatName: 'Fitly Concierge',
+          lazyCreate: true,
         ),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: const [
-            Icon(Icons.support_agent, size: 48, color: Colors.orange),
-            SizedBox(height: 12),
-            Text(
-              'Need help finding a trainer?',
-              style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87),
-              textAlign: TextAlign.center,
-            ),
-            SizedBox(height: 6),
-            Text(
-              'Tap here & we’ll match you manually',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.black54),
-            ),
-          ],
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.orange.shade100,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: const [
+              Icon(Icons.support_agent, size: 48, color: Colors.orange),
+              SizedBox(height: 12),
+              Text(
+                'Need help finding a trainer?',
+                style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87),
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(height: 6),
+              Text(
+                'Tap here & we’ll match you manually',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.black54),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -963,6 +966,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
                       return const Center(child: CircularProgressIndicator());
                     }
 
+                    // Map docs + block list
                     final docs = snap.data!.docs
                         .map<Map<String, dynamic>>((d) {
                           final m = d.data() as Map<String, dynamic>;
@@ -971,6 +975,17 @@ class _MarketplacePageState extends State<MarketplacePage> {
                         })
                         .where((t) => !_blocked.contains(t['uid']))
                         .toList();
+
+                    // Stable alphabetical ordering
+                    docs.sort((a, b) {
+                      final na = (a['name'] ?? a['displayName'] ?? '')
+                          .toString()
+                          .toLowerCase();
+                      final nb = (b['name'] ?? b['displayName'] ?? '')
+                          .toString()
+                          .toLowerCase();
+                      return na.compareTo(nb);
+                    });
 
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (mounted) setState(() => _allTrainers = docs);
@@ -986,18 +1001,21 @@ class _MarketplacePageState extends State<MarketplacePage> {
                       );
                     }
 
+                    // Insert concierge helper FIRST before trainer cards
                     final listWithHelper = [
                       {'helperTile': true},
-                      ...filtered
+                      ...filtered,
                     ];
 
                     return GridView.builder(
+                      cacheExtent: 800,
+                      physics: const AlwaysScrollableScrollPhysics(),
                       gridDelegate:
                           const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 2,
                         crossAxisSpacing: 10,
                         mainAxisSpacing: 10,
-                        childAspectRatio: 0.55,
+                        mainAxisExtent: kTileHeight,
                       ),
                       itemCount: listWithHelper.length,
                       itemBuilder: (_, i) {
