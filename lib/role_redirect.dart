@@ -156,19 +156,29 @@ class _RoleRedirectState extends State<RoleRedirect> {
   // ─────────────────────────────────────────────────────────────
   Future<Widget> _trainerLanding(String uid) async {
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('trainer_profiles')
-          .doc(uid)
-          .get();
+      final ref =
+          FirebaseFirestore.instance.collection('trainer_profiles').doc(uid);
 
+      var snap = await ref.get();
+
+      // If no trainer profile yet, create a basic shell (safety net)
       if (!snap.exists || snap.data() == null) {
-        return const TrainerProfileSetupPage();
+        await ref.set({
+          'isActive': true, // free phase → visible by default
+          'completed': false,
+          'createdAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        snap = await ref.get();
       }
 
-      final data = snap.data()!;
+      final data = snap.data() ?? {};
       final completed = (data['completed'] ?? false) == true;
 
-      if (!completed) return const TrainerProfileSetupPage();
+      if (!completed) {
+        // Profile shell exists but not completed → push to profile setup
+        return const TrainerProfileSetupPage();
+      }
 
       // Pay-wall disabled → always land on dashboard once profile done
       return const TrainerHomePage();

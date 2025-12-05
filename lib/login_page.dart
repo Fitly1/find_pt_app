@@ -71,7 +71,6 @@ class _LoginPageState extends State<LoginPage> {
       context: context,
       barrierDismissible: true,
       builder: (ctx) => Dialog(
-        // ← ctx, not _
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
         child: Padding(
@@ -106,7 +105,7 @@ class _LoginPageState extends State<LoginPage> {
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12))),
-                onPressed: () => Navigator.of(ctx).pop(), // ← uses ctx
+                onPressed: () => Navigator.of(ctx).pop(),
                 child: Text(buttonText, style: const TextStyle(fontSize: 16)),
               ),
             ),
@@ -132,17 +131,23 @@ class _LoginPageState extends State<LoginPage> {
 
       if (!doc.exists) {
         await _showInfoDialog(
-            title: 'No account found',
-            message:
-                'This login has no Fitly account yet. Please sign up first.',
-            error: true);
+          title: 'No account found',
+          message: 'This login has no Fitly account yet. Please sign up first.',
+          error: true,
+        );
         await _auth.signOut();
         return;
       }
 
       /* cache role */
-      final role = (doc['role'] ?? '').toString().toLowerCase();
-      (await SharedPreferences.getInstance()).setString('userRole', role);
+      final data = doc.data() ?? {};
+      final role = (data['role'] ?? '').toString().toLowerCase().trim();
+      final prefs = await SharedPreferences.getInstance();
+      if (role.isNotEmpty) {
+        await prefs.setString('userRole', role);
+      } else {
+        await prefs.remove('userRole');
+      }
 
       /* fresh token */
       final token = await cred.user!.getIdToken();
@@ -157,15 +162,19 @@ class _LoginPageState extends State<LoginPage> {
 
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-              builder: (_) => needVerify
-                  ? const EmailVerificationPage()
-                  : const RoleRedirect()),
-          (_) => false);
+        MaterialPageRoute(
+          builder: (_) =>
+              needVerify ? const EmailVerificationPage() : const RoleRedirect(),
+        ),
+        (_) => false,
+      );
     } catch (e, s) {
       logger.e('Social sign-in failed', error: e, stackTrace: s);
       await _showInfoDialog(
-          title: 'Login failed', message: prettyAuthError(e), error: true);
+        title: 'Login failed',
+        message: prettyAuthError(e),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -177,40 +186,79 @@ class _LoginPageState extends State<LoginPage> {
 
     setState(() => _isLoading = true);
     try {
-      if (_auth.currentUser?.isAnonymous == true) await _auth.signOut();
+      // sign out any anonymous session first
+      if (_auth.currentUser?.isAnonymous == true) {
+        await _auth.signOut();
+      }
 
       final cred = await _auth.signInWithEmailAndPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text.trim());
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
 
       final user = cred.user!;
       final isPassword =
           user.providerData.any((p) => p.providerId == 'password');
 
+      // email verification for password users
       if (isPassword && !user.emailVerified) {
         await user.reload();
         if (!user.emailVerified) {
           if (!mounted) return;
-          Navigator.pushReplacement(context,
-              MaterialPageRoute(builder: (_) => const EmailVerificationPage()));
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const EmailVerificationPage()),
+          );
           return;
         }
       }
 
+      // save auth token
       final token = await user.getIdToken();
       if (token != null) {
         unawaited(secureStorage.writeData('auth_token', token));
       }
-      (await SharedPreferences.getInstance()).remove('userRole');
+
+      // ---- NEW: read role from Firestore & cache in SharedPreferences ----
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+
+        final prefs = await SharedPreferences.getInstance();
+        if (snap.exists) {
+          final data = snap.data() ?? {};
+          var role = (data['role'] ?? '').toString().toLowerCase().trim();
+          if (role == 'personal trainer' || role == 'personaltrainer') {
+            role = 'trainer';
+          }
+
+          if (role.isNotEmpty) {
+            await prefs.setString('userRole', role);
+          } else {
+            await prefs.remove('userRole');
+          }
+        } else {
+          // no user doc = no cached role
+          await (await SharedPreferences.getInstance()).remove('userRole');
+        }
+      } catch (e) {
+        logger.w('Failed to cache userRole after login', error: e);
+      }
 
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const RoleRedirect()),
-          (_) => false);
+        MaterialPageRoute(builder: (_) => const RoleRedirect()),
+        (_) => false,
+      );
     } catch (e, s) {
       logger.e('Login failed', error: e, stackTrace: s);
       await _showInfoDialog(
-          title: 'Login failed', message: prettyAuthError(e), error: true);
+        title: 'Login failed',
+        message: prettyAuthError(e),
+        error: true,
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -221,18 +269,22 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          leading: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.white),
-              onPressed: () => Navigator.pop(context))),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
       extendBodyBehindAppBar: true,
       body: Container(
         decoration: const BoxDecoration(
-            gradient: LinearGradient(
-                colors: [Color(0xFFFFA726), Color(0xFFFB8C00)],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter)),
+          gradient: LinearGradient(
+            colors: [Color(0xFFFFA726), Color(0xFFFB8C00)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
@@ -244,83 +296,105 @@ class _LoginPageState extends State<LoginPage> {
               child: Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Image.asset('assets/Fitly2.png', height: 120),
-                  const SizedBox(height: 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Image.asset('assets/Fitly2.png', height: 120),
+                    const SizedBox(height: 24),
 
-                  /* ---------- email/password form ---------- */
-                  Form(
-                    key: _formKey,
-                    child: Column(children: [
-                      TextFormField(
-                        controller: _emailController,
-                        decoration: const InputDecoration(
-                            labelText: 'Email',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.email)),
-                        keyboardType: TextInputType.emailAddress,
-                        validator: (v) =>
-                            v == null || v.isEmpty ? 'Enter your email' : null,
-                      ),
-                      const SizedBox(height: 16),
-                      TextFormField(
-                        controller: _passwordController,
-                        decoration: const InputDecoration(
-                            labelText: 'Password',
-                            border: OutlineInputBorder(),
-                            prefixIcon: Icon(Icons.lock)),
-                        obscureText: true,
-                        validator: (v) => v == null || v.isEmpty
-                            ? 'Enter your password'
-                            : null,
-                      ),
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        width: double.infinity,
-                        child: _isLoading
-                            ? const Center(child: CircularProgressIndicator())
-                            : ElevatedButton(
-                                onPressed: _login,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.black,
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 16),
-                                  shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12)),
-                                ),
-                                child: const Text('Login',
-                                    style: TextStyle(
-                                        color: Colors.white, fontSize: 18)),
-                              ),
-                      ),
-                      const SizedBox(height: 16),
-                      TextButton(
-                          onPressed: () => Navigator.push(
+                    /* ---------- email/password form ---------- */
+                    Form(
+                      key: _formKey,
+                      child: Column(
+                        children: [
+                          TextFormField(
+                            controller: _emailController,
+                            decoration: const InputDecoration(
+                              labelText: 'Email',
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.email),
+                            ),
+                            keyboardType: TextInputType.emailAddress,
+                            validator: (v) => v == null || v.isEmpty
+                                ? 'Enter your email'
+                                : null,
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _passwordController,
+                            decoration: const InputDecoration(
+                              labelText: 'Password',
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.lock),
+                            ),
+                            obscureText: true,
+                            validator: (v) => v == null || v.isEmpty
+                                ? 'Enter your password'
+                                : null,
+                          ),
+                          const SizedBox(height: 24),
+                          SizedBox(
+                            width: double.infinity,
+                            child: _isLoading
+                                ? const Center(
+                                    child: CircularProgressIndicator())
+                                : ElevatedButton(
+                                    onPressed: _login,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.black,
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 16),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                    ),
+                                    child: const Text(
+                                      'Login',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 18,
+                                      ),
+                                    ),
+                                  ),
+                          ),
+                          const SizedBox(height: 16),
+                          TextButton(
+                            onPressed: () => Navigator.push(
                               context,
                               MaterialPageRoute(
-                                  builder: (_) => const ForgotPasswordPage())),
-                          child: const Text('Forgot Password?',
+                                builder: (_) => const ForgotPasswordPage(),
+                              ),
+                            ),
+                            child: const Text(
+                              'Forgot Password?',
                               style: TextStyle(
-                                  color: Colors.black87,
-                                  fontWeight: FontWeight.bold))),
-                    ]),
-                  ),
-                  const SizedBox(height: 32),
+                                color: Colors.black87,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 32),
 
-                  /* ---------- social buttons ---------- */
-                  SocialSignInButtons(
-                    loading: _isLoading,
-                    onGooglePressed: () =>
-                        _handleSocialSignIn(AuthService.googleOneTap),
-                    onApplePressed: () =>
-                        _handleSocialSignIn(AuthService.appleOneTap),
-                  ),
-                  if (!Platform.isIOS && !Platform.isMacOS) ...[
-                    const SizedBox(height: 8),
-                    const Text('Apple Sign-In available on iOS',
-                        style: TextStyle(fontSize: 12, color: Colors.grey)),
+                    /* ---------- social buttons ---------- */
+                    SocialSignInButtons(
+                      loading: _isLoading,
+                      onGooglePressed: () =>
+                          _handleSocialSignIn(AuthService.googleOneTap),
+                      onApplePressed: () =>
+                          _handleSocialSignIn(AuthService.appleOneTap),
+                    ),
+                    if (!Platform.isIOS && !Platform.isMacOS) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Apple Sign-In available on iOS',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
                   ],
-                ]),
+                ),
               ),
             ),
           ),

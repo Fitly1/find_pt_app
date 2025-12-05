@@ -111,6 +111,20 @@ class SignupPageState extends State<SignupPage> {
       final cred = await method();
       if (cred == null) throw Exception('cancelled');
 
+      final uid = cred.user!.uid;
+
+      // If signing up as a trainer, ensure a trainer_profile shell exists
+      if (_selectedRole == 'trainer') {
+        await FirebaseFirestore.instance
+            .collection('trainer_profiles')
+            .doc(uid)
+            .set({
+          'isActive': true, // free phase → visible by default
+          'completed': false,
+          'createdAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+
       // AuthService already created / merged the Firestore user-doc.
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('userRole', _selectedRole!.toLowerCase());
@@ -193,6 +207,18 @@ class SignupPageState extends State<SignupPage> {
         'hasAgreedToTnC': true,
         'createdAt': FieldValue.serverTimestamp(),
       });
+
+      // If user signed up as a trainer, ensure a trainer_profile shell exists
+      if (_selectedRole == 'trainer') {
+        await FirebaseFirestore.instance
+            .collection('trainer_profiles')
+            .doc(cred.user!.uid)
+            .set({
+          'isActive': true, // free phase → visible by default
+          'completed': false,
+          'createdAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
 
       // IMPORTANT: Do NOT clear all prefs (we keep pendingChat keys, etc.)
       final prefs = await SharedPreferences.getInstance();

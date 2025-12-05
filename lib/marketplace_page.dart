@@ -1,6 +1,9 @@
+// lib/marketplace_page.dart
 // ignore_for_file: use_build_context_synchronously
+
 import 'dart:convert';
 import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
@@ -15,7 +18,6 @@ import 'bottom_navigation_customers.dart';
 import 'components/trainer_card.dart';
 import 'trainer_home_page.dart';
 import 'services/block_service.dart';
-import 'feature_flags.dart';
 import 'signup_page.dart';
 import 'login_page.dart';
 import 'chat_page.dart';
@@ -280,7 +282,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
   double _distance(double lat1, double lon1, double lat2, double lon2) {
     const r = 6371.0;
     final dLat = (lat2 - lat1) * pi / 180;
-    final dLon = (lat2 - lon1) * pi / 180;
+    final dLon = (lon2 - lon1) * pi / 180;
     final a = sin(dLat / 2) * sin(dLat / 2) +
         cos(lat1 * pi / 180) *
             cos(lat2 * pi / 180) *
@@ -891,6 +893,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    // Trainers should NOT see the marketplace
     if (userRole == 'trainer' ||
         userRole == 'personal trainer' ||
         userRole == 'personaltrainer') {
@@ -901,8 +904,11 @@ class _MarketplacePageState extends State<MarketplacePage> {
             children: const [
               Icon(Icons.lock_outline, size: 80, color: Colors.grey),
               SizedBox(height: 20),
-              Text('Marketplace is only available to customers.',
-                  style: TextStyle(fontSize: 18), textAlign: TextAlign.center),
+              Text(
+                'Marketplace is only available to customers.',
+                style: TextStyle(fontSize: 18),
+                textAlign: TextAlign.center,
+              ),
             ],
           ),
         ),
@@ -949,14 +955,9 @@ class _MarketplacePageState extends State<MarketplacePage> {
               ],
               Expanded(
                 child: StreamBuilder<QuerySnapshot>(
-                  stream: (isTrainerPaymentsEnabled
-                          ? FirebaseFirestore.instance
-                              .collection('trainer_profiles')
-                              .where('completed', isEqualTo: true)
-                              .where('isActive', isEqualTo: true)
-                          : FirebaseFirestore.instance
-                              .collection('trainer_profiles')
-                              .where('completed', isEqualTo: true))
+                  stream: FirebaseFirestore.instance
+                      .collection('trainer_profiles')
+                      .where('completed', isEqualTo: true)
                       .snapshots(),
                   builder: (_, snap) {
                     if (snap.hasError) {
@@ -987,6 +988,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
                       return na.compareTo(nb);
                     });
 
+                    // Keep search delegate data in sync
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (mounted) setState(() => _allTrainers = docs);
                     });
@@ -1023,11 +1025,12 @@ class _MarketplacePageState extends State<MarketplacePage> {
                         if (item['helperTile'] == true) return _helperTile();
 
                         final trainer = item;
+                        final isTrainerRole = userRole == 'trainer' ||
+                            userRole == 'personal trainer' ||
+                            userRole == 'personaltrainer';
+
                         return InkWell(
                           onTap: () {
-                            final isTrainerRole = userRole == 'trainer' ||
-                                userRole == 'personal trainer' ||
-                                userRole == 'personaltrainer';
                             Navigator.push(
                               context,
                               MaterialPageRoute(

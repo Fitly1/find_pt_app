@@ -12,6 +12,7 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'services/block_service.dart';
 import 'signup_page.dart';
 import 'login_page.dart';
+import 'feature_flags.dart'; // <- for isTrainerPaymentsEnabled
 
 /// colour chips for specialties
 final Map<String, Color> categoryColors = {
@@ -548,6 +549,13 @@ class TrainerHomePageState extends State<TrainerHomePage> {
     final postcode = parsedLoc['postcode']!;
     final rateText = formatRate(_trainerProfile['rate']);
 
+    // NEW: status badge text (membership vs profile) using isTrainerPaymentsEnabled
+    final bool membershipActive =
+        (_trainerProfile['isActive'] ?? true) == true; // default active
+    final String statusLabel = isTrainerPaymentsEnabled
+        ? 'Membership: ${membershipActive ? 'Active' : 'Inactive'}'
+        : 'Profile: ${membershipActive ? 'Active' : 'Hidden'}';
+
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading:
@@ -596,7 +604,7 @@ class TrainerHomePageState extends State<TrainerHomePage> {
             if (viewerRole == 'trainer')
               _buildReviewNotificationBanner(trainerUid),
 
-// ---------------- Header Card ----------------
+            // ---------------- Header Card ----------------
             Padding(
               padding: const EdgeInsets.all(16),
               child: ClipRRect(
@@ -613,11 +621,11 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                       child: imgUrl.isNotEmpty
                           ? CachedNetworkImage(
                               imageUrl: imgUrl,
-                              fit: BoxFit.contain, // 👈 show entire image
+                              fit: BoxFit.contain, // show entire image
                               alignment: Alignment.center,
                               errorWidget: (_, __, ___) => Image.asset(
                                 'assets/default_profile.png',
-                                fit: BoxFit.contain, // 👈 match fit
+                                fit: BoxFit.contain,
                                 alignment: Alignment.center,
                               ),
                             )
@@ -643,6 +651,29 @@ class TrainerHomePageState extends State<TrainerHomePage> {
                         ),
                       ),
                     ),
+
+                    // NEW: profile/membership status badge (owner only)
+                    if (isOwner)
+                      Positioned(
+                        top: 16,
+                        right: 16,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.75),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            statusLabel,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
 
                     // Name + rating + rate
                     Positioned(
