@@ -37,7 +37,8 @@ class _TrainerCardState extends State<TrainerCard> {
   Future<_Rating>? _ratingFuture;
   bool _isPressed = false;
 
-  static const double _imageHeight = 190;
+  // Slightly shorter image to help fit more cards on screen
+  static const double _imageHeight = 150;
   static const double _titleFont = 18;
   static const double _locationFont = 13;
 
@@ -137,7 +138,10 @@ class _TrainerCardState extends State<TrainerCard> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         curve: Curves.easeInOut,
-        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+        margin: const EdgeInsets.symmetric(
+          vertical: 4,
+          horizontal: 2,
+        ),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(14),
           boxShadow: [
@@ -162,6 +166,7 @@ class _TrainerCardState extends State<TrainerCard> {
           clipBehavior: Clip.antiAlias,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
             children: [
               SizedBox(
                 height: _imageHeight,
@@ -188,111 +193,163 @@ class _TrainerCardState extends State<TrainerCard> {
                         fit: BoxFit.cover,
                       ),
               ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        displayName,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: _titleFont,
-                          letterSpacing: 0.2,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      displayName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: _titleFont,
+                        letterSpacing: 0.2,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        widget.location,
-                        style: const TextStyle(
-                          fontSize: _locationFont,
-                          color: Colors.black54,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.location,
+                      style: const TextStyle(
+                        fontSize: _locationFont,
+                        color: Colors.black54,
                       ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 6,
-                        children: [
-                          ...widget.specialties.take(2).map(
-                                (s) => Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color:
-                                        widget.categoryColors[s] ?? Colors.grey,
-                                    borderRadius: BorderRadius.circular(18),
-                                  ),
-                                  child: Text(
-                                    s,
-                                    style: const TextStyle(
-                                        color: Colors.white, fontSize: 12),
-                                  ),
-                                ),
-                              ),
-                          if (widget.specialties.length > 2)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: Colors.grey,
-                                borderRadius: BorderRadius.circular(18),
-                              ),
-                              child: const Text(
-                                '…',
-                                style: TextStyle(
-                                    color: Colors.white, fontSize: 12),
-                              ),
-                            ),
-                        ],
-                      ),
-                      const Spacer(),
-                      FutureBuilder<_Rating>(
-                        future: _ratingFuture ??=
-                            _resolveRating(widget.trainerData),
-                        builder: (context, snapshot) {
-                          if (snapshot.connectionState ==
-                              ConnectionState.waiting) {
-                            return const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            );
-                          }
-                          if (snapshot.hasError) {
-                            return const Text("New",
-                                style: TextStyle(fontSize: 13));
-                          }
-                          final rating =
-                              snapshot.data ?? const _Rating(null, 0);
-                          final has = rating.avg != null && rating.count > 0;
-                          return Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.star_rounded,
-                                  size: 16, color: Colors.amber),
-                              const SizedBox(width: 4),
-                              Text(
-                                has
-                                    ? '${rating.avg!.toStringAsFixed(1)} (${rating.count})'
-                                    : 'New',
-                                style: const TextStyle(fontSize: 13),
-                              ),
-                            ],
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 8),
+
+                    // 🔥 Single-row specialty chips: at most 2 chips
+                    _SpecialtyRow(
+                      specialties: widget.specialties,
+                      categoryColors: widget.categoryColors,
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    FutureBuilder<_Rating>(
+                      future: _ratingFuture ??=
+                          _resolveRating(widget.trainerData),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
                           );
-                        },
-                      ),
-                    ],
-                  ),
+                        }
+                        if (snapshot.hasError) {
+                          return const Text(
+                            "New",
+                            style: TextStyle(fontSize: 13),
+                          );
+                        }
+                        final rating = snapshot.data ?? const _Rating(null, 0);
+                        final has = rating.avg != null && rating.count > 0;
+                        return Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.star_rounded,
+                              size: 16,
+                              color: Colors.amber,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              has
+                                  ? '${rating.avg!.toStringAsFixed(1)} (${rating.count})'
+                                  : 'New',
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SpecialtyRow extends StatelessWidget {
+  final List<String> specialties;
+  final Map<String, Color> categoryColors;
+
+  const _SpecialtyRow({
+    required this.specialties,
+    required this.categoryColors,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (specialties.isEmpty) return const SizedBox.shrink();
+
+    final primary = specialties.first;
+    String? secondaryLabel;
+
+    if (specialties.length == 2) {
+      secondaryLabel = specialties[1];
+    } else if (specialties.length > 2) {
+      final remaining = specialties.length - 1;
+      secondaryLabel = '+$remaining more';
+    }
+
+    return Row(
+      children: [
+        Flexible(
+          child: _SpecialtyChip(
+            label: primary,
+            color: categoryColors[primary] ?? Colors.blue,
+          ),
+        ),
+        if (secondaryLabel != null) ...[
+          const SizedBox(width: 6),
+          Flexible(
+            child: _SpecialtyChip(
+              label: secondaryLabel,
+              color: specialties.length == 2
+                  ? (categoryColors[secondaryLabel] ?? Colors.grey)
+                  : Colors.grey,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _SpecialtyChip extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _SpecialtyChip({
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
         ),
       ),
     );

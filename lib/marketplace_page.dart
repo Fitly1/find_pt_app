@@ -4,6 +4,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'app_update_banner.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
@@ -949,6 +950,11 @@ class _MarketplacePageState extends State<MarketplacePage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _signupTrainerBanner(),
+
+              // 🔔 NEW: Fitly update banner just under the PT banner
+              const AppUpdateBanner(),
+              const SizedBox(height: 8),
+
               if (_buildActiveFilterChips().isNotEmpty) ...[
                 Wrap(spacing: 8, children: _buildActiveFilterChips()),
                 const SizedBox(height: 16),
@@ -1017,7 +1023,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
                         crossAxisCount: 2,
                         crossAxisSpacing: 10,
                         mainAxisSpacing: 10,
-                        mainAxisExtent: kTileHeight,
+                        mainAxisExtent: 305,
                       ),
                       itemCount: listWithHelper.length,
                       itemBuilder: (_, i) {
