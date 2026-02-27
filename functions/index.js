@@ -4,7 +4,10 @@
 "use strict";
 
 const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
-const { onDocumentCreated, onDocumentWritten } = require("firebase-functions/v2/firestore");
+const {
+  onDocumentCreated,
+  onDocumentWritten,
+} = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const auth = require("firebase-functions/v1/auth");
 const express = require("express");
@@ -16,6 +19,9 @@ admin.initializeApp({
   credential: admin.credential.applicationDefault(),
   projectId: "findptapp",
 });
+
+/* ✅ IMPORTANT: define CONCIERGE_UID BEFORE any function uses it */
+const CONCIERGE_UID = "JzPLt6B6PFhnXxjaZI4t4lFnoKQ2"; // ensure this exists only once
 
 /* ─── Helper: recompute and store average rating (NEW) ────────*/
 async function recomputeTrainerRating(uid) {
@@ -39,6 +45,47 @@ async function recomputeTrainerRating(uid) {
   console.log(`⭐ Trainer ${uid} average rating → ${avg.toFixed(2)}`);
 }
 
+/* ──────────────────────────────────────────────────────────────
+   ✅ NEW: Billing “source of truth” writer (SAFE: does NOT change app behavior)
+   - Writes to trainer_billing/{uid}
+   - Keeps all existing trainer_profiles fields untouched (so nothing breaks)
+───────────────────────────────────────────────────────────────*/
+function computeEntitlementFromStatus(status) {
+  const activeLike = status === "active" || status === "trialing";
+  return {
+    isActive: !!activeLike,
+    subscriptionStatus: status || "none",
+    activeUntil: null, // optional; we set it when we have a period end/expiry
+  };
+}
+
+async function upsertTrainerBilling(trainerId, patch) {
+  if (!trainerId) return;
+
+  const ref = admin.firestore().doc(`trainer_billing/${trainerId}`);
+
+  const entitlementPatch = patch?.entitlement || {};
+  const stripePatch = patch?.stripe || {};
+  const applePatch = patch?.apple || {};
+
+  await ref.set(
+    {
+      entitlement: {
+        // defaults so schema stays consistent
+        isActive: false,
+        subscriptionStatus: "none",
+        source: "none", // "stripe" | "apple" | "admin" | "free" | "none"
+        activeUntil: null,
+        ...entitlementPatch,
+      },
+      stripe: { ...stripePatch },
+      apple: { ...applePatch },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
+
 /* ─── Stripe config (unchanged) ──────────────────────────────*/
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
@@ -49,7 +96,7 @@ if (!WEBHOOK_SECRET) console.error("❌ Missing Stripe Webhook Secret!");
 const stripe = require("stripe")(STRIPE_SECRET_KEY);
 
 /* ─── Feature-flags ───────────────────── */
-const TRAINER_PAYMENTS_ENABLED = false;   // flip to true when you re-enable
+const TRAINER_PAYMENTS_ENABLED = false; // flip to true when you re-enable
 
 /* ─── Promo-code map (NEW) ─────────────────────────────────── */
 const PROMO_CODE_MAP = {
@@ -102,6 +149,71 @@ function getLatestExpiry(verifyResponse) {
   const latest = verifyResponse.latest_receipt_info?.slice(-1)[0];
   return latest ? Number(latest.expires_date_ms) : 0;
 }
+
+/* ──────────────────────────────────────────────────────────────
+   ✅ OPTION B (MANDATORY): ensureTrainerProfile
+   - Creates trainer_profiles/{uid} when users/{uid}.role == "trainer"
+   - Only fills missing fields (does NOT overwrite real profile data)
+   - No Stripe, no payments, no breaking changes
+───────────────────────────────────────────────────────────────*/
+exports.ensureTrainerProfile = onDocumentWritten("users/{uid}", async (event) => {
+  const uid = event.params.uid;
+
+  // ignore deletes
+  if (!event.data?.after?.exists) return;
+
+  const after = event.data.after.data() || {};
+  const role = String(after.role || "").toLowerCase();
+  if (role !== "trainer") return;
+
+  const db = admin.firestore();
+  const trainerRef = db.doc(`trainer_profiles/${uid}`);
+  const trainerSnap = await trainerRef.get();
+
+  const name = String(after.name || after.displayName || after.fullName || "").trim();
+  const email = String(after.email || "").trim();
+
+  const defaults = {
+    userId: uid,
+    role: "trainer",
+    // keep both flags because your app history is mixed
+    isHidden: false,
+    profileHidden: false,
+    createdFromUserSync: true,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  // create if missing
+  if (!trainerSnap.exists) {
+    await trainerRef.set(
+      {
+        ...defaults,
+        ...(name ? { name } : {}),
+        ...(email ? { email } : {}),
+      },
+      { merge: true }
+    );
+    console.log(`✅ ensureTrainerProfile: created trainer_profiles/${uid}`);
+    return;
+  }
+
+  // patch only missing fields
+  const t = trainerSnap.data() || {};
+  const patch = {};
+
+  if (t.userId === undefined) patch.userId = uid;
+  if (t.role === undefined) patch.role = "trainer";
+  if (t.isHidden === undefined) patch.isHidden = false;
+  if (t.profileHidden === undefined) patch.profileHidden = false;
+
+  if (!String(t.name || "").trim() && name) patch.name = name;
+  if (!t.email && email) patch.email = email;
+
+  if (Object.keys(patch).length) {
+    await trainerRef.set(patch, { merge: true });
+    console.log(`✅ ensureTrainerProfile: patched trainer_profiles/${uid}`, patch);
+  }
+});
 
 /* ──────────────────────────────────────────────────────────────
    1) EXPRESS APP FOR NORMAL (NON-WEBHOOK) ROUTES – ORIGINAL
@@ -258,11 +370,7 @@ exports.createSubscriptionCheckoutSession = onCall(async (req) => {
   const email = trainerUser.email;
   if (!email) throw new Error("Trainer's email is not available");
 
-  const userDoc = await admin
-    .firestore()
-    .collection("users")
-    .doc(trainerId)
-    .get();
+  const userDoc = await admin.firestore().collection("users").doc(trainerId).get();
   if (userDoc.exists && userDoc.data().role !== "trainer")
     throw new Error("Only trainers can create subscription checkout sessions.");
 
@@ -289,10 +397,11 @@ exports.createSubscriptionCheckoutSession = onCall(async (req) => {
 
   /* ── promo-code handling (NEW BLOCK) ─────────────────────── */
   const promoCodeInput = data?.promoCode?.trim()?.toUpperCase() || null;
-  const matchedCouponId = promoCodeInput ? PROMO_CODE_MAP[promoCodeInput] : null;
+  const matchedCouponId = promoCodeInput
+    ? PROMO_CODE_MAP[promoCodeInput]
+    : null;
 
   if (promoCodeInput && !matchedCouponId) {
-    // Unrecognised code → clean error for client
     throw new HttpsError("invalid-argument", "Invalid promotional code.");
   }
 
@@ -333,7 +442,6 @@ exports.createSubscriptionCheckoutSession = onCall(async (req) => {
 /* ──────────────────────────────────────────────────────────────
    4) CALLABLE: createBillingPortalSession (original)
 ───────────────────────────────────────────────────────────────*/
-/* 4) CALLABLE: createBillingPortalSession (v2 signature) */
 exports.createBillingPortalSession = onCall(async (req) => {
   if (!req.auth) {
     throw new HttpsError("unauthenticated", "User must be authenticated.");
@@ -356,9 +464,9 @@ exports.createBillingPortalSession = onCall(async (req) => {
   }
 });
 
-
 /* ──────────────────────────────────────────────────────────────
    5) STRIPE WEBHOOK HTTP FUNCTION  (idempotent + fall-backs)
+   ✅ UPDATED: also writes to trainer_billing/{uid} (does NOT remove old fields)
 ───────────────────────────────────────────────────────────────*/
 const bodyParser = require("body-parser");
 const webhookApp = express();
@@ -367,7 +475,7 @@ webhookApp.use(
   bodyParser.raw({
     type: "application/json",
     verify: (req, res, buf) => {
-      req.rawBody = buf;           // save raw body for Stripe signature check
+      req.rawBody = buf; // save raw body for Stripe signature check
     },
   })
 );
@@ -403,7 +511,7 @@ webhookApp.post("/", async (req, res) => {
       /* 3-a  checkout.session.completed  (first time only) */
       case "checkout.session.completed": {
         if (data.mode === "subscription") {
-          const trainerId  = data.metadata?.trainerId;
+          const trainerId = data.metadata?.trainerId;
           const customerId = data.customer;
 
           if (trainerId && customerId) {
@@ -412,12 +520,24 @@ webhookApp.post("/", async (req, res) => {
               .doc(`trainer_profiles/${trainerId}`)
               .set(
                 {
-                  isActive: true,               // refined soon by sub events
+                  isActive: true, // refined soon by sub events
                   stripeId: customerId,
                   subscriptionStatus: "active",
                 },
                 { merge: true }
               );
+
+            await upsertTrainerBilling(trainerId, {
+              entitlement: {
+                ...computeEntitlementFromStatus("active"),
+                source: "stripe",
+              },
+              stripe: {
+                customerId,
+                lastEvent: "checkout.session.completed",
+              },
+            });
+
             console.log(`✅  Trainer ${trainerId} is now ACTIVE (checkout)`);
           } else {
             console.warn(
@@ -431,9 +551,9 @@ webhookApp.post("/", async (req, res) => {
       /* 3-b  subscription created/updated */
       case "customer.subscription.created":
       case "customer.subscription.updated": {
-        const status     = data.status;               // active, trialing, …
+        const status = data.status; // active, trialing, …
         const customerId = data.customer;
-        let   trainerId  = data.metadata?.trainerId;
+        let trainerId = data.metadata?.trainerId;
 
         if (!trainerId && customerId) {
           const snap = await admin
@@ -458,11 +578,31 @@ webhookApp.post("/", async (req, res) => {
               },
               { merge: true }
             );
+
+          const currentPeriodEndTs =
+            data.current_period_end != null
+              ? admin.firestore.Timestamp.fromMillis(
+                  Number(data.current_period_end) * 1000
+                )
+              : null;
+
+          await upsertTrainerBilling(trainerId, {
+            entitlement: {
+              ...computeEntitlementFromStatus(status),
+              source: "stripe",
+              activeUntil: currentPeriodEndTs,
+            },
+            stripe: {
+              customerId,
+              subscriptionId: data.id,
+              currentPeriodEnd: currentPeriodEndTs,
+              lastEvent: event.type,
+            },
+          });
+
           console.log(`🔄  Trainer ${trainerId} status → ${status}`);
         } else {
-          console.warn(
-            `⚠️  No trainer profile found for subscription ${data.id}`
-          );
+          console.warn(`⚠️  No trainer profile found for subscription ${data.id}`);
         }
         break;
       }
@@ -470,7 +610,7 @@ webhookApp.post("/", async (req, res) => {
       /* 3-c  subscription deleted / cancelled */
       case "customer.subscription.deleted": {
         const customerId = data.customer;
-        let   trainerId  = data.metadata?.trainerId;
+        let trainerId = data.metadata?.trainerId;
 
         if (!trainerId && customerId) {
           const snap = await admin
@@ -490,6 +630,16 @@ webhookApp.post("/", async (req, res) => {
               { isActive: false, subscriptionStatus: "canceled" },
               { merge: true }
             );
+
+          await upsertTrainerBilling(trainerId, {
+            entitlement: {
+              isActive: false,
+              subscriptionStatus: "canceled",
+              source: "stripe",
+            },
+            stripe: { customerId, subscriptionId: data.id, lastEvent: event.type },
+          });
+
           console.log(`❌  Trainer ${trainerId} canceled`);
         } else {
           console.warn(
@@ -501,12 +651,12 @@ webhookApp.post("/", async (req, res) => {
 
       /* 3-d  payment failure */
       case "invoice.payment_failed": {
-        const subId           = data.subscription;
+        const subId = data.subscription;
         const invoiceCustomer = data.customer;
         if (!subId) break;
 
-        const sub      = await stripe.subscriptions.retrieve(subId);
-        let   trainerId = sub.metadata?.trainerId;
+        const sub = await stripe.subscriptions.retrieve(subId);
+        let trainerId = sub.metadata?.trainerId;
 
         if (!trainerId && sub.customer) {
           const snap = await admin
@@ -526,6 +676,20 @@ webhookApp.post("/", async (req, res) => {
               { isActive: false, subscriptionStatus: sub.status || "past_due" },
               { merge: true }
             );
+
+          await upsertTrainerBilling(trainerId, {
+            entitlement: {
+              isActive: false,
+              subscriptionStatus: sub.status || "past_due",
+              source: "stripe",
+            },
+            stripe: {
+              customerId: sub.customer,
+              subscriptionId: sub.id,
+              lastEvent: event.type,
+            },
+          });
+
           console.log(`⚠️  Trainer ${trainerId} payment failed → ${sub.status}`);
         } else {
           console.warn(
@@ -535,12 +699,10 @@ webhookApp.post("/", async (req, res) => {
         break;
       }
 
-      /* ignore everything else */
       default:
         break;
     }
 
-    /* ---------- 4. mark the event as processed ---------- */
     await eventRef.set({
       type: event.type,
       processedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -608,46 +770,45 @@ exports.reconcileSubscriptions = onSchedule("every 24 hours", async () => {
 /* ──────────────────────────────────────────────────────────────
    7) createTrainerCustomer (original Firestore trigger)
 ───────────────────────────────────────────────────────────────*/
-exports.createTrainerCustomer = onDocumentCreated(
-  "users/{uid}",
-  async (event) => {
-    const userData = event.data.data();
-    const uid = event.params.uid;
+exports.createTrainerCustomer = onDocumentCreated("users/{uid}", async (event) => {
+  const userData = event.data.data();
+  const uid = event.params.uid;
 
-    if (userData.role !== "trainer") {
-      console.log(`Skipping non-trainer ${uid}`);
-      return;
-    }
-
-    if (userData.stripeCustomerId) {
-      console.log(
-        `Trainer ${uid} already has Stripe customer ${userData.stripeCustomerId}`
-      );
-      return;
-    }
-
-    const customer = await stripe.customers.create({
-      email: userData.email,
-      metadata: { firebaseUID: uid },
-    });
-
-    await Promise.all([
-      event.ref.update({ stripeCustomerId: customer.id }), // users/{uid}
-      admin
-        .firestore()
-        .doc(`trainer_profiles/${uid}`) // trainer_profiles/{uid}
-        .set({ stripeId: customer.id, isActive: false }, { merge: true }),
-    ]);
-
-    console.log(`✨ Created Stripe customer ${customer.id} for trainer ${uid}`);
+  if (userData.role !== "trainer") {
+    console.log(`Skipping non-trainer ${uid}`);
+    return;
   }
-);
+
+  if (userData.stripeCustomerId) {
+    console.log(
+      `Trainer ${uid} already has Stripe customer ${userData.stripeCustomerId}`
+    );
+    return;
+  }
+
+  const customer = await stripe.customers.create({
+    email: userData.email,
+    metadata: { firebaseUID: uid },
+  });
+
+  await Promise.all([
+    event.ref.update({ stripeCustomerId: customer.id }), // users/{uid}
+    admin
+      .firestore()
+      .doc(`trainer_profiles/${uid}`) // trainer_profiles/{uid}
+      .set({ stripeId: customer.id, isActive: false }, { merge: true }),
+  ]);
+
+  console.log(`✨ Created Stripe customer ${customer.id} for trainer ${uid}`);
+});
 
 /* ──────────────────────────────────────────────────────────────
    🍏  A P P L E   I N -A P P   P U R C H A S E S
 ───────────────────────────────────────────────────────────────*/
 
-/* 8) Callable: verifyIosReceipt */
+/* 8) Callable: verifyIosReceipt
+   ✅ UPDATED: also writes to trainer_billing/{uid} (does NOT remove old fields)
+*/
 exports.verifyIosReceipt = onCall(async (req) => {
   const { data, auth } = req;
   if (!auth) throw new HttpsError("unauthenticated", "Login first");
@@ -665,22 +826,45 @@ exports.verifyIosReceipt = onCall(async (req) => {
   const expiresMs = getLatestExpiry(verifyRes);
   const isActive = expiresMs > Date.now();
 
+  const latestInfo = verifyRes.latest_receipt_info?.slice(-1)[0] || null;
+  const originalTxId = latestInfo?.original_transaction_id || null;
+
   await admin.firestore().doc(`trainer_profiles/${auth.uid}`).set(
     {
       isActive: isActive,
       iosExpiry: expiresMs,
-      iosOriginalTxId: verifyRes.latest_receipt_info?.slice(-1)[0]
-        ?.original_transaction_id || null,
+      iosOriginalTxId: originalTxId,
       latestIosReceiptData: receiptData,
     },
     { merge: true }
   );
 
+  await upsertTrainerBilling(auth.uid, {
+    entitlement: {
+      isActive,
+      subscriptionStatus: isActive ? "active" : "expired",
+      source: "apple",
+      activeUntil: expiresMs
+        ? admin.firestore.Timestamp.fromMillis(Number(expiresMs))
+        : null,
+    },
+    apple: {
+      originalTransactionId: originalTxId,
+      expiry: expiresMs
+        ? admin.firestore.Timestamp.fromMillis(Number(expiresMs))
+        : null,
+      productId: "fitly.membership.1",
+      lastEvent: "verifyIosReceipt",
+    },
+  });
+
   console.log(`🍏 verifyIosReceipt: uid=${auth.uid} active=${isActive}`);
   return { active: isActive, expiresMs };
 });
 
-/* 9) Apple Server Notifications v2 (HTTP endpoint) */
+/* 9) Apple Server Notifications v2 (HTTP endpoint)
+   ✅ UPDATED: also writes to trainer_billing/{uid} (does NOT remove old fields)
+*/
 const appleApp = express();
 appleApp.use(express.json({ limit: "5mb" }));
 
@@ -717,6 +901,12 @@ appleApp.post("/", async (req, res) => {
     } else {
       const ref = snap.docs[0].ref;
       await ref.set({ isActive, subscriptionStatus: status }, { merge: true });
+
+      await upsertTrainerBilling(ref.id, {
+        entitlement: { isActive, subscriptionStatus: status, source: "apple" },
+        apple: { originalTransactionId: originalTxId, lastEvent: notificationType },
+      });
+
       console.log(`🍏 Trainer ${ref.id} → ${status}`);
     }
     res.json({ received: true });
@@ -879,7 +1069,6 @@ exports.pushOnNewNotification = onDocumentCreated(
    - Skips sender’s current device (senderDeviceToken)
    - Mirrors Concierge conversations to /concierge_inbox
 ───────────────────────────────────────────────────────────────*/
-
 exports.notifyOnNewMessage = onDocumentCreated(
   "conversations/{cid}/messages/{mid}",
   async (event) => {
@@ -888,7 +1077,7 @@ exports.notifyOnNewMessage = onDocumentCreated(
     const msg = event.data.data();
     if (!msg) return null;
 
-    const toUid   = msg.recipientId;
+    const toUid = msg.recipientId;
     const fromUid = msg.senderId;
     if (!toUid || !fromUid || toUid === fromUid) return null;
 
@@ -902,7 +1091,9 @@ exports.notifyOnNewMessage = onDocumentCreated(
       .collection("tokens")
       .get();
 
-    let tokens = tokensSnap.empty ? [] : tokensSnap.docs.map((d) => d.id).filter(Boolean);
+    let tokens = tokensSnap.empty
+      ? []
+      : tokensSnap.docs.map((d) => d.id).filter(Boolean);
 
     // Exclude the sender's current device token if present
     if (senderDeviceToken) {
@@ -917,7 +1108,8 @@ exports.notifyOnNewMessage = onDocumentCreated(
           : "New message";
 
       const text = typeof msg.message === "string" ? msg.message : "";
-      const body = text.length > 120 ? text.slice(0, 120) + "…" : text || "New message";
+      const body =
+        text.length > 120 ? text.slice(0, 120) + "…" : text || "New message";
 
       const payload = {
         notification: { title, body },
@@ -960,55 +1152,53 @@ exports.notifyOnNewMessage = onDocumentCreated(
       console.log(`notifyOnNewMessage: no tokens for ${toUid}`);
     }
 
-// 5) Mirror concierge-related messages for ops review
-if (fromUid === CONCIERGE_UID || toUid === CONCIERGE_UID) {
-  try {
-    const mirrorRef = admin
-      .firestore()
-      .collection("concierge_inbox").doc(cid)
-      .collection("messages").doc(mid);
+    // 5) Mirror concierge-related messages for ops review
+    if (fromUid === CONCIERGE_UID || toUid === CONCIERGE_UID) {
+      try {
+        const mirrorRef = admin
+          .firestore()
+          .collection("concierge_inbox")
+          .doc(cid)
+          .collection("messages")
+          .doc(mid);
 
-    await mirrorRef.set(
-      {
-        ...msg,
-        participants: [fromUid, toUid],
-        mirroredAt: admin.firestore.FieldValue.serverTimestamp(),
-        // create an editable box once; won’t overwrite if already there
-        ...(msg.reply === undefined ? { reply: "" } : {}),
-      },
-      { merge: true }
-    );
+        await mirrorRef.set(
+          {
+            ...msg,
+            participants: [fromUid, toUid],
+            mirroredAt: admin.firestore.FieldValue.serverTimestamp(),
+            ...(msg.reply === undefined ? { reply: "" } : {}),
+          },
+          { merge: true }
+        );
 
-    console.log(`🗂️ Mirrored to concierge_inbox/${cid}/messages/${mid}`);
-  } catch (err) {
-    console.error("concierge mirror error:", err);
-  }
-}
-
+        console.log(`🗂️ Mirrored to concierge_inbox/${cid}/messages/${mid}`);
+      } catch (err) {
+        console.error("concierge mirror error:", err);
+      }
+    }
 
     return null;
   }
 );
 
-const CONCIERGE_UID = "JzPLt6B6PFhnXxjaZI4t4lFnoKQ2"; // ensure this exists only once
-
 exports.conciergeConsoleReplyOnUpdate = onDocumentWritten(
   "concierge_inbox/{cid}/messages/{mid}",
   async (event) => {
     const before = event.data?.before?.data() || {};
-    const after  = event.data?.after?.data()  || {};
+    const after = event.data?.after?.data() || {};
     if (!after || event.data?.after?.exists === false) return null; // deleted
 
     // Only act when 'reply' changes from empty → non-empty
     const prevReply = (before.reply ?? "").toString().trim();
-    const newReply  = (after.reply  ?? "").toString().trim();
+    const newReply = (after.reply ?? "").toString().trim();
     if (!newReply || newReply === prevReply) return null;
 
     // Idempotency: if we already delivered, do nothing
     if (after.deliveredMessageId || after.replySentAt) return null;
 
-    const db   = admin.firestore();
-    const cid  = event.params.cid;
+    const db = admin.firestore();
+    const cid = event.params.cid;
     const conv = db.collection("conversations").doc(cid);
 
     // Figure out the other participant
@@ -1044,7 +1234,10 @@ exports.conciergeConsoleReplyOnUpdate = onDocumentWritten(
     // Keep conversation in sync
     await conv.set(
       {
-        participants: admin.firestore.FieldValue.arrayUnion(CONCIERGE_UID, otherUid),
+        participants: admin.firestore.FieldValue.arrayUnion(
+          CONCIERGE_UID,
+          otherUid
+        ),
         lastMessage: newReply,
         timestamp: now,
         unreadBy: [otherUid],

@@ -2,9 +2,10 @@
 // ignore_for_file: avoid_print
 
 import 'dart:convert';
+
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_typeahead/flutter_typeahead.dart';
-import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:multi_select_flutter/multi_select_flutter.dart';
@@ -149,9 +150,14 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
 
     setState(() => _isSaving = true);
 
+    // Capture these BEFORE any await (no context usage across async gaps)
+    final nav = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) {
+        if (!mounted) return;
         setState(() => _isSaving = false);
         return;
       }
@@ -180,6 +186,19 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
         }
       }
 
+      // Ensure suburb picked (guard against null even if validator passed)
+      if (_chosenSuburb == null) {
+        if (!mounted) return;
+        setState(() => _isSaving = false);
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('❌ Please pick a suburb from the list.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
       // --- location string & geolocation ------------------------------
       final locString =
           '${_chosenSuburb!['Suburb']}, ${_chosenSuburb!['State']} (${_chosenSuburb!['Postcode']})';
@@ -188,6 +207,8 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
           double.tryParse(_chosenSuburb!['Latitude'].toString()) ?? 0.0;
       final double lng =
           double.tryParse(_chosenSuburb!['Longitude'].toString()) ?? 0.0;
+
+      final rateVal = double.tryParse(_rateController.text.trim()) ?? 0.0;
 
       // --- Firestore write: trainer_profiles/{uid} --------------------
       await FirebaseFirestore.instance
@@ -208,12 +229,17 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
         'description': _descriptionController.text.trim(),
         'location': locString,
         'geoLocation': {'lat': lat, 'lng': lng},
-        'rate': double.tryParse(_rateController.text.trim()) ?? 0.0,
+        'rate': rateVal,
         'specialties': _selectedSpecialties,
         'trainingMethods': _selectedMethods, // stays empty for now
         'profileImageUrl': '',
         'workImageUrls': <String>[],
-        'completed': true,
+
+        // Brand protection:
+        // Keep hidden from marketplace until they complete the full profile
+        // (e.g., add photo/experience later). You can flip this to true later.
+        'completed': false,
+
         'createdAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
@@ -248,7 +274,8 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
                 const SizedBox(height: 14),
                 const Text(
                   'You’re 60% there.\n\n'
-                  'Add photos, experience and more details later to reach 100% and attract more clients.',
+                  'Next step: add a profile photo so customers can trust your listing. '
+                  'Until then, your profile stays hidden from the marketplace.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 15, height: 1.45),
                 ),
@@ -275,20 +302,19 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
         ),
       );
 
-      if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => const TrainerHomePage(
-              showProfileCompleteMessage: true,
-            ),
+      if (!mounted) return;
+
+      nav.pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => const TrainerHomePage(
+            showProfileCompleteMessage: true,
           ),
-        );
-      }
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _isSaving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(
           content: Text('❌ Failed to save profile: $e'),
           backgroundColor: Colors.red,
@@ -336,7 +362,6 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
         ),
         backgroundColor: kPrimaryOrange,
         iconTheme: const IconThemeData(color: Colors.white),
-        // No flag/report icon here – this page is for trainers setting themselves up
       ),
 
       // ----------------- FORM CARD --------------------
@@ -422,8 +447,7 @@ class _TrainerProfileSetupPageState extends State<TrainerProfileSetupPage> {
                               },
                               itemBuilder: (_, sug) => ListTile(
                                 title: Text(
-                                  '${sug['Suburb']} (${sug['Postcode']})',
-                                ),
+                                    '${sug['Suburb']} (${sug['Postcode']})'),
                               ),
                               onSelected: (sug) {
                                 _chosenSuburb = sug;

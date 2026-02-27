@@ -104,6 +104,12 @@ class _MarketplacePageState extends State<MarketplacePage> {
     _refreshBlocked();
   }
 
+  @override
+  void dispose() {
+    suburbController.dispose();
+    super.dispose();
+  }
+
   Future<void> _refreshBlocked() async {
     _blocked = await BlockService.instance.blockedIds();
     if (mounted) setState(() {});
@@ -111,8 +117,9 @@ class _MarketplacePageState extends State<MarketplacePage> {
 
   Future<void> loadUserRole() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() =>
-        userRole = prefs.getString('userRole')?.toLowerCase() ?? 'customer');
+    setState(
+      () => userRole = prefs.getString('userRole')?.toLowerCase() ?? 'customer',
+    );
   }
 
   Future<void> loadSuburbData() async {
@@ -127,6 +134,72 @@ class _MarketplacePageState extends State<MarketplacePage> {
   }
 
   // ---------------------------------------------------------------------------
+  // MARKETPLACE QUALITY GATE (PAYWALL OFF)
+  //
+  // Show trainer only if they have AT LEAST 2 of:
+  // 1) profile photo
+  // 2) bio/description >= 80 chars
+  // 3) headline OR specialties not empty
+  // 4) suburb OR postcode set
+  //
+  // Also respects hidden flags.
+  // ---------------------------------------------------------------------------
+  bool _hasText(String? s, {int minLen = 1}) {
+    final t = (s ?? '').trim();
+    return t.length >= minLen;
+  }
+
+  bool _hasAnyList(dynamic v) {
+    if (v is List) {
+      return v.where((e) => (e?.toString().trim() ?? '').isNotEmpty).isNotEmpty;
+    }
+    return false;
+  }
+
+  int _marketplaceQualityScore(Map<String, dynamic> t) {
+    int score = 0;
+
+    // 1) profile photo (support multiple historical keys)
+    final photoUrl = (t['profileImageUrl'] ??
+            t['photoURL'] ??
+            t['photoUrl'] ??
+            t['profilePhotoUrl'] ??
+            t['avatarUrl'])
+        ?.toString();
+    if (_hasText(photoUrl)) score++;
+
+    // 2) bio/description >= 80
+    final bio = (t['description'] ?? t['bio'] ?? '').toString();
+    if (_hasText(bio, minLen: 80)) score++;
+
+    // 3) headline OR specialties non-empty
+    final headline = (t['headline'] ?? t['tagline'] ?? t['title'])?.toString();
+    final specialties = t['specialties'] ?? t['services'] ?? t['focusAreas'];
+    if (_hasText(headline) || _hasAnyList(specialties)) score++;
+
+    // 4) suburb/postcode set (support multiple keys)
+    final suburb =
+        (t['suburb'] ?? t['location'] ?? t['city'] ?? '')?.toString();
+    final postcode =
+        (t['postcode'] ?? t['postCode'] ?? t['zip'] ?? '')?.toString();
+    if (_hasText(suburb) || _hasText(postcode)) score++;
+
+    return score;
+  }
+
+  bool _shouldShowInMarketplace(Map<String, dynamic> t) {
+    // respect hidden flags (support both keys)
+    final hidden = (t['isHidden'] == true) || (t['profileHidden'] == true);
+    if (hidden) return false;
+
+    // If you later adopt canonical visibility:
+    // final vis = (t['profileVisibility'] ?? '').toString().toLowerCase();
+    // if (vis == 'hidden') return false;
+
+    return _marketplaceQualityScore(t) >= 2;
+  }
+
+  // ---------------------------------------------------------------------------
   // LOCATION HELPERS
   // ---------------------------------------------------------------------------
   Future<bool> _ensureLocation() async {
@@ -136,7 +209,8 @@ class _MarketplacePageState extends State<MarketplacePage> {
       if (!serviceEnabled) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('Enable location services to use this feature.')),
+            content: Text('Enable location services to use this feature.'),
+          ),
         );
         return false;
       }
@@ -293,7 +367,8 @@ class _MarketplacePageState extends State<MarketplacePage> {
   }
 
   List<Map<String, dynamic>> _filterTrainers(
-      List<Map<String, dynamic>> trainers) {
+    List<Map<String, dynamic>> trainers,
+  ) {
     // Determine the user's reference point:
     double? refLat;
     double? refLng;
@@ -327,10 +402,13 @@ class _MarketplacePageState extends State<MarketplacePage> {
               .map((e) => e.toString().toLowerCase())
               .contains(c.toLowerCase()));
 
-      // price
+      // price (handle num OR string)
       var okPrice = true;
-      if (t['rate'] is num) {
-        final rate = (t['rate'] as num).toDouble();
+      final rateVal = t['rate'];
+      final rate = (rateVal is num)
+          ? rateVal.toDouble()
+          : double.tryParse(rateVal?.toString() ?? '');
+      if (rate != null) {
         okPrice = rate >= priceRange.start && rate <= priceRange.end;
       }
 
@@ -347,7 +425,12 @@ class _MarketplacePageState extends State<MarketplacePage> {
           );
           okDist = d <= maxDistance;
         } else {
-          okDist = false; // no trainer coords available
+          // If trainer has no coords, keep them ONLY if they are online-capable.
+          final methods = (t['trainingMethods'] is List)
+              ? (t['trainingMethods'] as List).map((e) => e.toString()).toList()
+              : <String>[];
+          final isOnlineCapable = methods.contains('Online');
+          okDist = isOnlineCapable;
         }
       }
 
@@ -462,9 +545,10 @@ class _MarketplacePageState extends State<MarketplacePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Filters',
-                      style:
-                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  const Text(
+                    'Filters',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 16),
 
                   // Current location switch
@@ -557,8 +641,9 @@ class _MarketplacePageState extends State<MarketplacePage> {
                             );
                           },
                           emptyBuilder: (_) => const Padding(
-                              padding: EdgeInsets.all(8.0),
-                              child: Text('No suburb found.')),
+                            padding: EdgeInsets.all(8.0),
+                            child: Text('No suburb found.'),
+                          ),
                         ),
                       ),
                     ),
@@ -575,7 +660,8 @@ class _MarketplacePageState extends State<MarketplacePage> {
                         label: Text(m),
                         selected: sel,
                         onSelected: (v) => setStateDialog(
-                            () => v ? dMethods.add(m) : dMethods.remove(m)),
+                          () => v ? dMethods.add(m) : dMethods.remove(m),
+                        ),
                       );
                     }).toList(),
                   ),
@@ -591,7 +677,8 @@ class _MarketplacePageState extends State<MarketplacePage> {
                         label: Text(c),
                         selected: sel,
                         onSelected: (v) => setStateDialog(
-                            () => v ? dCats.add(c) : dCats.remove(c)),
+                          () => v ? dCats.add(c) : dCats.remove(c),
+                        ),
                       );
                     }).toList(),
                   ),
@@ -622,8 +709,12 @@ class _MarketplacePageState extends State<MarketplacePage> {
                     value: dRating,
                     onChanged: (v) => setStateDialog(() => dRating = v!),
                     items: [0.0, 3.0, 4.0, 4.5, 5.0]
-                        .map((r) => DropdownMenuItem(
-                            value: r, child: Text(r == 0 ? 'All' : '$r+')))
+                        .map(
+                          (r) => DropdownMenuItem(
+                            value: r,
+                            child: Text(r == 0 ? 'All' : '$r+'),
+                          ),
+                        )
                         .toList(),
                   ),
                   const SizedBox(height: 16),
@@ -763,9 +854,10 @@ class _MarketplacePageState extends State<MarketplacePage> {
               Text(
                 'Need help finding a trainer?',
                 style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87),
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
                 textAlign: TextAlign.center,
               ),
               SizedBox(height: 6),
@@ -830,7 +922,8 @@ class _MarketplacePageState extends State<MarketplacePage> {
       Navigator.push(
         context,
         MaterialPageRoute(
-            builder: (_) => const SignupPage(preselectedRole: 'trainer')),
+          builder: (_) => const SignupPage(preselectedRole: 'trainer'),
+        ),
       );
       return;
     }
@@ -843,14 +936,17 @@ class _MarketplacePageState extends State<MarketplacePage> {
             builder: (_) => AlertDialog(
               title: const Text('Become a Trainer?'),
               content: const Text(
-                  'You’re currently a customer account. Do you want to switch and create a trainer profile?'),
+                'You’re currently a customer account. Do you want to switch and create a trainer profile?',
+              ),
               actions: [
                 TextButton(
-                    onPressed: () => Navigator.pop(context, false),
-                    child: const Text('Cancel')),
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel'),
+                ),
                 TextButton(
-                    onPressed: () => Navigator.pop(context, true),
-                    child: const Text('Yes')),
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Yes'),
+                ),
               ],
             ),
           ) ??
@@ -934,11 +1030,13 @@ class _MarketplacePageState extends State<MarketplacePage> {
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           IconButton(
-              icon: const Icon(Icons.filter_list),
-              onPressed: () => showFilterDialog()),
+            icon: const Icon(Icons.filter_list),
+            onPressed: () => showFilterDialog(),
+          ),
           IconButton(
-              icon: const Icon(Icons.search),
-              onPressed: () => _showSearch(context)),
+            icon: const Icon(Icons.search),
+            onPressed: () => _showSearch(context),
+          ),
         ],
       ),
       backgroundColor: Colors.white,
@@ -951,7 +1049,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
             children: [
               _signupTrainerBanner(),
 
-              // 🔔 NEW: Fitly update banner just under the PT banner
+              // Fitly update banner just under the PT banner
               const AppUpdateBanner(),
               const SizedBox(height: 8),
 
@@ -963,7 +1061,6 @@ class _MarketplacePageState extends State<MarketplacePage> {
                 child: StreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance
                       .collection('trainer_profiles')
-                      .where('completed', isEqualTo: true)
                       .snapshots(),
                   builder: (_, snap) {
                     if (snap.hasError) {
@@ -973,18 +1070,31 @@ class _MarketplacePageState extends State<MarketplacePage> {
                       return const Center(child: CircularProgressIndicator());
                     }
 
-                    // Map docs + block list
-                    final docs = snap.data!.docs
-                        .map<Map<String, dynamic>>((d) {
-                          final m = d.data() as Map<String, dynamic>;
-                          m['uid'] = d.id;
-                          return m;
-                        })
+                    // Map docs + block list + QUALITY gate
+                    final allDocs =
+                        snap.data!.docs.map<Map<String, dynamic>>((d) {
+                      final m = d.data() as Map<String, dynamic>;
+                      m['uid'] = d.id;
+                      // normalize completed so missing = false
+                      m['completed'] = (m['completed'] == true);
+                      return m;
+                    }).toList();
+
+                    final docs = allDocs
                         .where((t) => !_blocked.contains(t['uid']))
+                        .where(_shouldShowInMarketplace)
                         .toList();
 
-                    // Stable alphabetical ordering
+                    // Sort: completed first, then best quality score, then alphabetical
                     docs.sort((a, b) {
+                      final ca = (a['completed'] == true) ? 1 : 0;
+                      final cb = (b['completed'] == true) ? 1 : 0;
+                      if (ca != cb) return cb - ca;
+
+                      final qa = _marketplaceQualityScore(a);
+                      final qb = _marketplaceQualityScore(b);
+                      if (qa != qb) return qb - qa;
+
                       final na = (a['name'] ?? a['displayName'] ?? '')
                           .toString()
                           .toLowerCase();
@@ -1000,11 +1110,25 @@ class _MarketplacePageState extends State<MarketplacePage> {
                     });
 
                     final filtered = _filterTrainers(docs);
+
                     if (filtered.isEmpty) {
-                      return const Center(
-                        child: Text(
-                          'No trainers found. Try adjusting filters!',
-                          style: TextStyle(fontSize: 16, color: Colors.grey),
+                      // Helpful message depends on whether you have trainers but they're incomplete
+                      final hiddenCount = allDocs
+                              .where((t) => !_blocked.contains(t['uid']))
+                              .length -
+                          docs.length;
+
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Text(
+                            hiddenCount > 0
+                                ? 'No trainers match your filters.\n\nTip: Some trainers are hidden because their profiles are incomplete.'
+                                : 'No trainers found. Try adjusting filters!',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                fontSize: 16, color: Colors.grey),
+                          ),
                         ),
                       );
                     }
@@ -1057,7 +1181,11 @@ class _MarketplacePageState extends State<MarketplacePage> {
                             location:
                                 trainer['location'] ?? trainer['suburb'] ?? '',
                             categoryColors: categoryColors,
-                            profileImageUrl: trainer['profileImageUrl'] ?? '',
+                            profileImageUrl: (trainer['profileImageUrl'] ??
+                                    trainer['photoURL'] ??
+                                    trainer['photoUrl'] ??
+                                    '')
+                                .toString(),
                             trainerData: trainer,
                           ),
                         );
@@ -1092,8 +1220,9 @@ class TrainerSearchDelegate extends SearchDelegate {
 
   @override
   Widget buildLeading(BuildContext context) => IconButton(
-      icon: const Icon(Icons.arrow_back),
-      onPressed: () => close(context, null));
+        icon: const Icon(Icons.arrow_back),
+        onPressed: () => close(context, null),
+      );
 
   @override
   Widget buildResults(BuildContext ctx) {
@@ -1124,7 +1253,7 @@ class TrainerSearchDelegate extends SearchDelegate {
         final trainer = items[i];
         return ListTile(
           title: Text(trainer['name'] ?? trainer['displayName'] ?? ''),
-          subtitle: Text(trainer['location'] ?? ''),
+          subtitle: Text(trainer['location'] ?? trainer['suburb'] ?? ''),
           onTap: () {
             final isTrainerRole = userRole == 'trainer' ||
                 userRole == 'personal trainer' ||

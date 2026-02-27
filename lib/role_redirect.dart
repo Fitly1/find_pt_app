@@ -3,13 +3,17 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'login_page.dart';
 import 'email_verification_page.dart';
 import 'trainer_profile_setup_page.dart';
 import 'marketplace_page.dart';
 import 'trainer_home_page.dart';
 import 'secure_storage_service.dart';
-import 'chat_page.dart'; // for resuming pending chat after auth
+import 'chat_page.dart';
+
+// ✅ Add this import (your EditProfilePage)
+import 'edit_profile_page.dart';
 
 class RoleRedirect extends StatefulWidget {
   const RoleRedirect({super.key});
@@ -27,9 +31,6 @@ class _RoleRedirectState extends State<RoleRedirect> {
     _markFirstLaunch().then((_) => _decideNextPage());
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // First-launch helper
-  // ─────────────────────────────────────────────────────────────
   Future<void> _markFirstLaunch() async {
     final prefs = await SharedPreferences.getInstance();
     if (!(prefs.getBool('hasRunBefore') ?? false)) {
@@ -37,9 +38,6 @@ class _RoleRedirectState extends State<RoleRedirect> {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // Wait up to 5 s for auth
-  // ─────────────────────────────────────────────────────────────
   Future<User?> _currentUserWithGrace() async {
     User? user = FirebaseAuth.instance.currentUser;
     if (user != null) return user;
@@ -53,23 +51,18 @@ class _RoleRedirectState extends State<RoleRedirect> {
     return user;
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // Main decision tree
-  // ─────────────────────────────────────────────────────────────
   Future<void> _decideNextPage() async {
     Widget nextPage = const MarketplacePage(); // default
 
     try {
-      // ─── auth wait ────────────────────────────────
       final user = await _currentUserWithGrace();
       if (user == null) {
         _go(nextPage);
         return;
       }
 
-      await user.reload(); // refresh auth fields
+      await user.reload();
 
-      // ─── email verification (password provider only) ──
       final usesPassword =
           user.providerData.any((p) => p.providerId == 'password');
       if (usesPassword && !user.emailVerified) {
@@ -77,7 +70,7 @@ class _RoleRedirectState extends State<RoleRedirect> {
         return;
       }
 
-      // ─── read Firestore user doc ────────────────────
+      // Read users/{uid}
       final snap = await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
@@ -90,14 +83,12 @@ class _RoleRedirectState extends State<RoleRedirect> {
       }
 
       String role = data['role'].toString().toLowerCase().trim();
-      // normalise legacy values
       if (role == 'personal trainer' || role == 'personaltrainer') {
         role = 'trainer';
       }
 
       (await SharedPreferences.getInstance()).setString('userRole', role);
 
-      // ─── role routing ───────────────────────────────
       if (role == 'customer') {
         nextPage = const MarketplacePage();
       } else if (role == 'trainer') {
@@ -106,14 +97,10 @@ class _RoleRedirectState extends State<RoleRedirect> {
         nextPage = const LoginPage();
       }
 
-      // ─────────────────────────────────────────────────────────
-      // Resume pending Concierge / trainer chat after auth
-      // Only auto-jump if they're a CUSTOMER.
-      // ─────────────────────────────────────────────────────────
+      // Resume pending chat ONLY for customers
       try {
         final prefs = await SharedPreferences.getInstance();
         final pendingUid = prefs.getString('pendingChatPeerUid');
-        // final pendingName = prefs.getString('pendingChatPeerName'); // optional
 
         if (pendingUid != null && role == 'customer') {
           await prefs.remove('pendingChatPeerUid');
@@ -129,20 +116,17 @@ class _RoleRedirectState extends State<RoleRedirect> {
             _go(ChatPage(
               conversationId: convoId,
               otherUserId: pendingUid,
-              // otherUserName: pendingName, // if ChatPage supports it
             ));
-            return; // stop normal navigation
+            return;
           }
         }
       } catch (_) {
-        // ignore and fall through to normal navigation
+        // ignore
       }
-      // ─────────────────────────────────────────────────────────
     } catch (e) {
       debugPrint('RoleRedirect error: $e');
     }
 
-    // record last run (optional analytics)
     await secureStorage.writeData(
       'last_role_redirect',
       DateTime.now().toIso8601String(),
@@ -151,9 +135,34 @@ class _RoleRedirectState extends State<RoleRedirect> {
     _go(nextPage);
   }
 
-  // ─────────────────────────────────────────────────────────────
+  // ----------------------------
   // Trainer landing helper
-  // ─────────────────────────────────────────────────────────────
+  // ----------------------------
+  bool _hasBasicTrainerFields(Map<String, dynamic> data) {
+    final desc = (data['description'] ?? '').toString().trim();
+    final loc = (data['location'] ?? '').toString().trim();
+    final specs = (data['specialties'] is List)
+        ? (data['specialties'] as List)
+        : const [];
+    final rateNum = data['rate'];
+
+    final hasRate = (rateNum is num && rateNum > 0) ||
+        (rateNum is String && (double.tryParse(rateNum) ?? 0) > 0);
+
+    return desc.isNotEmpty && loc.isNotEmpty && specs.isNotEmpty && hasRate;
+  }
+
+  bool _hasProfilePhoto(Map<String, dynamic> data) {
+    final url = (data['profileImageUrl'] ?? '').toString().trim();
+    return url.isNotEmpty;
+  }
+
+  /// Marketplace-ready = safe to show publicly.
+  bool _isMarketplaceReady(Map<String, dynamic> data) {
+    final completed = (data['completed'] ?? false) == true;
+    return completed && _hasBasicTrainerFields(data) && _hasProfilePhoto(data);
+  }
+
   Future<Widget> _trainerLanding(String uid) async {
     try {
       final ref =
@@ -161,11 +170,10 @@ class _RoleRedirectState extends State<RoleRedirect> {
 
       var snap = await ref.get();
 
-      // If no trainer profile yet, create a basic shell (safety net)
+      // If no trainer profile yet, create a shell (keeps flow stable)
       if (!snap.exists || snap.data() == null) {
         await ref.set({
-          'isActive': true, // free phase → visible by default
-          'completed': false,
+          'completed': false, // marketplace-ready flag (must stay false)
           'createdAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
 
@@ -173,14 +181,18 @@ class _RoleRedirectState extends State<RoleRedirect> {
       }
 
       final data = snap.data() ?? {};
-      final completed = (data['completed'] ?? false) == true;
 
-      if (!completed) {
-        // Profile shell exists but not completed → push to profile setup
+      // 1) If they don't even have basic setup fields -> setup page
+      if (!_hasBasicTrainerFields(data)) {
         return const TrainerProfileSetupPage();
       }
 
-      // Pay-wall disabled → always land on dashboard once profile done
+      // 2) If basic fields exist but not marketplace-ready -> edit profile (force photo + polish)
+      if (!_isMarketplaceReady(data)) {
+        return const EditProfilePage();
+      }
+
+      // 3) Marketplace-ready -> dashboard
       return const TrainerHomePage();
     } catch (e) {
       debugPrint('trainerLanding error: $e');
@@ -188,9 +200,6 @@ class _RoleRedirectState extends State<RoleRedirect> {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // Navigation helper
-  // ─────────────────────────────────────────────────────────────
   void _go(Widget page) {
     if (!mounted) return;
     Navigator.pushReplacement(
