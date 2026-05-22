@@ -1,5 +1,6 @@
 // lib/bottom_navigation_customers.dart
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'signup_page.dart';
@@ -10,14 +11,23 @@ import 'listings_page.dart';
 import 'edit_listings_page.dart';
 import 'customer_profile_page.dart';
 
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'notification_provider.dart';
+/* ───────────────── Fitly premium colours ───────────────── */
+const Color _brandColor = Color(0xFFFFA726);
+const Color _surface = Color(0xFF111318);
+const Color _line = Color(0xFF303540);
+const Color _gold = Color(0xFFE7B95C);
+const Color _textMuted = Color(0xFFA6ADB8);
+const Color _danger = Color(0xFFE25252);
 
-class BottomNavigationCustomers extends ConsumerWidget {
+class BottomNavigationCustomers extends StatelessWidget {
   final int currentIndex;
-  const BottomNavigationCustomers({super.key, required this.currentIndex});
 
-  // ---------- Auth gate (fast) ----------
+  const BottomNavigationCustomers({
+    super.key,
+    required this.currentIndex,
+  });
+
+  // ---------- Auth gate ----------
   Future<bool> _needsSignIn(int tabIndex) async {
     // Tabs that require auth: Messages(1), Edit Listings(3), Profile(4)
     if (![1, 3, 4].contains(tabIndex)) return false;
@@ -25,7 +35,6 @@ class BottomNavigationCustomers extends ConsumerWidget {
     final auth = FirebaseAuth.instance;
     final u = auth.currentUser;
 
-    // If we already have a user, decide immediately
     if (u != null) {
       final isPassword = u.providerData.any((p) => p.providerId == 'password');
       if (u.isAnonymous) return true;
@@ -33,140 +42,220 @@ class BottomNavigationCustomers extends ConsumerWidget {
       return false;
     }
 
-    // Firebase might still be initializing; wait briefly
     try {
       final next = await auth
           .authStateChanges()
           .first
           .timeout(const Duration(milliseconds: 250));
+
       if (next == null || next.isAnonymous) return true;
+
       final isPassword =
           next.providerData.any((p) => p.providerId == 'password');
+
       if (isPassword && !next.emailVerified) return true;
+
       return false;
     } catch (_) {
-      // On timeout or error, treat as guest so we show the prompt immediately
       return true;
     }
   }
 
-  // ---------- Bottom sheet: clear role choice & deep links ----------
+  // ---------- Premium sign-up sheet ----------
   Future<void> _showSignUpSheet(BuildContext ctx) async {
     if (!ctx.mounted) return;
 
     await showModalBottomSheet(
       context: ctx,
       isScrollControlled: true,
-      showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.72),
       builder: (sheetCtx) {
         final bottomPad = MediaQuery.of(sheetCtx).viewInsets.bottom;
+
         return SafeArea(
+          top: false,
           child: Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, bottomPad + 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.message_outlined, size: 36),
-                const SizedBox(height: 8),
-                const Text(
-                  'Sign up or log in to continue',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Create an account to use Messages, Edit Listings, and Profile.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.black54),
-                ),
-                const SizedBox(height: 16),
-
-                // Primary: Customer signup (most common for this entry point)
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.person_outline),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+            padding: EdgeInsets.fromLTRB(12, 0, 12, bottomPad + 12),
+            child: Container(
+              decoration: BoxDecoration(
+                color: _surface,
+                borderRadius: BorderRadius.circular(30),
+                border: Border.all(color: _line),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.42),
+                    blurRadius: 30,
+                    offset: const Offset(0, -10),
+                  ),
+                ],
+              ),
+              child: Stack(
+                children: [
+                  Positioned(
+                    right: -48,
+                    top: -48,
+                    child: Container(
+                      width: 150,
+                      height: 150,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _gold.withValues(alpha: 0.10),
                       ),
                     ),
-                    onPressed: () {
-                      Navigator.pop(sheetCtx); // close sheet
-                      if (!ctx.mounted) return;
-                      // CHANGED: push (not replacement) so back button appears
-                      Navigator.push(
-                        ctx,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              const SignupPage(preselectedRole: 'customer'),
-                        ),
-                      );
-                    },
-                    label: const Text(
-                      'Sign up as Customer',
-                      style: TextStyle(fontSize: 16),
-                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-
-                // Secondary: Trainer signup
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.fitness_center),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                  Positioned(
+                    left: -70,
+                    bottom: -70,
+                    child: Container(
+                      width: 170,
+                      height: 170,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _brandColor.withValues(alpha: 0.07),
                       ),
-                      side: const BorderSide(color: Colors.black12),
-                    ),
-                    onPressed: () {
-                      Navigator.pop(sheetCtx);
-                      if (!ctx.mounted) return;
-                      // CHANGED: push (not replacement) so back button appears
-                      Navigator.push(
-                        ctx,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              const SignupPage(preselectedRole: 'trainer'),
-                        ),
-                      );
-                    },
-                    label: const Text(
-                      'Sign up as Trainer',
-                      style: TextStyle(fontSize: 16),
                     ),
                   ),
-                ),
-                const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(22, 12, 22, 22),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.22),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                        const SizedBox(height: 22),
+                        Container(
+                          width: 66,
+                          height: 66,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: const LinearGradient(
+                              colors: [_gold, Color(0xFF7A5A20)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: _gold.withValues(alpha: 0.18),
+                                blurRadius: 20,
+                                offset: const Offset(0, 10),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.lock_open_rounded,
+                            color: Colors.black,
+                            size: 34,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        const Text(
+                          'Sign in to continue',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 21,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Create an account to message trainers, manage your profile, and unlock the full Fitly experience.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: _textMuted,
+                            fontSize: 14.5,
+                            height: 1.45,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        SizedBox(
+                          width: double.infinity,
+                          child: _SheetPrimaryButton(
+                            label: 'Sign up as Customer',
+                            icon: Icons.person_outline_rounded,
+                            onPressed: () {
+                              Navigator.pop(sheetCtx);
+                              if (!ctx.mounted) return;
 
-                // Existing account
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(sheetCtx);
-                    if (!ctx.mounted) return;
-                    // CHANGED: push (not replacement) so back button appears
-                    Navigator.push(
-                      ctx,
-                      MaterialPageRoute(builder: (_) => const LoginPage()),
-                    );
-                  },
-                  child: const Text('I already have an account'),
-                ),
+                              Navigator.push(
+                                ctx,
+                                MaterialPageRoute(
+                                  builder: (_) => const SignupPage(
+                                    preselectedRole: 'customer',
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: _SheetSecondaryButton(
+                            label: 'Sign up as Trainer',
+                            icon: Icons.fitness_center_rounded,
+                            onPressed: () {
+                              Navigator.pop(sheetCtx);
+                              if (!ctx.mounted) return;
 
-                // Dismiss
-                TextButton(
-                  onPressed: () => Navigator.pop(sheetCtx),
-                  child: const Text('Not now'),
-                ),
-              ],
+                              Navigator.push(
+                                ctx,
+                                MaterialPageRoute(
+                                  builder: (_) => const SignupPage(
+                                    preselectedRole: 'trainer',
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _SheetTextButton(
+                                label: 'Log in',
+                                onPressed: () {
+                                  Navigator.pop(sheetCtx);
+                                  if (!ctx.mounted) return;
+
+                                  Navigator.push(
+                                    ctx,
+                                    MaterialPageRoute(
+                                      builder: (_) => const LoginPage(),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            Container(
+                              width: 1,
+                              height: 18,
+                              color: _line,
+                            ),
+                            Expanded(
+                              child: _SheetTextButton(
+                                label: 'Not now',
+                                muted: true,
+                                onPressed: () => Navigator.pop(sheetCtx),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -176,9 +265,8 @@ class BottomNavigationCustomers extends ConsumerWidget {
 
   // ---------- Navigation ----------
   Future<void> _onItemTapped(BuildContext context, int index) async {
-    if (index == currentIndex) return; // same tab
+    if (index == currentIndex) return;
 
-    // Gate tabs that need auth
     if (await _needsSignIn(index)) {
       if (!context.mounted) return;
       await _showSignUpSheet(context);
@@ -188,6 +276,7 @@ class BottomNavigationCustomers extends ConsumerWidget {
     if (!context.mounted) return;
 
     Widget nextPage;
+
     switch (index) {
       case 0:
         nextPage = const MarketplacePage();
@@ -208,64 +297,311 @@ class BottomNavigationCustomers extends ConsumerWidget {
         nextPage = const MarketplacePage();
     }
 
-    // Keep pushReplacement for tabs (so you don't stack tab pages)
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => nextPage),
     );
   }
 
+  BottomNavigationBarItem _item({
+    required int index,
+    required IconData icon,
+    required String label,
+    bool showDot = false,
+  }) {
+    return BottomNavigationBarItem(
+      icon: _PremiumNavIcon(
+        icon: icon,
+        selected: currentIndex == index,
+        showDot: showDot,
+      ),
+      label: label,
+    );
+  }
+
+  Stream<int> _unreadMessagesStream() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+
+    if (uid == null || uid.isEmpty) {
+      return Stream<int>.value(0);
+    }
+
+    return FirebaseFirestore.instance
+        .collection('conversations')
+        .where('participants', arrayContains: uid)
+        .snapshots()
+        .map((snap) {
+      var unreadCount = 0;
+
+      for (final doc in snap.docs) {
+        final data = doc.data();
+
+        final lastMessage = (data['lastMessage'] ?? '').toString().trim();
+        if (lastMessage.isEmpty) continue;
+
+        final deletedFor = (data['deletedFor'] as List<dynamic>? ?? [])
+            .map((e) => e.toString())
+            .toList();
+
+        if (deletedFor.contains(uid)) continue;
+
+        final unreadBy = (data['unreadBy'] as List<dynamic>? ?? [])
+            .map((e) => e.toString())
+            .toList();
+
+        if (unreadBy.contains(uid)) {
+          unreadCount++;
+        }
+      }
+
+      return unreadCount;
+    });
+  }
+
   // ---------- Build ----------
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final notifications = ref.watch(notificationProvider);
+  Widget build(BuildContext context) {
+    return StreamBuilder<int>(
+      stream: _unreadMessagesStream(),
+      builder: (context, unreadSnap) {
+        final hasUnreadMessages = (unreadSnap.data ?? 0) > 0;
 
-    Widget buildRedDot() => Positioned(
-          right: -4,
-          top: -4,
-          child: Container(
-            width: 10,
-            height: 10,
-            decoration: const BoxDecoration(
-              color: Colors.red,
-              shape: BoxShape.circle,
+        return Container(
+          decoration: BoxDecoration(
+            color: _surface,
+            border: const Border(
+              top: BorderSide(color: _line),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 24,
+                offset: const Offset(0, -10),
+              ),
+            ],
+          ),
+          child: SafeArea(
+            top: false,
+            child: Theme(
+              data: Theme.of(context).copyWith(
+                splashColor: Colors.transparent,
+                highlightColor: Colors.transparent,
+              ),
+              child: BottomNavigationBar(
+                currentIndex: currentIndex,
+                onTap: (i) => _onItemTapped(context, i),
+                type: BottomNavigationBarType.fixed,
+                backgroundColor: _surface,
+                elevation: 0,
+                selectedItemColor: _gold,
+                unselectedItemColor: _textMuted,
+                selectedFontSize: 11.5,
+                unselectedFontSize: 11.5,
+                selectedLabelStyle: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.1,
+                ),
+                unselectedLabelStyle: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.1,
+                ),
+                items: [
+                  _item(
+                    index: 0,
+                    icon: Icons.storefront_rounded,
+                    label: 'Market',
+                  ),
+                  _item(
+                    index: 1,
+                    icon: Icons.chat_bubble_outline_rounded,
+                    label: 'Messages',
+                    showDot: hasUnreadMessages,
+                  ),
+                  _item(
+                    index: 2,
+                    icon: Icons.format_list_bulleted_rounded,
+                    label: 'Listings',
+                  ),
+                  _item(
+                    index: 3,
+                    icon: Icons.edit_note_rounded,
+                    label: 'Edit',
+                  ),
+                  _item(
+                    index: 4,
+                    icon: Icons.person_outline_rounded,
+                    label: 'Profile',
+                  ),
+                ],
+              ),
             ),
           ),
         );
+      },
+    );
+  }
+}
 
-    return BottomNavigationBar(
-      currentIndex: currentIndex,
-      selectedItemColor: Colors.blueAccent,
-      unselectedItemColor: Colors.grey,
-      onTap: (i) => _onItemTapped(context, i),
-      items: [
-        const BottomNavigationBarItem(
-          icon: Icon(Icons.store),
-          label: 'Marketplace',
+/* ───────────────── Premium nav icon ───────────────── */
+
+class _PremiumNavIcon extends StatelessWidget {
+  final IconData icon;
+  final bool selected;
+  final bool showDot;
+
+  const _PremiumNavIcon({
+    required this.icon,
+    required this.selected,
+    required this.showDot,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      width: 48,
+      height: 34,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: selected ? _gold.withValues(alpha: 0.14) : Colors.transparent,
+        border: Border.all(
+          color: selected ? _gold.withValues(alpha: 0.35) : Colors.transparent,
         ),
-        BottomNavigationBarItem(
-          icon: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              const Icon(Icons.message),
-              if (notifications.unreadMessages > 0) buildRedDot(),
-            ],
+      ),
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
+        children: [
+          Icon(
+            icon,
+            size: selected ? 23 : 22,
+            color: selected ? _gold : _textMuted,
           ),
-          label: 'Messages',
+          if (showDot)
+            Positioned(
+              right: 9,
+              top: 6,
+              child: Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                  color: _danger,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: _surface,
+                    width: 1.5,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/* ───────────────── Premium sheet buttons ───────────────── */
+
+class _SheetPrimaryButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  const _SheetPrimaryButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ElevatedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, color: Colors.black, size: 19),
+      label: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.black,
+          fontWeight: FontWeight.w900,
+          fontSize: 15,
         ),
-        const BottomNavigationBarItem(
-          icon: Icon(Icons.list),
-          label: 'Listings',
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: _gold,
+        foregroundColor: Colors.black,
+        elevation: 0,
+        minimumSize: const Size(0, 50),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
         ),
-        const BottomNavigationBarItem(
-          icon: Icon(Icons.edit),
-          label: 'Edit Listings',
+      ),
+    );
+  }
+}
+
+class _SheetSecondaryButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  const _SheetSecondaryButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, color: Colors.white, size: 19),
+      label: Text(
+        label,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w900,
+          fontSize: 15,
         ),
-        const BottomNavigationBarItem(
-          icon: Icon(Icons.person),
-          label: 'Profile',
+      ),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: Colors.white,
+        backgroundColor: Colors.white.withValues(alpha: 0.045),
+        side: const BorderSide(color: _line),
+        minimumSize: const Size(0, 50),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
         ),
-      ],
+      ),
+    );
+  }
+}
+
+class _SheetTextButton extends StatelessWidget {
+  final String label;
+  final bool muted;
+  final VoidCallback onPressed;
+
+  const _SheetTextButton({
+    required this.label,
+    required this.onPressed,
+    this.muted = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        foregroundColor: muted ? _textMuted : _gold,
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontWeight: FontWeight.w800,
+          color: muted ? _textMuted : _gold,
+        ),
+      ),
     );
   }
 }

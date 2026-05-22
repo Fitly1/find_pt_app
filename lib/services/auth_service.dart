@@ -1,4 +1,5 @@
-// lib/services/auth_service.dart   (Dart 3 compatible, no fetchSignInMethods* calls)
+// lib/services/auth_service.dart
+// Dart 3 compatible, google_sign_in v7 compatible
 
 import 'dart:convert';
 import 'dart:math';
@@ -16,71 +17,126 @@ class AuthService {
   AuthService._(); // static-only
 
   static final FirebaseAuth _auth = FirebaseAuth.instance;
-  static void _log(Object? m) {
-    if (kDebugMode) print(m);
+
+  // Web OAuth client ID from google-services.json:
+  // "client_type": 3
+  static const String _googleServerClientId =
+      '794098237480-fbfahj4onnkc2lef3vltes35afne58j6.apps.googleusercontent.com';
+
+  static bool _googleInitialized = false;
+
+  static void _log(Object? message) {
+    if (kDebugMode) print(message);
+  }
+
+  /* ───────── GOOGLE INIT ───────── */
+
+  static Future<void> _ensureGoogleInitialized() async {
+    if (_googleInitialized) return;
+
+    await gsi.GoogleSignIn.instance.initialize(
+      serverClientId: _googleServerClientId,
+    );
+
+    _googleInitialized = true;
+    _log('✅ GoogleSignIn initialized');
   }
 
   /* ───────── GOOGLE ───────── */
-  // Add this helper anywhere inside AuthService (e.g., just above googleOneTap)
+
   static Future<UserCredential?> _finishGoogleSignIn(
     gsi.GoogleSignInAccount? account, {
     String? role,
+    bool createUserDocument = true,
   }) async {
     if (account == null) {
       _log('🤖 Google | user cancelled');
       return null;
     }
 
-    // v7: synchronous authentication object
     final googleAuth = account.authentication;
 
-    final cred = GoogleAuthProvider.credential(
-      idToken: googleAuth.idToken, // accessToken not needed by Firebase
+    if (googleAuth.idToken == null || googleAuth.idToken!.isEmpty) {
+      throw FirebaseAuthException(
+        code: 'missing-google-id-token',
+        message: 'Google sign-in did not return an ID token.',
+      );
+    }
+
+    final credential = GoogleAuthProvider.credential(
+      idToken: googleAuth.idToken,
     );
 
-    final userCred = await _auth.signInWithCredential(cred);
+    final userCred = await _auth.signInWithCredential(credential);
+    final user = userCred.user;
 
-    // ensure /users/{uid} exists
-    final names = _splitName(userCred.user?.displayName);
-    await _ensureUserDocument(
-      user: userCred.user!,
-      firstName: names[0],
-      lastName: names[1],
-      role: role,
-    );
+    if (user == null) {
+      throw FirebaseAuthException(
+        code: 'google-user-null',
+        message: 'Google sign-in did not return a Firebase user.',
+      );
+    }
 
-    _log('✅ Google | uid=${userCred.user?.uid}');
+    if (createUserDocument) {
+      final names = _splitName(user.displayName);
+
+      await _ensureUserDocument(
+        user: user,
+        firstName: names[0],
+        lastName: names[1],
+        role: role,
+      );
+    } else {
+      _log('ℹ️ Google | sign-in only, users/{uid} not created');
+    }
+
+    _log('✅ Google | uid=${user.uid}');
     return userCred;
   }
 
-// Replace your existing googleOneTap with this:
-  static Future<UserCredential?> googleOneTap({String? role}) async {
+  static Future<UserCredential?> googleOneTap({
+    String? role,
+    bool createUserDocument = true,
+  }) async {
     try {
-      // Try lightweight first, then fallback to full auth
+      await _ensureGoogleInitialized();
+
       final account =
           await gsi.GoogleSignIn.instance.attemptLightweightAuthentication() ??
               await gsi.GoogleSignIn.instance.authenticate();
 
-      // Delegate to helper that accepts a *nullable* account
-      return _finishGoogleSignIn(account, role: role);
-    } catch (e, s) {
-      _log('❌ Google sign-in failed → $e\n$s');
+      return _finishGoogleSignIn(
+        account,
+        role: role,
+        createUserDocument: createUserDocument,
+      );
+    } catch (e, stack) {
+      _log('❌ Google sign-in failed → $e\n$stack');
       rethrow;
     }
   }
 
   /* ───────── APPLE ───────── */
-  static String _genNonce([int len = 32]) {
+
+  static String _genNonce([int length = 32]) {
     const chars =
         '0123456789ABCDEFGHIJKLMNPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-._';
-    final r = Random.secure();
-    return List.generate(len, (_) => chars[r.nextInt(chars.length)]).join();
+    final random = Random.secure();
+
+    return List.generate(
+      length,
+      (_) => chars[random.nextInt(chars.length)],
+    ).join();
   }
 
-  static String _sha256(String input) =>
-      sha256.convert(utf8.encode(input)).toString();
+  static String _sha256(String input) {
+    return sha256.convert(utf8.encode(input)).toString();
+  }
 
-  static Future<UserCredential?> appleOneTap({String? role}) async {
+  static Future<UserCredential?> appleOneTap({
+    String? role,
+    bool createUserDocument = true,
+  }) async {
     if (!Platform.isIOS && !Platform.isMacOS) {
       throw FirebaseAuthException(
         code: 'apple-signin-unsupported',
@@ -91,7 +147,6 @@ class AuthService {
     final rawNonce = _genNonce();
     final hashedNonce = _sha256(rawNonce);
 
-    // 1) Ask Apple
     final apple = await SignInWithApple.getAppleIDCredential(
       scopes: [
         AppleIDAuthorizationScopes.email,
@@ -100,6 +155,13 @@ class AuthService {
       nonce: hashedNonce,
     );
 
+    if (apple.identityToken == null || apple.identityToken!.isEmpty) {
+      throw FirebaseAuthException(
+        code: 'missing-apple-id-token',
+        message: 'Apple Sign-In did not return an identity token.',
+      );
+    }
+
     final oauthCred = OAuthProvider('apple.com').credential(
       idToken: apple.identityToken!,
       rawNonce: rawNonce,
@@ -107,66 +169,90 @@ class AuthService {
     );
 
     try {
-      // 2) Normal sign-in
       final userCred = await _auth.signInWithCredential(oauthCred);
+      final user = userCred.user;
 
-      // 3) Once-off profile updates
+      if (user == null) {
+        throw FirebaseAuthException(
+          code: 'apple-user-null',
+          message: 'Apple Sign-In did not return a Firebase user.',
+        );
+      }
+
       await _postAppleProfileUpdates(userCred, apple);
 
-      // 4) Ensure Firestore user-doc exists
-      await _ensureUserDocument(
-        user: userCred.user!,
-        firstName: apple.givenName,
-        lastName: apple.familyName,
-        role: role,
-      );
+      if (createUserDocument) {
+        await _ensureUserDocument(
+          user: user,
+          firstName: apple.givenName,
+          lastName: apple.familyName,
+          role: role,
+        );
+      } else {
+        _log('ℹ️ Apple | sign-in only, users/{uid} not created');
+      }
 
-      _log('✅ Apple | uid=${userCred.user?.uid}');
+      _log('✅ Apple | uid=${user.uid}');
       return userCred;
     } on FirebaseAuthException catch (e) {
-      // Duplicate-credential flow WITHOUT fetchSignInMethods*:
       if (e.code == 'account-exists-with-different-credential' ||
           e.code == 'credential-already-in-use') {
-        // If already signed-in → just link
         if (_auth.currentUser != null) {
           final linkedCred =
               await _auth.currentUser!.linkWithCredential(oauthCred);
-          await _postAppleProfileUpdates(linkedCred, apple);
-          await _ensureUserDocument(
-            user: linkedCred.user!,
-            firstName: apple.givenName,
-            lastName: apple.familyName,
-            role: role,
-          );
-          return linkedCred;
-        }
 
-        // Try Google sign-in automatically (common case), then link
-        try {
-          final googleCred = await googleOneTap(role: role);
-          if (googleCred != null && _auth.currentUser != null) {
-            final linkedCred =
-                await _auth.currentUser!.linkWithCredential(oauthCred);
-            await _postAppleProfileUpdates(linkedCred, apple);
+          await _postAppleProfileUpdates(linkedCred, apple);
+
+          if (createUserDocument) {
             await _ensureUserDocument(
               user: linkedCred.user!,
               firstName: apple.givenName,
               lastName: apple.familyName,
               role: role,
             );
+          } else {
+            _log('ℹ️ Apple link | users/{uid} not created');
+          }
+
+          return linkedCred;
+        }
+
+        try {
+          final googleCred = await googleOneTap(
+            role: role,
+            createUserDocument: createUserDocument,
+          );
+
+          if (googleCred != null && _auth.currentUser != null) {
+            final linkedCred =
+                await _auth.currentUser!.linkWithCredential(oauthCred);
+
+            await _postAppleProfileUpdates(linkedCred, apple);
+
+            if (createUserDocument) {
+              await _ensureUserDocument(
+                user: linkedCred.user!,
+                firstName: apple.givenName,
+                lastName: apple.familyName,
+                role: role,
+              );
+            } else {
+              _log('ℹ️ Apple link after Google | users/{uid} not created');
+            }
+
             return linkedCred;
           }
         } catch (_) {
-          // If Google attempt fails/cancelled, fall through to message below
+          // If Google attempt fails/cancelled, fall through to clear message.
         }
 
-        // Clear, user-facing guidance without relying on fetchSignInMethods*
         throw FirebaseAuthException(
           code: 'sign-in-required',
           message:
-              'This e-mail is already used by another sign-in method. Please sign in with your existing method (Google or e-mail & password) first, then link Apple from inside the app.',
+              'This e-mail is already used by another sign-in method. Please sign in with your existing method first, then link Apple from inside the app.',
         );
       }
+
       rethrow;
     } on SignInWithAppleAuthorizationException catch (e) {
       if (e.code == AuthorizationErrorCode.canceled) return null;
@@ -174,75 +260,129 @@ class AuthService {
     }
   }
 
-  /* update e-mail / displayName once */
+  /* ───────── APPLE PROFILE UPDATE ───────── */
+
   static Future<void> _postAppleProfileUpdates(
     UserCredential cred,
     AuthorizationCredentialAppleID apple,
   ) async {
-    final user = cred.user!;
+    final user = cred.user;
+    if (user == null) return;
+
     if (apple.email != null && (user.email?.isEmpty ?? true)) {
       await user.verifyBeforeUpdateEmail(apple.email!);
     }
+
     if (apple.givenName != null && apple.familyName != null) {
       await user.updateDisplayName('${apple.givenName} ${apple.familyName}');
     }
   }
 
-  /* ensure Firestore user-doc exists */
+  /* ───────── FIRESTORE USER DOC ───────── */
+
   static Future<void> _ensureUserDocument({
     required User user,
     String? firstName,
     String? lastName,
-    String? role, // optional
+    String? role,
   }) async {
-    final doc = FirebaseFirestore.instance.collection('users').doc(user.uid);
-    final snap = await doc.get();
+    final ref = FirebaseFirestore.instance.collection('users').doc(user.uid);
+    final snap = await ref.get();
 
-    final display =
+    final existing = snap.data() ?? <String, dynamic>{};
+
+    final authDisplayName = (user.displayName ?? '').trim();
+
+    final typedDisplay =
         '${firstName ?? ''}${lastName != null ? ' $lastName' : ''}'.trim();
 
-    final data = <String, dynamic>{
-      'createdAt': FieldValue.serverTimestamp(),
+    final display = typedDisplay.isNotEmpty ? typedDisplay : authDisplayName;
+
+    final patch = <String, dynamic>{
       'email': user.email ?? '',
-      'displayName': display,
-      'displayName_lowerCase': display.toLowerCase(),
-      'firstName': firstName ?? '',
-      'firstName_lowerCase': (firstName ?? '').toLowerCase(),
-      'lastName': lastName ?? '',
-      'lastName_lowerCase': (lastName ?? '').toLowerCase(),
       'emailVerified': user.emailVerified,
-      'hasAgreedToTnc': false,
+      'updatedAt': FieldValue.serverTimestamp(),
     };
 
-    if (role != null) {
-      data['role'] = role; // override on demand
-    } else if (!snap.exists) {
-      data['role'] = 'customer'; // default first-login role
+    if (!snap.exists) {
+      patch['createdAt'] = FieldValue.serverTimestamp();
+      patch['hasAgreedToTnc'] = false;
+      patch['hasAgreedToTnC'] = false;
     }
 
-    await doc.set(data, SetOptions(merge: true));
+    if (display.isNotEmpty) {
+      patch['displayName'] = display;
+      patch['displayName_lowerCase'] = display.toLowerCase();
+    } else if (!existing.containsKey('displayName')) {
+      patch['displayName'] = '';
+      patch['displayName_lowerCase'] = '';
+    }
+
+    if (firstName != null && firstName.trim().isNotEmpty) {
+      patch['firstName'] = firstName.trim();
+      patch['firstName_lowerCase'] = firstName.trim().toLowerCase();
+    } else if (!existing.containsKey('firstName')) {
+      patch['firstName'] = '';
+      patch['firstName_lowerCase'] = '';
+    }
+
+    if (lastName != null && lastName.trim().isNotEmpty) {
+      patch['lastName'] = lastName.trim();
+      patch['lastName_lowerCase'] = lastName.trim().toLowerCase();
+    } else if (!existing.containsKey('lastName')) {
+      patch['lastName'] = '';
+      patch['lastName_lowerCase'] = '';
+    }
+
+    if (role != null && role.trim().isNotEmpty) {
+      patch['role'] = role.trim().toLowerCase();
+    } else if (!snap.exists) {
+      patch['role'] = 'customer';
+    }
+
+    await ref.set(patch, SetOptions(merge: true));
   }
 
-  /* ───────── misc ───────── */
+  /* ───────── SIGN OUT ───────── */
+
   static Future<void> signOut() async {
     await _auth.signOut();
-    await gsi.GoogleSignIn.instance.signOut(); // v7 singleton
-    final p = await SharedPreferences.getInstance();
-    await p.remove('userRole');
+
+    try {
+      await _ensureGoogleInitialized();
+      await gsi.GoogleSignIn.instance.signOut();
+    } catch (e) {
+      _log('Google signOut skipped → $e');
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('userRole');
   }
 
   static User? get currentUser => _auth.currentUser;
 
-  static bool isSocialUser(User u) => u.providerData.any(
-        (p) => p.providerId == 'apple.com' || p.providerId == 'google.com',
-      );
+  static bool isSocialUser(User user) {
+    return user.providerData.any(
+      (provider) =>
+          provider.providerId == 'apple.com' ||
+          provider.providerId == 'google.com',
+    );
+  }
 
-  /* split name helper */
   static List<String?> _splitName(String? displayName) {
-    if (displayName == null || displayName.trim().isEmpty) return [null, null];
+    if (displayName == null || displayName.trim().isEmpty) {
+      return [null, null];
+    }
+
     final parts = displayName.trim().split(RegExp(r'\s+'));
-    return parts.length == 1
-        ? [parts.first, null]
-        : [parts.first, parts.sublist(1).join(' ')];
+
+    if (parts.length == 1) {
+      return [parts.first, null];
+    }
+
+    return [
+      parts.first,
+      parts.sublist(1).join(' '),
+    ];
   }
 }

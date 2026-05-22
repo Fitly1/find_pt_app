@@ -21,7 +21,7 @@ admin.initializeApp({
 });
 
 /* ✅ IMPORTANT: define CONCIERGE_UID BEFORE any function uses it */
-const CONCIERGE_UID = "JzPLt6B6PFhnXxjaZI4t4lFnoKQ2"; // ensure this exists only once
+const CONCIERGE_UID = process.env.CONCIERGE_UID || "GyxhTsnsMlPHIwre3izhV12QGXp2"; // current Fitly Concierge/admin UID
 
 /* ─── Helper: recompute and store average rating (NEW) ────────*/
 async function recomputeTrainerRating(uid) {
@@ -1007,10 +1007,9 @@ exports.updateTrainerAvgRating = onDocumentWritten(
 exports.pushOnNewNotification = onDocumentCreated(
   "users/{userId}/notifications/{notifId}",
   async (event) => {
-    const data = event.data.data(); // what the client wrote
+    const data = event.data.data();
     const userId = event.params.userId;
 
-    // 1) Fetch this user’s device tokens
     const tokensSnap = await admin
       .firestore()
       .collection("users")
@@ -1018,48 +1017,86 @@ exports.pushOnNewNotification = onDocumentCreated(
       .collection("tokens")
       .get();
 
-    if (tokensSnap.empty) {
-      console.log(`No device tokens for user ${userId}`);
+    const tokens = tokensSnap.empty
+      ? []
+      : tokensSnap.docs.map((d) => d.id).filter(Boolean);
+
+    if (!tokens.length) {
+      console.log(`pushOnNewNotification: no device tokens for user ${userId}`);
       return null;
     }
 
-    // 2) Build the FCM payload
-    const payload = {
+    const title = String(data.title || "Fitly");
+    const body = String(data.body || "");
+
+    const multicastMessage = {
+      tokens,
       notification: {
-        title: data.title ?? "Fitly",
-        body: data.body ?? "",
+        title,
+        body,
       },
       data: {
-        route: data.route ?? "", // used by _handleNavigationFromMessage
+        route: String(data.route || ""),
+        conversationId: String(data.conversationId || ""),
+      },
+      android: {
+        priority: "high",
+        notification: {
+          channelId: "default_channel",
+          sound: "default",
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: "default",
+          },
+        },
       },
     };
 
-    // 3) Send to every token (legacy API for broad compatibility)
-    const tokens = tokensSnap.docs.map((d) => d.id);
-    const resp = await admin.messaging().sendToDevice(tokens, payload);
+    try {
+      const resp = await admin
+        .messaging()
+        .sendEachForMulticast(multicastMessage);
 
-    // 4) Clean up any outdated / invalid tokens
-    const batch = admin.firestore().batch();
-    resp.results.forEach((r, idx) => {
-      const err = r.error;
-      if (
-        err &&
-        (err.code === "messaging/invalid-registration-token" ||
-          err.code === "messaging/registration-token-not-registered")
-      ) {
-        batch.delete(
-          admin
-            .firestore()
-            .collection("users")
-            .doc(userId)
-            .collection("tokens")
-            .doc(tokens[idx])
-        );
-      }
-    });
-    await batch.commit();
+      const batch = admin.firestore().batch();
 
-    console.log(`🕊️  Sent push to ${tokens.length} tokens for user ${userId}`);
+      resp.responses.forEach((r, idx) => {
+        if (!r.success) {
+          const code = r.error?.code;
+
+          console.error(
+            `pushOnNewNotification token failed for ${userId}:`,
+            code,
+            r.error?.message
+          );
+
+          if (
+            code === "messaging/invalid-registration-token" ||
+            code === "messaging/registration-token-not-registered"
+          ) {
+            batch.delete(
+              admin
+                .firestore()
+                .collection("users")
+                .doc(userId)
+                .collection("tokens")
+                .doc(tokens[idx])
+            );
+          }
+        }
+      });
+
+      await batch.commit();
+
+      console.log(
+        `🕊️ pushOnNewNotification: ${event.params.notifId} → ${resp.successCount}/${tokens.length} token(s)`
+      );
+    } catch (err) {
+      console.error("pushOnNewNotification sendEachForMulticast error:", err);
+    }
+
     return null;
   }
 );
@@ -1075,15 +1112,16 @@ exports.notifyOnNewMessage = onDocumentCreated(
     const cid = event.params.cid;
     const mid = event.params.mid;
     const msg = event.data.data();
+
     if (!msg) return null;
 
     const toUid = msg.recipientId;
     const fromUid = msg.senderId;
+
     if (!toUid || !fromUid || toUid === fromUid) return null;
 
     const senderDeviceToken = msg.senderDeviceToken || null;
 
-    // 1) fetch recipient tokens
     const tokensSnap = await admin
       .firestore()
       .collection("users")
@@ -1095,64 +1133,98 @@ exports.notifyOnNewMessage = onDocumentCreated(
       ? []
       : tokensSnap.docs.map((d) => d.id).filter(Boolean);
 
-    // Exclude the sender's current device token if present
+    // Exclude the sender's current device token if the sender and recipient
+    // are using the same physical test device.
     if (senderDeviceToken) {
       tokens = tokens.filter((t) => t !== senderDeviceToken);
     }
 
-    if (tokens.length) {
-      // 2) compose notification
+    if (!tokens.length) {
+      console.log(`notifyOnNewMessage: no tokens for ${toUid}`);
+    } else {
       const title =
-        msg.senderName && msg.senderName.trim().length
-          ? msg.senderName
+        msg.senderName && String(msg.senderName).trim().length
+          ? String(msg.senderName).trim()
           : "New message";
 
       const text = typeof msg.message === "string" ? msg.message : "";
       const body =
         text.length > 120 ? text.slice(0, 120) + "…" : text || "New message";
 
-      const payload = {
-        notification: { title, body },
+      const multicastMessage = {
+        tokens,
+        notification: {
+          title,
+          body,
+        },
         data: {
           route: "/messages",
-          conversationId: cid,
-          senderUid: fromUid,
-          recipientUid: toUid,
+          conversationId: String(cid),
+          senderUid: String(fromUid),
+          recipientUid: String(toUid),
+        },
+        android: {
+          priority: "high",
+          notification: {
+            channelId: "default_channel",
+            sound: "default",
+          },
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: "default",
+            },
+          },
         },
       };
 
-      // 3) send (legacy API for compatibility)
-      const resp = await admin.messaging().sendToDevice(tokens, payload);
+      try {
+        const resp = await admin
+          .messaging()
+          .sendEachForMulticast(multicastMessage);
 
-      // 4) clean invalid tokens
-      const batch = admin.firestore().batch();
-      resp.results.forEach((r, idx) => {
-        const err = r.error;
-        if (
-          err &&
-          (err.code === "messaging/invalid-registration-token" ||
-            err.code === "messaging/registration-token-not-registered")
-        ) {
-          batch.delete(
-            admin
-              .firestore()
-              .collection("users")
-              .doc(toUid)
-              .collection("tokens")
-              .doc(tokens[idx])
-          );
-        }
-      });
-      await batch.commit();
+        const batch = admin.firestore().batch();
 
-      console.log(
-        `✉️ notifyOnNewMessage: ${cid}/${mid} → ${tokens.length} token(s)`
-      );
-    } else {
-      console.log(`notifyOnNewMessage: no tokens for ${toUid}`);
+        resp.responses.forEach((r, idx) => {
+          if (!r.success) {
+            const code = r.error?.code;
+
+            console.error(
+              `notifyOnNewMessage token failed for ${toUid}:`,
+              code,
+              r.error?.message
+            );
+
+            if (
+              code === "messaging/invalid-registration-token" ||
+              code === "messaging/registration-token-not-registered"
+            ) {
+              batch.delete(
+                admin
+                  .firestore()
+                  .collection("users")
+                  .doc(toUid)
+                  .collection("tokens")
+                  .doc(tokens[idx])
+              );
+            }
+          }
+        });
+
+        await batch.commit();
+
+        console.log(
+          `✉️ notifyOnNewMessage: ${cid}/${mid} → ${resp.successCount}/${tokens.length} token(s)`
+        );
+      } catch (err) {
+        console.error("notifyOnNewMessage sendEachForMulticast error:", err);
+      }
     }
 
-    // 5) Mirror concierge-related messages for ops review
+    // Mirror concierge-related messages for the legacy ops console.
+    // Your current in-app Concierge Inbox does not rely on this, but keeping it
+    // prevents older admin tooling from silently breaking.
     if (fromUid === CONCIERGE_UID || toUid === CONCIERGE_UID) {
       try {
         const mirrorRef = admin
