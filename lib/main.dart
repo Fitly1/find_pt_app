@@ -2,11 +2,10 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_app_check/firebase_app_check.dart';
@@ -14,7 +13,6 @@ import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
-
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:app_links/app_links.dart';
@@ -44,6 +42,46 @@ import 'messages_page.dart';
 import 'manage_subscription.dart';
 
 final Logger logger = Logger(printer: PrettyPrinter());
+
+/* ───────── EDGE-TO-EDGE UI STYLE ───────── */
+const SystemUiOverlayStyle _edgeToEdgeOverlayStyle = SystemUiOverlayStyle(
+  statusBarIconBrightness: Brightness.light,
+  statusBarBrightness: Brightness.dark,
+  systemNavigationBarIconBrightness: Brightness.light,
+  systemStatusBarContrastEnforced: false,
+  systemNavigationBarContrastEnforced: false,
+);
+
+Future<void> _configureEdgeToEdgeSystemUi() async {
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(_edgeToEdgeOverlayStyle);
+}
+
+/* ───────── CRASHLYTICS SETUP ───────── */
+Future<void> _configureCrashlytics() async {
+  // Prevent debug/development testing from polluting Firebase Crashlytics.
+  await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(
+    kReleaseMode,
+  );
+
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+
+    if (kReleaseMode) {
+      FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+    }
+  };
+
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    if (kReleaseMode) {
+      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      return true;
+    }
+
+    debugPrint('Uncaught platform error: $error');
+    return false;
+  };
+}
 
 /* ───────── HELPERS ───────── */
 Future<bool> _runningOnIosSimulator() async {
@@ -283,6 +321,9 @@ Future<void> main() async {
   runZonedGuarded(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
+
+      await _configureEdgeToEdgeSystemUi();
+
       await dotenv.load(fileName: ".env");
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
@@ -303,9 +344,7 @@ Future<void> main() async {
 
       Stripe.publishableKey = dotenv.env['STRIPE_PUBLISHABLE_KEY'] ?? "";
 
-      await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
-      FlutterError.onError =
-          FirebaseCrashlytics.instance.recordFlutterFatalError;
+      await _configureCrashlytics();
 
       runApp(
         ProviderScope(
@@ -315,7 +354,13 @@ Future<void> main() async {
         ),
       );
     },
-    (e, s) => FirebaseCrashlytics.instance.recordError(e, s),
+    (e, s) {
+      if (kReleaseMode && Firebase.apps.isNotEmpty) {
+        FirebaseCrashlytics.instance.recordError(e, s, fatal: true);
+      } else {
+        debugPrint('Uncaught zone error: $e');
+      }
+    },
   );
 }
 
@@ -420,31 +465,35 @@ class _FindPTAppState extends State<FindPTApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      navigatorKey: navigatorKey,
-      title: 'Find PT App',
-      debugShowCheckedModeBanner: false,
-      // Wrap the home only, not the whole app
-      home: const UpdateGate(
-        child: LandingGate(),
-      ), // guests → marketplace, signed-in → RoleRedirect
-      routes: {
-        '/welcome': (context) => const WelcomePage(),
-        '/marketplace': (context) => const MarketplacePage(),
-        '/signup': (context) => const SignupPage(),
-        '/login': (context) => const LoginPage(),
-        '/forgot_password': (context) => const ForgotPasswordPage(),
-        '/trainer_profile_setup': (context) => const TrainerProfileSetupPage(),
-        '/role_redirect': (context) => const RoleRedirect(),
-        '/listings': (context) => const ListingsPage(),
-        '/trainer_home': (context) => const TrainerHomePage(),
-        '/messages': (context) => const MessagesPage(),
-        '/profile': (context) => const profile.ProfilePage(),
-        '/ManageSubscription': (context) {
-          final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-          return ManageSubscriptionPage(trainerUid: uid);
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: _edgeToEdgeOverlayStyle,
+      child: MaterialApp(
+        navigatorKey: navigatorKey,
+        title: 'Find PT App',
+        debugShowCheckedModeBanner: false,
+        // Wrap the home only, not the whole app
+        home: const UpdateGate(
+          child: LandingGate(),
+        ), // guests → marketplace, signed-in → RoleRedirect
+        routes: {
+          '/welcome': (context) => const WelcomePage(),
+          '/marketplace': (context) => const MarketplacePage(),
+          '/signup': (context) => const SignupPage(),
+          '/login': (context) => const LoginPage(),
+          '/forgot_password': (context) => const ForgotPasswordPage(),
+          '/trainer_profile_setup': (context) =>
+              const TrainerProfileSetupPage(),
+          '/role_redirect': (context) => const RoleRedirect(),
+          '/listings': (context) => const ListingsPage(),
+          '/trainer_home': (context) => const TrainerHomePage(),
+          '/messages': (context) => const MessagesPage(),
+          '/profile': (context) => const profile.ProfilePage(),
+          '/ManageSubscription': (context) {
+            final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+            return ManageSubscriptionPage(trainerUid: uid);
+          },
         },
-      },
+      ),
     );
   }
 }
