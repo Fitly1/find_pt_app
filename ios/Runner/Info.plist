@@ -23,7 +23,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.1.7</string>
+	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleURLTypes</key>
@@ -46,48 +46,34 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>26</string>
-
+	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>FirebaseAppDelegateProxyEnabled</key>
 	<false/>
-
 	<key>GIDClientID</key>
 	<string>794098237480-l5jlakvjv7955416bsp8p9udenbhpj3b.apps.googleusercontent.com</string>
-
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
-
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
-
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>This app uses Bluetooth for printing functionality.</string>
-
 	<key>NSCameraUsageDescription</key>
 	<string>Fitly requires access to the camera to capture images for profiles and documents.</string>
-
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Fitly uses your location to provide you with nearby trainer and gym recommendations.</string>
-
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Fitly uses your location to provide you with nearby trainer and gym recommendations.</string>
-
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Fitly may use your microphone for video or audio-based features.</string>
-
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Fitly requires access to your photo library so you can upload and select images.</string>
-
-	<!-- Some image plugins require this when saving to the library -->
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Fitly needs permission to save edited or generated images to your photo library.</string>
-
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Fitly requires access to your photo library so you can upload and select images.</string>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict>
@@ -95,33 +81,26 @@
 			<string>cstr6suwn9.skadnetwork</string>
 		</dict>
 	</array>
-
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
-
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>
 		<string>processing</string>
 		<string>remote-notification</string>
 	</array>
-
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
-
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
-
 	<key>UIStatusBarHidden</key>
 	<false/>
-
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
